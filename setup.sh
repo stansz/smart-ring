@@ -66,7 +66,7 @@ def setup_python_dependencies():
     run_command(f"{python_path} -m pip install git+https://github.com/tahnok/colmi_r02_client.git")
 
     # Additional packages for analytics
-    run_command(f"{python_path} -m pip install numpy scipy")
+    run_command(f"{python_path} -m pip install numpy")
 
     return python_path
 
@@ -172,12 +172,12 @@ def main():
 
         log.info("=== Setup complete ===")
         log.info("Next steps:")
-        log.info("1. Run 'colmi_r02_util scan' to find ring address")
+        log.info("1. Scan for ring: python3 collector/sync_ring.py scan")
         log.info("2. Set RING_ADDRESS in .env file")
         log.info("3. Start services: podman-compose -f docker-compose.yml up -d")
-        log.info("4. Configure firewall to allow PostgreSQL connections if remote")
-        log.info("5. Run analytics test: python3 collector/test_open_questions.py")
-        log.info("6. Monitor collector.log and analytics.log for errors")
+        log.info("4. Run first sync: python3 collector/sync_ring.py")
+        log.info("5. Test open questions: python3 collector/test_open_questions.py")
+        log.info("6. Monitor logs: collector/collector.log collector/analytics.log")
 
     except Exception as e:
         log.exception("Setup failed")

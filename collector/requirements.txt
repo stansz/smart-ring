@@ -1,6 +1,5 @@
-colmi-r02-client
 bleak
 psycopg2-binary
 python-dotenv
-numpy
-scipy
+# colmi-r02-client installed from git in setup.sh (not on PyPI)
+# pip install git+https://github.com/tahnok/colmi_r02_client.git

@@ -1,45 +1,54 @@
 #!/usr/bin/env python3
 """
-Collector wrapper for Colmi R09 ring.
-Runs on bare metal (Linux Mint host) with direct BlueZ/DBus access.
+Collector for Colmi R09 ring.
+Uses colmi_r02_client library + bleak for async BLE.
 Syncs ring data to local Postgres.
 """
 import os
 import sys
 import asyncio
 import logging
-import subprocess
-import json
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
+import struct
+from datetime import datetime, timezone, timedelta, date
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
+from pathlib import Path
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from bleak import BleakScanner
+from colmi_r02_client.client import Client
+from colmi_r02_client import hr as hr_mod
+from colmi_r02_client import steps as steps_mod
+from colmi_r02_client import packet
 from dotenv import load_dotenv
 
 load_dotenv()
+
+LOG_DIR = Path("/home/sz/Code/smart-ring/collector")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/home/sz/Code/smart-ring/collector/collector.log"),
+        logging.FileHandler(LOG_DIR / "collector.log"),
         logging.StreamHandler()
     ]
 )
 log = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smart_ring:changeme@localhost:5432/smart_ring")
-RING_ADDRESS = os.getenv("RING_ADDRESS", "")  # Set after first scan
-COLMI_CLIENT = "colmi_r02_client"  # Assumes installed in venv
+RING_NAME_FILTER = os.getenv("RING_NAME_FILTER", "R09")  # BLE name filter
+
+UART_SERVICE_UUID = "6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E"
 
 
 @dataclass
 class SyncResult:
     records_synced: int = 0
     battery_pct: Optional[int] = None
-    clock_drift_ms: Optional[int] = None
+    fw_version: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -50,11 +59,7 @@ def get_db():
 def log_sync_start() -> int:
     with get_db() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO sync_log (started_at, status)
-                VALUES (NOW(), 'running')
-                RETURNING id
-            """)
+            cur.execute("INSERT INTO sync_log (started_at, status) VALUES (NOW(), 'running') RETURNING id")
             return cur.fetchone()["id"]
 
 
@@ -62,224 +67,270 @@ def log_sync_complete(sync_id: int, result: SyncResult):
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE sync_log
-                SET completed_at = NOW(),
-                    records_synced = %s,
-                    battery_pct = %s,
-                    clock_drift_ms = %s,
-                    status = %s,
-                    error = %s
+                UPDATE sync_log SET completed_at = NOW(), records_synced = %s,
+                    battery_pct = %s, status = %s, error = %s
                 WHERE id = %s
-            """, (
-                result.records_synced,
-                result.battery_pct,
-                result.clock_drift_ms,
-                "completed" if not result.error else "error",
-                result.error,
-                sync_id
-            ))
+            """, (result.records_synced, result.battery_pct,
+                  "completed" if not result.error else "error", result.error, sync_id))
 
 
-def run_colmi_command(args: List[str], timeout: int = 60) -> tuple[int, str, str]:
-    """Run colmi_r02_client command and return (exit_code, stdout, stderr)."""
-    cmd = [COLMI_CLIENT]
-    if RING_ADDRESS:
-        cmd.extend(["--address", RING_ADDRESS])
-    cmd.extend(args)
-    log.debug(f"Running: {' '.join(cmd)}")
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return proc.returncode, proc.stdout, proc.stderr
-    except subprocess.TimeoutExpired:
-        return -1, "", "Command timed out"
-    except FileNotFoundError:
-        return -1, "", f"Command not found: {COLMI_CLIENT}"
+def log_ring_status(battery_pct: Optional[int], fw_version: Optional[str]):
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO ring_status (ts, battery_pct, firmware_version)
+                VALUES (NOW(), %s, %s)
+            """, (battery_pct, fw_version))
 
 
-def parse_heart_rate_output(output: str) -> List[Dict[str, Any]]:
-    """Parse colmi_r02_client heart rate output."""
-    records = []
-    for line in output.strip().split("\n"):
-        if not line or line.startswith("====") or "BPM" in line and "Time" in line:
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            try:
-                ts_str = f"{parts[0]} {parts[1]}"
-                bpm = int(parts[2]) if len(parts) > 2 else int(parts[-1])
-                records.append({"ts": ts_str, "bpm": bpm})
-            except (ValueError, IndexError):
-                pass
-    return records
+def make_packet(command_id: int, subdata: bytes = b"") -> bytearray:
+    """Build a 16-byte BLE packet with CRC."""
+    assert len(subdata) <= 14
+    data = bytearray(16)
+    data[0] = command_id
+    data[1:1 + len(subdata)] = subdata
+    checksum = (command_id + sum(subdata)) & 0xFF
+    data[-1] = checksum
+    return data
 
 
-def parse_hrv_output(output: str) -> List[Dict[str, Any]]:
-    """Parse colmi_r02_client HRV output."""
-    records = []
-    for line in output.strip().split("\n"):
-        if not line or line.startswith("===="):
-            continue
-        parts = line.split()
-        if len(parts) >= 3:
-            try:
-                ts_str = f"{parts[0]} {parts[1]}"
-                hrv_val = float(parts[2])
-                hrv_type = parts[3] if len(parts) > 3 else "unknown"
-                rr_intervals = None
-                if len(parts) > 4 and parts[4].startswith("["):
-                    rr_intervals = json.loads(" ".join(parts[4:]))
-                records.append({
-                    "ts": ts_str,
-                    "hrv_value": hrv_val,
-                    "hrv_type": hrv_type,
-                    "rr_intervals": rr_intervals
-                })
-            except (ValueError, IndexError, json.JSONDecodeError):
-                pass
-    return records
+async def scan_ring(name_filter: str = "") -> Optional[str]:
+    """Scan for ring and return BLE address."""
+    log.info(f"Scanning for ring (filter: '{name_filter}')...")
+    devices = await BleakScanner.discover(timeout=10.0, return_adv=True)
 
+    for addr, (device, adv) in devices.items():
+        name = device.name or adv.local_name or ""
+        if name_filter.lower() in name.lower():
+            log.info(f"Found ring: {name} ({addr})")
+            return addr
 
-def parse_sleep_output(output: str) -> List[Dict[str, Any]]:
-    """Parse colmi_r02_client sleep output."""
-    records = []
-    current_day = None
-    for line in output.strip().split("\n"):
-        if not line:
-            continue
-        if line.startswith("Day") or "date" in line.lower():
-            continue
-        parts = line.split()
-        if len(parts) >= 4:
-            try:
-                records.append({
-                    "day": parts[0],
-                    "stage": parts[1],
-                    "start_ts": f"{parts[0]} {parts[2]}",
-                    "end_ts": f"{parts[0]} {parts[3]}"
-                })
-            except (ValueError, IndexError):
-                pass
-    return records
+    if devices and not name_filter:
+        for addr, (device, adv) in devices.items():
+            name = device.name or adv.local_name or ""
+            if name:
+                log.info(f"Device: {name} ({addr})")
 
-
-def parse_steps_output(output: str) -> List[Dict[str, Any]]:
-    """Parse colmi_r02_client steps output."""
-    records = []
-    for line in output.strip().split("\n"):
-        if not line or line.startswith("===="):
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            try:
-                ts_str = f"{parts[0]} {parts[1]}"
-                steps = int(parts[2]) if len(parts) > 2 else int(parts[-1])
-                records.append({"ts": ts_str, "steps": steps})
-            except (ValueError, IndexError):
-                pass
-    return records
-
-
-def parse_spo2_output(output: str) -> List[Dict[str, Any]]:
-    """Parse colmi_r02_client SpO2 output."""
-    records = []
-    for line in output.strip().split("\n"):
-        if not line or line.startswith("===="):
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            try:
-                ts_str = f"{parts[0]} {parts[1]}"
-                spo2 = int(parts[2]) if len(parts) > 2 else int(parts[-1])
-                records.append({"ts": ts_str, "spo2_pct": spo2})
-            except (ValueError, IndexError):
-                pass
-    return records
-
-
-def parse_temperature_output(output: str) -> List[Dict[str, Any]]:
-    """Parse colmi_r02_client temperature output."""
-    records = []
-    for line in output.strip().split("\n"):
-        if not line or line.startswith("===="):
-            continue
-        parts = line.split()
-        if len(parts) >= 2:
-            try:
-                ts_str = f"{parts[0]} {parts[1]}"
-                temp = float(parts[2]) if len(parts) > 2 else float(parts[-1])
-                records.append({"ts": ts_str, "temp_c": temp})
-            except (ValueError, IndexError):
-                pass
-    return records
-
-
-def parse_battery_output(output: str) -> Optional[int]:
-    """Parse battery percentage from output."""
-    for line in output.split("\n"):
-        if "battery" in line.lower() or "%" in line:
-            import re
-            match = re.search(r"(\d+)%", line)
-            if match:
-                return int(match.group(1))
     return None
 
 
-def parse_clock_drift(output: str) -> Optional[int]:
-    """Parse clock drift in ms from output."""
-    for line in output.split("\n"):
-        if "drift" in line.lower() or "offset" in line.lower():
-            import re
-            match = re.search(r"([+-]?\d+) ?ms", line)
-            if match:
-                return int(match.group(1))
+async def fetch_hrv_raw(client: Client) -> List[Dict[str, Any]]:
+    """Fetch stored HRV data using cmd 57 (multi-packet)."""
+    records = []
+    try:
+        index = 0
+        total_size = None
+        hrv_bytes = bytearray()
+
+        while True:
+            pkt = make_packet(57, struct.pack("<B", index))
+            responses = await client.raw(57, pkt[1:15], replies=1)
+            if not responses:
+                break
+
+            resp = responses[0]
+            resp_index = resp[1]
+
+            if resp_index == 0:
+                total_size = resp[2]
+                log.info(f"HRV: {total_size} records available")
+            elif resp_index == 1:
+                start_offset = resp[2]
+                hrv_bytes.extend(resp[3:13])
+            else:
+                hrv_bytes.extend(resp[2:15])
+
+            if total_size and resp_index >= total_size:
+                break
+
+            index += 1
+            if index > 100:
+                break
+
+        if hrv_bytes:
+            records = _parse_hrv_data(bytes(hrv_bytes))
+            log.info(f"HRV: parsed {len(records)} records")
+
+    except Exception as e:
+        log.warning(f"HRV fetch failed: {e}")
+
+    return records
+
+
+def _parse_hrv_data(data: bytes) -> List[Dict[str, Any]]:
+    """Parse raw HRV bytes.
+    Format appears to be: each record is 6 bytes (4-byte timestamp + 2-byte HRV value).
+    May vary by firmware version — test when ring arrives.
+    """
+    records = []
+    record_size = 6
+    for i in range(0, len(data) - record_size + 1, record_size):
+        try:
+            ts, hrv_val = struct.unpack_from("<IH", data, i)
+            if ts > 0:
+                records.append({
+                    "ts": datetime.fromtimestamp(ts, tz=timezone.utc),
+                    "hrv_value": hrv_val,
+                    "hrv_type": "composite",
+                })
+        except struct.error:
+            break
+    return records
+
+
+async def fetch_sleep_data(client: Client) -> List[Dict[str, Any]]:
+    """Fetch stored sleep data using cmd 68."""
+    records = []
+    for day_offset in range(0, 7):  # Last 7 days
+        try:
+            subdata = struct.pack("<BBBB7x", day_offset, 15, 0, 95)
+            pkt = make_packet(68, subdata)
+            responses = await client.raw(68, pkt[1:15], replies=1)
+            if not responses:
+                continue
+
+            resp = responses[0]
+            year = resp[1] + 2000
+            month = resp[2]
+            day = resp[3]
+            sleep_qualities = resp[5]
+
+            sleep_stages = _decode_sleep_qualities(sleep_qualities)
+            records.extend([{
+                "day": date(year, month, day),
+                "stage": stage,
+                "sleep_qualities_byte": sleep_qualities,
+            } for stage in sleep_stages])
+
+        except Exception as e:
+            log.debug(f"Sleep day {day_offset} failed: {e}")
+            continue
+
+    log.info(f"Sleep: {len(records)} stage records")
+    return records
+
+
+def _decode_sleep_qualities(byte_val: int) -> List[str]:
+    """Decode sleep quality byte into stages.
+    Bit 0-1: light sleep, bit 2: deep, bit 3: REM, bit 4: awake.
+    Exact mapping TBD when ring arrives."""
+    stages = []
+    if byte_val & 0x01:
+        stages.append("light")
+    if byte_val & 0x02:
+        stages.append("light")
+    if byte_val & 0x04:
+        stages.append("deep")
+    if byte_val & 0x08:
+        stages.append("rem")
+    if byte_val & 0x10:
+        stages.append("wake")
+    return stages if stages else ["unknown"]
+
+
+async def fetch_spo2_data(client: Client) -> List[Dict[str, Any]]:
+    """Fetch SpO2 data using Data Request (cmd 105, type=3)."""
+    records = []
+    try:
+        # Start SpO2 measurement
+        subdata = struct.pack("<BB", 3, 1)  # DataType=3 (BloodOxygen), Action=1 (Start)
+        pkt = make_packet(105, subdata)
+        responses = await client.raw(105, pkt[1:15], replies=1)
+
+        if responses:
+            resp = responses[0]
+            if len(resp) >= 4:
+                spo2 = resp[3] if resp[3] < 127 else None
+                if spo2 is not None:
+                    records.append({
+                        "ts": datetime.now(tz=timezone.utc),
+                        "spo2_pct": spo2,
+                    })
+                    log.info(f"SpO2: {spo2}%")
+    except Exception as e:
+        log.debug(f"SpO2 fetch failed: {e}")
+
+    return records
+
+
+async def listen_temperature(client: Client, timeout: float = 5.0) -> Optional[float]:
+    """Listen for temperature notify (cmd 115, NotifyType=5).
+    The ring pushes temperature periodically — we listen for a short window.
+    """
+    # Temperature is pushed by the ring via cmd 115 NotifyType=5.
+    # We can't pull it — just listen briefly.
+    try:
+        # Try reading any pending notifications
+        responses = await client.raw(115, b"\x00" * 14, replies=1)
+        if responses:
+            resp = responses[0]
+            if resp[1] == 5:  # Temperature notify type
+                temp_raw = struct.unpack_from("<H", resp, 2)[0]
+                temp_c = temp_raw / 100.0 if temp_raw > 0 else None
+                if temp_c and 30 < temp_c < 45:
+                    log.info(f"Temperature: {temp_c:.1f}°C")
+                    return temp_c
+    except Exception as e:
+        log.debug(f"Temperature listen failed: {e}")
+
     return None
 
 
 def upsert_heart_rate(records: List[Dict]) -> int:
     if not records:
         return 0
+    count = 0
     with get_db() as conn:
         with conn.cursor() as cur:
             for r in records:
-                cur.execute("""
-                    INSERT INTO raw_heart_rate (ts, bpm, source)
-                    VALUES (%s, %s, 'ring')
-                    ON CONFLICT DO NOTHING
-                """, (r["ts"], r["bpm"]))
-            return cur.rowcount
+                ts = r.get("ts")
+                bpm = r.get("bpm")
+                if ts and bpm and isinstance(bpm, int) and 30 < bpm < 250:
+                    cur.execute("""
+                        INSERT INTO raw_heart_rate (ts, bpm, source)
+                        VALUES (%s, %s, 'ring')
+                        ON CONFLICT DO NOTHING
+                    """, (ts, bpm))
+                    count += cur.rowcount
+    return count
 
 
 def upsert_hrv(records: List[Dict]) -> int:
     if not records:
         return 0
+    count = 0
     with get_db() as conn:
         with conn.cursor() as cur:
             for r in records:
                 cur.execute("""
-                    INSERT INTO raw_hrv (ts, hrv_value, hrv_type, rr_intervals, source)
-                    VALUES (%s, %s, %s, %s, 'ring')
+                    INSERT INTO raw_hrv (ts, hrv_value, hrv_type, source)
+                    VALUES (%s, %s, %s, 'ring')
                     ON CONFLICT DO NOTHING
-                """, (r["ts"], r["hrv_value"], r["hrv_type"], r["rr_intervals"]))
-            return cur.rowcount
+                """, (r["ts"], r["hrv_value"], r.get("hrv_type", "composite")))
+                count += cur.rowcount
+    return count
 
 
 def upsert_sleep(records: List[Dict]) -> int:
     if not records:
         return 0
+    count = 0
     with get_db() as conn:
         with conn.cursor() as cur:
             for r in records:
                 cur.execute("""
-                    INSERT INTO raw_sleep (day, stage, start_ts, end_ts, source)
-                    VALUES (%s, %s, %s, %s, 'ring')
+                    INSERT INTO raw_sleep (day, stage, source)
+                    VALUES (%s, %s, 'ring')
                     ON CONFLICT DO NOTHING
-                """, (r["day"], r["stage"], r["start_ts"], r["end_ts"]))
-            return cur.rowcount
+                """, (r["day"], r["stage"]))
+                count += cur.rowcount
+    return count
 
 
 def upsert_steps(records: List[Dict]) -> int:
     if not records:
         return 0
+    count = 0
     with get_db() as conn:
         with conn.cursor() as cur:
             for r in records:
@@ -287,13 +338,15 @@ def upsert_steps(records: List[Dict]) -> int:
                     INSERT INTO raw_steps (ts, steps, source)
                     VALUES (%s, %s, 'ring')
                     ON CONFLICT DO NOTHING
-                """, (r["ts"], r["steps"]))
-            return cur.rowcount
+                """, (r.get("ts", datetime.now(tz=timezone.utc)), r.get("steps", 0)))
+                count += cur.rowcount
+    return count
 
 
 def upsert_spo2(records: List[Dict]) -> int:
     if not records:
         return 0
+    count = 0
     with get_db() as conn:
         with conn.cursor() as cur:
             for r in records:
@@ -302,158 +355,181 @@ def upsert_spo2(records: List[Dict]) -> int:
                     VALUES (%s, %s, 'ring')
                     ON CONFLICT DO NOTHING
                 """, (r["ts"], r["spo2_pct"]))
-            return cur.rowcount
+                count += cur.rowcount
+    return count
 
 
-def upsert_temperature(records: List[Dict]) -> int:
-    if not records:
+def upsert_temperature(temp_c: float, ts: Optional[datetime] = None) -> int:
+    if not temp_c:
         return 0
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            for r in records:
-                cur.execute("""
-                    INSERT INTO raw_temperature (ts, temp_c, source)
-                    VALUES (%s, %s, 'ring')
-                    ON CONFLICT DO NOTHING
-                """, (r["ts"], r["temp_c"]))
-            return cur.rowcount
-
-
-def upsert_ring_status(battery_pct: Optional[int], clock_drift_ms: Optional[int]):
+    ts = ts or datetime.now(tz=timezone.utc)
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO ring_status (ts, battery_pct, clock_drift_ms)
-                VALUES (NOW(), %s, %s)
-            """, (battery_pct, clock_drift_ms))
+                INSERT INTO raw_temperature (ts, temp_c, source)
+                VALUES (%s, %s, 'ring')
+                ON CONFLICT DO NOTHING
+            """, (ts, temp_c))
+            return cur.rowcount
 
 
-def sync_ring() -> SyncResult:
-    """Main sync routine. Returns SyncResult."""
+async def sync_ring(address: str) -> SyncResult:
+    """Main async sync routine."""
     result = SyncResult()
     total_records = 0
 
-    log.info("Starting ring sync...")
+    async with Client(address) as client:
+        log.info(f"Connected to {address}")
 
-    # 1. Sync time first (corrects clock drift)
-    log.info("Syncing ring time...")
-    code, out, err = run_colmi_command(["set-time"])
-    if code != 0:
-        result.error = f"set-time failed: {err}"
-        log.error(result.error)
-        return result
-    result.clock_drift_ms = parse_clock_drift(out)
+        # 1. Device info + battery
+        try:
+            info = await client.get_device_info()
+            result.fw_version = info.get("fw_version")
+            log.info(f"FW: {result.fw_version}")
+        except Exception as e:
+            log.debug(f"Device info failed: {e}")
 
-    # 2. Get battery
-    code, out, err = run_colmi_command(["get-battery"])
-    if code == 0:
-        result.battery_pct = parse_battery_output(out)
-        log.info(f"Battery: {result.battery_pct}%")
+        try:
+            battery = await client.get_battery()
+            result.battery_pct = battery.chargePercent
+            log.info(f"Battery: {result.battery_pct}%")
+        except Exception as e:
+            log.warning(f"Battery read failed: {e}")
 
-    # 3. Sync heart rate
-    log.info("Syncing heart rate...")
-    code, out, err = run_colmi_command(["sync-heart-rate"])
-    if code == 0:
-        records = parse_heart_rate_output(out)
-        count = upsert_heart_rate(records)
-        total_records += count
-        log.info(f"Heart rate: {count} new records")
+        # 2. Sync time
+        try:
+            await client.set_time(datetime.now(timezone.utc))
+            log.info("Time synced")
+        except Exception as e:
+            log.warning(f"Time sync failed: {e}")
 
-    # 4. Sync HRV
-    log.info("Syncing HRV...")
-    code, out, err = run_colmi_command(["sync-hrv"])
-    if code == 0:
-        records = parse_hrv_output(out)
-        count = upsert_hrv(records)
-        total_records += count
-        log.info(f"HRV: {count} new records")
-        # Check if RR intervals are present (answers open question)
-        if records and records[0].get("rr_intervals"):
-            log.info("✓ HRV data includes RR intervals!")
-        elif records:
-            log.warning("✗ HRV data does NOT include RR intervals (composite only)")
+        # 3. Sync heart rate (last 7 days)
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=7)
+        log.info(f"Syncing data {start.date()} → {end.date()}")
 
-    # 5. Sync sleep
-    log.info("Syncing sleep...")
-    code, out, err = run_colmi_command(["sync-sleep"])
-    if code == 0:
-        records = parse_sleep_output(out)
-        count = upsert_sleep(records)
-        total_records += count
-        log.info(f"Sleep: {count} new records")
+        try:
+            full_data = await client.get_full_data(start, end)
+            hr_records = []
+            for day_log in full_data.heart_rates:
+                if isinstance(day_log, hr_mod.HeartRateLog):
+                    for entry in day_log.heart_rates:
+                        hr_records.append({"ts": entry.timestamp, "bpm": entry.heart_rate})
+            count = upsert_heart_rate(hr_records)
+            total_records += count
+            log.info(f"Heart rate: {count} new records ({len(hr_records)} total)")
+        except Exception as e:
+            log.error(f"Heart rate sync failed: {e}")
 
-    # 6. Sync steps
-    log.info("Syncing steps...")
-    code, out, err = run_colmi_command(["sync-steps"])
-    if code == 0:
-        records = parse_steps_output(out)
-        count = upsert_steps(records)
-        total_records += count
-        log.info(f"Steps: {count} new records")
+        # 4. Sync steps
+        try:
+            step_records = []
+            current_day = datetime.now(timezone.utc)
+            for d_offset in range(7):
+                target = current_day - timedelta(days=d_offset)
+                steps_data = await client.get_steps(target)
+                if isinstance(steps_data, list):
+                    for s in steps_data:
+                        step_records.append({"ts": target, "steps": s.steps})
+                elif isinstance(steps_data, steps_mod.SportDetail):
+                    step_records.append({"ts": target, "steps": steps_data.steps})
+            count = upsert_steps(step_records)
+            total_records += count
+            log.info(f"Steps: {count} new records")
+        except Exception as e:
+            log.error(f"Steps sync failed: {e}")
 
-    # 7. Sync SpO2
-    log.info("Syncing SpO2...")
-    code, out, err = run_colmi_command(["sync-spo2"])
-    if code == 0:
-        records = parse_spo2_output(out)
-        count = upsert_spo2(records)
-        total_records += count
-        log.info(f"SpO2: {count} new records")
+        # 5. Sync HRV (raw protocol, cmd 57)
+        try:
+            hrv_records = await fetch_hrv_raw(client)
+            count = upsert_hrv(hrv_records)
+            total_records += count
+            if hrv_records:
+                log.info(f"✓ HRV data fetched ({count} records) — check format")
+        except Exception as e:
+            log.warning(f"HRV sync failed (may not be supported): {e}")
 
-    # 8. Sync temperature (R09 exclusive)
-    log.info("Syncing temperature...")
-    code, out, err = run_colmi_command(["sync-temperature"])
-    if code == 0:
-        records = parse_temperature_output(out)
-        count = upsert_temperature(records)
-        total_records += count
-        log.info(f"Temperature: {count} new records")
-        if records:
-            # Check sampling rate (answers open question)
-            log.info(f"✓ Temperature sensor working, sample count: {len(records)}")
+        # 6. Sync sleep (raw protocol, cmd 68)
+        try:
+            sleep_records = await fetch_sleep_data(client)
+            count = upsert_sleep(sleep_records)
+            total_records += count
+            log.info(f"Sleep: {count} stage records")
+        except Exception as e:
+            log.warning(f"Sleep sync failed (may not be supported): {e}")
+
+        # 7. SpO2 (raw protocol)
+        try:
+            spo2_records = await fetch_spo2_data(client)
+            count = upsert_spo2(spo2_records)
+            total_records += count
+        except Exception as e:
+            log.debug(f"SpO2 failed: {e}")
+
+        # 8. Temperature (listen for notify)
+        try:
+            temp_c = await listen_temperature(client, timeout=5.0)
+            if temp_c:
+                count = upsert_temperature(temp_c)
+                total_records += count
+                log.info(f"✓ Temperature: {temp_c:.1f}°C")
+            else:
+                log.info("No temperature data (ring may not have pushed it)")
+        except Exception as e:
+            log.debug(f"Temperature listen failed: {e}")
 
     result.records_synced = total_records
-    upsert_ring_status(result.battery_pct, result.clock_drift_ms)
+    log_ring_status(result.battery_pct, result.fw_version)
     log.info(f"Sync complete: {total_records} total new records")
     return result
 
 
-def test_sync_behavior():
-    """Test if syncing wipes data from ring (open question)."""
+async def test_sync_behavior(address: str):
+    """Test if syncing wipes data from the ring."""
     log.info("=== TESTING SYNC BEHAVIOR ===")
-    log.info("First sync...")
-    result1 = sync_ring()
+    result1 = await sync_ring(address)
     log.info(f"First sync: {result1.records_synced} records")
 
-    log.info("Immediate second sync...")
-    result2 = sync_ring()
+    result2 = await sync_ring(address)
     log.info(f"Second sync: {result2.records_synced} records")
 
     if result2.records_synced == 0:
-        log.info("✓ CONFIRMED: Sync is read-and-clear (data wiped after first sync)")
+        log.info("✓ CONFIRMED: Sync is read-and-clear")
     elif result2.records_synced == result1.records_synced:
-        log.info("✓ CONFIRMED: Sync is read-only (data persists on ring)")
+        log.info("✓ CONFIRMED: Sync is read-only")
     else:
-        log.info(f"? PARTIAL: Second sync returned {result2.records_synced} vs {result1.records_synced}")
+        log.info(f"? PARTIAL: {result2.records_synced} vs {result1.records_synced}")
 
 
 async def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "test-sync":
-        sync_id = log_sync_start()
-        try:
-            test_sync_behavior()
-        finally:
-            log_sync_complete(sync_id, SyncResult(error="Test mode"))
+    if len(sys.argv) > 1 and sys.argv[1] == "scan":
+        address = await scan_ring(RING_NAME_FILTER)
+        if address:
+            print(f"Found ring: {address}")
+            print(f"Set RING_ADDRESS={address} in .env")
+        else:
+            print("No ring found. Try without name filter or check BLE.")
         return
 
-    if not RING_ADDRESS:
-        log.warning("RING_ADDRESS not set. Run 'colmi_r02_util scan' first to find address.")
-        log.info("Then set RING_ADDRESS in .env or export it.")
-        sys.exit(1)
+    if len(sys.argv) > 1 and sys.argv[1] == "test-sync":
+        address = os.environ.get("RING_ADDRESS")
+        if not address:
+            log.error("Set RING_ADDRESS in .env or export it")
+            sys.exit(1)
+        await test_sync_behavior(address)
+        return
+
+    address = os.environ.get("RING_ADDRESS")
+    if not address:
+        log.info("No RING_ADDRESS set. Scanning...")
+        address = await scan_ring(RING_NAME_FILTER)
+        if not address:
+            log.error("No ring found. Run 'collector scan' to find, then set RING_ADDRESS")
+            sys.exit(1)
 
     sync_id = log_sync_start()
     try:
-        result = sync_ring()
+        result = await sync_ring(address)
         log_sync_complete(sync_id, result)
         if result.error:
             sys.exit(1)

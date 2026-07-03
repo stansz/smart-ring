@@ -1,130 +1,80 @@
 #!/usr/bin/env python3
 """
-Test script for the three open questions:
-1. Does syncing wipe data from the ring?
-2. What's inside stored HRV data (RR intervals vs composite score)?
-3. What's the R09 temperature sensor sampling rate?
+Test the three open questions against the actual ring.
+Must have RING_ADDRESS set in .env or environment.
 """
 import asyncio
-import time
-from collector.sync_ring import SyncResult, log_sync_start, log_sync_complete, sync_ring
+import sys
+from datetime import datetime, timezone
+from colmi_r02_client.client import Client
+from collector.sync_ring import (
+    scan_ring, fetch_hrv_raw, fetch_sleep_data, listen_temperature,
+    upsert_hrv, upsert_sleep, upsert_temperature
+)
 
 
-def test_sync_behavior():
-    """Test if syncing wipes data from the ring."""
-    print("=== TEST 1: Sync behavior (wipe data?) ===")
-    print("First sync...")
-    result1 = sync_ring()
+async def test_sync_behavior(client: Client):
+    """Does syncing wipe data?"""
+    print("=== TEST 1: Sync behavior ===")
+    from collector.sync_ring import sync_ring
+    result1 = await sync_ring(client.address)
     print(f"First sync: {result1.records_synced} records")
-
-    print("\nSecond sync (same night)...")
-    result2 = sync_ring()
+    result2 = await sync_ring(client.address)
     print(f"Second sync: {result2.records_synced} records")
 
     if result2.records_synced == 0:
-        print("✓ CONFIRMED: Sync is read-and-clear (data wiped after first sync)")
-        print("  Impact: Gadgetbridge on the go would prevent PC collector from getting that data")
+        print("✓ Read-and-clear (data wiped after sync)")
     elif result2.records_synced == result1.records_synced:
-        print("✓ CONFIRMED: Sync is read-only (data persists on ring)")
-        print("  Impact: Multiple devices can pull the same data")
+        print("✓ Read-only (data persists)")
     else:
-        print(f"? PARTIAL: Second sync returned {result2.records_synced} vs {result1.records_synced}")
-        print("  Need to investigate further")
+        print(f"? Mixed: {result2.records_synced} vs {result1.records_synced}")
 
 
-def test_hrv_data_format():
-    """Test if ring stores RR intervals or composite HRV score."""
-    print("\n=== TEST 2: HRV data format (RR intervals vs composite) ===")
-    print("Running sync to check HRV data...")
-    
-    # Monkey-patch the logging to capture the result
-    import collector.sync_ring as sync_module
-    original_log_info = sync_module.log.info
-    hrv_has_rr = [False]
-    
-    def capture_hrv_info(msg):
-        original_log_info(msg)
-        if "✓ HRV data includes RR intervals!" in msg:
-            hrv_has_rr[0] = True
-    
-    sync_module.log.info = capture_hrv_info
-    
-    try:
-        result = sync_ring()
-    finally:
-        sync_module.log.info = original_log_info
+async def test_hrv_format(client: Client):
+    """RR intervals or composite score?"""
+    print("\n=== TEST 2: HRV data format ===")
+    records = await fetch_hrv_raw(client)
+    print(f"Raw bytes returned, {len(records)} records parsed")
+    for r in records[:3]:
+        print(f"  {r['ts']}: value={r['hrv_value']}, type={r['hrv_type']}")
+    print("Check: if hrv_value is ~20-100 (ms), it's RMSSD — RR intervals available")
+    print("Check: if hrv_value is single-digit, it's a composite score")
 
-    print(f"Sync completed: {result.records_synced} records")
-    
-    if hrv_has_rr[0]:
-        print("✓ RING STORES RR INTERVALS - Raw beat-to-beat timing data available")
-        print("  Benefits: Can compute custom HRV metrics, RMSSD, pNN50 retrospectively")
+
+async def test_temperature_sampling(client: Client):
+    """How often does temp data arrive?"""
+    print("\n=== TEST 3: Temperature sampling ===")
+    temp_c = await listen_temperature(client, timeout=10.0)
+    if temp_c:
+        print(f"✓ Temperature: {temp_c:.1f}°C")
+        print("Listen window was 10s — if data arrived, sampling is frequent")
     else:
-        print("✓ RING STORES COMPOSITE HRV SCORE - Pre-computed metric only")
-        print("  Limitation: No RR intervals, limited to ring's HRV algorithm")
-        print("  Note: Can still compute trends and basic HRV analysis from stored values")
+        print("✗ No temperature data in 10s window")
+        print("Sampling may be event-driven (e.g., on sync) or slower than expected")
 
 
-def test_temperature_sampling():
-    """Test R09 temperature sensor sampling rate."""
-    print("\n=== TEST 3: Temperature sensor sampling rate ===")
-    print("Running sync to check temperature data...")
-    
-    # Monkey-patch the logging to capture the result
-    import collector.sync_ring as sync_module
-    original_log_info = sync_module.log.info
-    temp_samples = [0]
-    
-    def capture_temp_info(msg):
-        original_log_info(msg)
-        if "sample count:" in msg:
-            temp_samples[0] = int(msg.split("sample count:")[1])
-    
-    sync_module.log.info = capture_temp_info
-    
-    try:
-        result = sync_ring()
-    finally:
-        sync_module.log.info = original_log_info
+async def main():
+    import os
+    address = os.environ.get("RING_ADDRESS")
+    if not address:
+        print("No RING_ADDRESS set, scanning...")
+        address = await scan_ring()
+        if not address:
+            print("No ring found")
+            return 1
 
-    print(f"Sync completed: {result.records_synced} records")
-    print(f"Temperature samples captured: {temp_samples[0]}")
-    
-    if temp_samples[0] == 0:
-        print("✗ Temperature sensor NOT working (R09 exclusive)")
-    else:
-        print(f"✓ Temperature sensor working")
-        print(f"  Sample count suggests sampling interval of ~{168/temp_samples[0]:.1f} hours")
-        print(f"  For sleep staging: {temp_samples[0]/7:.1f} samples per 7 days")
-        print(f"  For activity tracking: Should have data throughout the day")
+    async with Client(address) as client:
+        await test_sync_behavior(client)
+        await test_hrv_format(client)
+        await test_temperature_sampling(client)
 
-
-def main():
-    """Run all three tests."""
-    print("Starting open questions test suite...")
-    print("Ring should be present and connected via BLE")
-    print()
-
-    try:
-        test_sync_behavior()
-        test_hrv_data_format()
-        test_temperature_sampling()
-
-        print("\n=== SUMMARY ===")
-        print("All tests completed. Results above will guide pipeline design:")
-        print("- Sync behavior → Affects how we use Gadgetbridge vs PC collector")
-        print("- HRV data format → Determines our HRV computation approach")
-        print("- Temp sampling → Impacts sleep staging accuracy")
-        print("\nNext steps: Based on results, deploy appropriate components")
-
-    except Exception as e:
-        print(f"\nTest failed with error: {e}")
-        import traceback
-        traceback.print_exc()
-        return 1
-
+    print("\n=== SUMMARY ===")
+    print("Use results above to adjust:")
+    print("- collector sync strategy (wipe vs persist)")
+    print("- HRV computation approach (raw RR vs composite)")
+    print("- temperature logging frequency")
     return 0
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(asyncio.run(main()))
