@@ -1,0 +1,6 @@
+colmi-r02-client
+bleak
+psycopg2-binary
+python-dotenv
+numpy
+scipy

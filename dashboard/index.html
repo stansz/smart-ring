@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Ring Dashboard</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/htmx.org@2.0.2/dist/htmx.min.js"></script>
+    <style>
+        .chart-container { position: relative; height: 300px; }
+        @media (max-width: 768px) { .chart-container { height: 250px; } }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); }
+        .loading { opacity: 0.6; pointer-events: none; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="dashboard()" x-init="loadAll()">
+    <nav class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-xl font-semibold text-gray-900">Smart Ring</h1>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-500" x-text="lastSync"></span>
+                    <button @click="loadAll()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" :class="{ loading: loading }">
+                        Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">Recovery Score</p>
+                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="recoveryScore || '—'"></p>
+                <p class="text-xs text-gray-400 mt-1" x-text="recoveryLabel || ''"></p>
+            </div>
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">Sleep Score</p>
+                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="sleepScore || '—'"></p>
+                <p class="text-xs text-gray-400 mt-1" x-text="sleepLabel || ''"></p>
+            </div>
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">RMSSD (7d avg)</p>
+                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="hrv7d || '—'"></p>
+                <p class="text-xs text-gray-400 mt-1">ms</p>
+            </div>
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">Resting HR</p>
+                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="restingHr || '—'"></p>
+                <p class="text-xs text-gray-400 mt-1">bpm</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Recovery Trend</h2>
+                <div class="chart-container"><canvas id="recoveryChart"></canvas></div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Sleep Quality</h2>
+                <div class="chart-container"><canvas id="sleepChart"></canvas></div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">HRV Trends (7d / 28d)</h2>
+                <div class="chart-container"><canvas id="hrvChart"></canvas></div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Circadian HR Pattern</h2>
+                <div class="chart-container"><canvas id="circadianChart"></canvas></div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent Syncs</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 border-b border-gray-200">
+                            <th class="pb-2 pr-4">Time</th>
+                            <th class="pb-2 pr-4">Records</th>
+                            <th class="pb-2 pr-4">Battery</th>
+                            <th class="pb-2 pr-4">Clock Drift</th>
+                            <th class="pb-2 pr-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="syncTable" class="text-gray-700"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        function dashboard() {
+            return {
+                loading: false,
+                lastSync: '—',
+                recoveryScore: null,
+                recoveryLabel: '',
+                sleepScore: null,
+                sleepLabel: '',
+                hrv7d: null,
+                restingHr: null,
+                recoveryChart: null,
+                sleepChart: null,
+                hrvChart: null,
+                circadianChart: null,
+
+                async loadAll() {
+                    this.loading = true;
+                    await Promise.all([
+                        this.loadRecovery(),
+                        this.loadSleep(),
+                        this.loadHRV(),
+                        this.loadCircadian(),
+                        this.loadSyncLog()
+                    ]);
+                    this.loading = false;
+                },
+
+                async loadRecovery() {
+                    const res = await fetch('/api/recovery?days=30');
+                    const data = await res.json();
+                    if (data.length > 0) {
+                        const latest = data[0];
+                        this.recoveryScore = latest.z_score ? Math.round(50 + latest.z_score * 10) : null;
+                        this.recoveryLabel = latest.readiness_text || '';
+                        this.renderRecoveryChart(data.reverse());
+                    }
+                },
+
+                async loadSleep() {
+                    const res = await fetch('/api/sleep?days=30');
+                    const data = await res.json();
+                    if (data.length > 0) {
+                        this.sleepScore = Math.round(data[0].score || 0);
+                        this.sleepLabel = `${data[0].total_sleep_minutes || 0} min total`;
+                        this.renderSleepChart(data.reverse());
+                    }
+                },
+
+                async loadHRV() {
+                    const res = await fetch('/api/hrv-trends?days=60');
+                    const data = await res.json();
+                    if (data.length > 0) {
+                        this.hrv7d = data[0].rmssd_7d ? Math.round(data[0].rmssd_7d) : null;
+                        this.renderHRVChart(data.reverse());
+                    }
+                    // Resting HR from raw data
+                    const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
+                    const hrData = await hrRes.json();
+                    const nightHR = hrData.filter(d => {
+                        const h = new Date(d.ts).getHours();
+                        return h >= 1 && h <= 5;
+                    });
+                    if (nightHR.length > 0) {
+                        this.restingHr = Math.round(nightHR.reduce((a, b) => a + b.bpm, 0) / nightHR.length);
+                    }
+                },
+
+                async loadCircadian() {
+                    const res = await fetch('/api/circadian-hr');
+                    const data = await res.json();
+                    this.renderCircadianChart(data);
+                },
+
+                async loadSyncLog() {
+                    const res = await fetch('/api/sync-log?limit=20');
+                    const data = await res.json();
+                    if (data.length > 0) {
+                        this.lastSync = new Date(data[0].started_at).toLocaleString();
+                        this.renderSyncTable(data);
+                    }
+                },
+
+                renderRecoveryChart(data) {
+                    const ctx = document.getElementById('recoveryChart').getContext('2d');
+                    if (this.recoveryChart) this.recoveryChart.destroy();
+                    this.recoveryChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.map(d => new Date(d.day).toLocaleDateString()),
+                            datasets: [{
+                                label: 'Recovery Z-Score',
+                                data: data.map(d => d.z_score || 0),
+                                borderColor: 'rgb(59, 130, 246)',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                fill: true,
+                                tension: 0.3,
+                                pointRadius: 3
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                                y: { title: { display: true, text: 'Z-Score' } }
+                            }
+                        }
+                    });
+                },
+
+                renderSleepChart(data) {
+                    const ctx = document.getElementById('sleepChart').getContext('2d');
+                    if (this.sleepChart) this.sleepChart.destroy();
+                    this.sleepChart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: data.map(d => new Date(d.day).toLocaleDateString()),
+                            datasets: [
+                                { label: 'Deep', data: data.map(d => d.deep_pct || 0), backgroundColor: 'rgb(30, 64, 175)' },
+                                { label: 'REM', data: data.map(d => d.rem_pct || 0), backgroundColor: 'rgb(124, 58, 237)' },
+                                { label: 'Light', data: data.map(d => d.light_pct || 0), backgroundColor: 'rgb(14, 165, 233)' },
+                                { label: 'Wake', data: data.map(d => d.wake_pct || 0), backgroundColor: 'rgb(107, 114, 128)' }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: {
+                                x: { stacked: true },
+                                y: { stacked: true, title: { display: true, text: '%' }, max: 100 }
+                            }
+                        }
+                    });
+                },
+
+                renderHRVChart(data) {
+                    const ctx = document.getElementById('hrvChart').getContext('2d');
+                    if (this.hrvChart) this.hrvChart.destroy();
+                    this.hrvChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.map(d => new Date(d.day).toLocaleDateString()),
+                            datasets: [
+                                { label: 'RMSSD 7d', data: data.map(d => d.rmssd_7d || null), borderColor: 'rgb(16, 185, 129)', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: false, tension: 0.3 },
+                                { label: 'RMSSD 28d', data: data.map(d => d.rmssd_28d || null), borderColor: 'rgb(59, 130, 246)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.3, borderDash: [5, 5] }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { position: 'bottom' } },
+                            scales: { y: { title: { display: true, text: 'ms' } } }
+                        }
+                    });
+                },
+
+                renderCircadianChart(data) {
+                    const ctx = document.getElementById('circadianChart').getContext('2d');
+                    if (this.circadianChart) this.circadianChart.destroy();
+                    this.circadianChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: data.map(d => `${d.hour}:00`),
+                            datasets: [{
+                                label: 'Avg HR',
+                                data: data.map(d => d.avg_hr || null),
+                                borderColor: 'rgb(239, 68, 68)',
+                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                                fill: true,
+                                tension: 0.3
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: { y: { title: { display: true, text: 'BPM' } } }
+                        }
+                    });
+                },
+
+                renderSyncTable(data) {
+                    const tbody = document.getElementById('syncTable');
+                    tbody.innerHTML = data.map(d => `
+                        <tr class="border-b border-gray-100">
+                            <td class="py-2 pr-4">${new Date(d.started_at).toLocaleString()}</td>
+                            <td class="py-2 pr-4">${d.records_synced || 0}</td>
+                            <td class="py-2 pr-4">${d.battery_pct ? d.battery_pct + '%' : '—'}</td>
+                            <td class="py-2 pr-4">${d.clock_drift_ms ? d.clock_drift_ms + 'ms' : '—'}</td>
+                            <td class="py-2 pr-4">
+                                <span class="px-2 py-0.5 text-xs rounded ${d.status === 'completed' ? 'bg-green-100 text-green-800' : d.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}">
+                                    ${d.status}
+                                </span>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            }
+        }
+    </script>
+</body>
+</html>

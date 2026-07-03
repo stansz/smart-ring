@@ -1,0 +1,187 @@
+#!/usr/bin/env python3
+"""
+Setup script for Smart Ring pipeline.
+Installs dependencies, configures environment, and sets up cron jobs.
+"""
+import os
+import subprocess
+import sys
+import logging
+from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler("/home/sz/Code/smart-ring/setup.log"),
+        logging.StreamHandler()
+    ]
+)
+log = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path("/home/sz/Code/smart-ring")
+COLMI_CLIENT_DIR = PROJECT_ROOT / "colmi_client"
+
+def run_command(cmd, check=True, capture=True):
+    """Run shell command."""
+    log.info(f"Running: {cmd}")
+    try:
+        if capture:
+            result = subprocess.run(cmd, shell=True, check=check, capture_output=True, text=True)
+            return result.returncode, result.stdout, result.stderr
+        else:
+            subprocess.run(cmd, shell=True, check=check, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return 0, "", ""
+    except subprocess.CalledProcessError as e:
+        log.error(f"Command failed: {cmd}")
+        log.error(f"Exit code: {e.returncode}")
+        if e.stdout:
+            log.error(f"Stdout: {e.stdout}")
+        if e.stderr:
+            log.error(f"Stderr: {e.stderr}")
+        raise
+
+def setup_python_dependencies():
+    """Set up Python virtual environment and install dependencies."""
+    log.info("Setting up Python dependencies...")
+
+    venv_path = PROJECT_ROOT / "venv"
+
+    if not venv_path.exists():
+        log.info("Creating Python virtual environment...")
+        run_command(f"python3 -m venv {venv_path}")
+
+    python_path = venv_path / "bin" / "python3"
+
+    log.info("Installing Python packages...")
+    run_command(f"{python_path} -m pip install --upgrade pip")
+
+    # Requirements for collector
+    collector_req = PROJECT_ROOT / "collector" / "requirements.txt"
+    if collector_req.exists():
+        run_command(f"{python_path} -m pip install -r {collector_req}")
+
+    # colmi-r02-client
+    log.info("Installing colmi-r02-client...")
+    run_command(f"{python_path} -m pip install git+https://github.com/tahnok/colmi_r02_client.git")
+
+    # Additional packages for analytics
+    run_command(f"{python_path} -m pip install numpy scipy")
+
+    return python_path
+
+def setup_postgres():
+    """Initialize Postgres database."""
+    log.info("Setting up Postgres database...")
+
+    # Install PostgreSQL client if needed
+    run_command("apt-get update && apt-get install -y postgresql-client 2>/dev/null || true")
+
+    env_file = PROJECT_ROOT / ".env"
+
+    if not env_file.exists():
+        log.info("Creating .env file...")
+        with open(env_file, "w") as f:
+            f.write("DATABASE_URL=postgresql://smart_ring:changeme@localhost:5432/smart_ring\n")
+            f.write("RING_ADDRESS=\n")
+
+    # Wait for PostgreSQL
+    log.info("Waiting for PostgreSQL to be ready...")
+    run_command("sleep 5", capture=False)
+
+    # Run initialization script
+    init_file = PROJECT_ROOT / "db" / "init.sql"
+    if init_file.exists():
+        run_command(f"psql -U smart_ring -d smart_ring -f {init_file}")
+
+def setup_collector_cron(python_path: str):
+    """Set up cron job for ring collector."""
+    log.info("Setting up collector cron job...")
+
+    # Create collector script wrapper
+    script_path = PROJECT_ROOT / "collector" / "collector-wrapper.py"
+
+    with open(script_path, "w") as f:
+        f.write(f"""#!/usr/bin/env python3
+import sys
+sys.path.insert(0, "{PROJECT_ROOT}")
+from collector.sync_ring import main
+main()
+""")
+
+    os.chmod(script_path, 0o755)
+
+    # Add to crontab: every 2 hours at minute 0
+    cron_cmd = f"{python_path} {script_path}"
+    run_command(f"(crontab -l 2>/dev/null; echo '0 */2 * * * {cron_cmd}') | crontab -")
+
+    log.info("Collector cron setup: every 2 hours at minute 0")
+
+def setup_analytics_cron(python_path: str):
+    """Set up cron job for analytics."""
+    log.info("Setting up analytics cron job...")
+
+    # Create analytics script wrapper
+    script_path = PROJECT_ROOT / "collector" / "analytics-wrapper.py"
+
+    with open(script_path, "w") as f:
+        f.write(f"""#!/usr/bin/env python3
+import sys
+sys.path.insert(0, "{PROJECT_ROOT}")
+from collector.analytics import main
+main()
+""")
+
+    os.chmod(script_path, 0o755)
+
+    # Add to crontab (run 2 minutes after collector)
+    cron_cmd = f"{python_path} {script_path}"
+    run_command(f"(crontab -l 2>/dev/null; echo '2 */2 * * * {cron_cmd}') | crontab -")
+
+    log.info("Analytics cron setup: every 2 hours at minute 2 (after collector)")
+
+def create_test_data_script(python_path: str):
+    """Create script for testing open questions."""
+    script_path = PROJECT_ROOT / "collector" / "test_open_questions.py"
+
+    with open(script_path, "w") as f:
+        f.write("""#!/usr/bin/env python3
+""")
+
+    os.chmod(script_path, 0o755)
+
+    log.info("Created test script for open questions")
+
+def main():
+    """Main setup function."""
+    log.info("=== Smart Ring Pipeline Setup ===")
+
+    try:
+        # Setup Python environment
+        python_path = setup_python_dependencies()
+
+        # Setup database
+        setup_postgres()
+
+        # Setup cron jobs
+        setup_collector_cron(python_path)
+        setup_analytics_cron(python_path)
+
+        # Create test scripts
+        create_test_data_script(python_path)
+
+        log.info("=== Setup complete ===")
+        log.info("Next steps:")
+        log.info("1. Run 'colmi_r02_util scan' to find ring address")
+        log.info("2. Set RING_ADDRESS in .env file")
+        log.info("3. Start services: podman-compose -f docker-compose.yml up -d")
+        log.info("4. Configure firewall to allow PostgreSQL connections if remote")
+        log.info("5. Run analytics test: python3 collector/test_open_questions.py")
+        log.info("6. Monitor collector.log and analytics.log for errors")
+
+    except Exception as e:
+        log.exception("Setup failed")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

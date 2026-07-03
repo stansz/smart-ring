@@ -1,0 +1,43 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: docker.io/postgres:16-alpine
+    container_name: smart-ring-db
+    environment:
+      POSTGRES_DB: smart_ring
+      POSTGRES_USER: smart_ring
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smart_ring -d smart_ring"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: smart-ring-api
+    environment:
+      DATABASE_URL: postgresql://smart_ring:${POSTGRES_PASSWORD:-changeme}@postgres:5432/smart_ring
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+      - ./dashboard:/dashboard
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
