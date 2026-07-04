@@ -143,6 +143,21 @@
             </div>
         </div>
 
+        <!-- Ring Setup -->
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-2">Ring Setup</h2>
+            <p class="text-sm text-gray-500 mb-4">Safe read-only diagnostics (Step 3 in AGENTS.md). No data sync — just validates the hardware.</p>
+            <div class="flex flex-wrap items-center gap-4">
+                <button @click="queueFirstContact()"
+                        :disabled="syncQueueBusy"
+                        class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                    <span x-show="!syncQueueBusy">First Contact</span>
+                    <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
+                </button>
+                <span class="text-sm text-gray-500">Reads battery, firmware, device info, and sets the clock. Does NOT sync data.</span>
+            </div>
+        </div>
+
         <!-- Sync controls -->
         <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
             <h2 class="text-lg font-semibold text-gray-900 mb-4">Sync Controls</h2>
@@ -582,6 +597,29 @@ python3 collector/test_open_questions.py</pre>
                     } catch (e) {
                         console.error('queue sync', e);
                         alert('Network error queueing sync.');
+                    }
+                },
+
+                async queueFirstContact() {
+                    try {
+                        const res = await fetch('/api/admin/first-contact', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ requested_by: 'first-contact' })
+                        });
+                        if (res.status === 409) {
+                            const err = await res.json();
+                            alert(err.detail || 'Another job is already pending/running.');
+                        } else if (!res.ok) {
+                            alert('Failed to queue first contact (HTTP ' + res.status + ')');
+                        } else {
+                            this.syncQueueBusy = true;
+                            this.syncQueueStatus = 'Queued...';
+                            await this.loadSyncRequests();
+                        }
+                    } catch (e) {
+                        console.error('queue first-contact', e);
+                        alert('Network error.');
                     }
                 },
 

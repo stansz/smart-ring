@@ -46,10 +46,22 @@ log = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smart_ring:changeme@localhost:5432/smart_ring")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COLLECTOR_WRAPPER = PROJECT_ROOT / "collector" / "collector-wrapper.py"
+FIRST_CONTACT_SCRIPT = PROJECT_ROOT / "collector" / "first_contact.py"
+
+# Use venv Python for collector scripts (needs bleak, colmi_r02_client, etc.)
+# Fall back to sys.executable if venv doesn't exist yet (will fail gracefully).
+VENV_PYTHON = PROJECT_ROOT / "venv" / "bin" / "python3"
+COLLECTOR_PYTHON = VENV_PYTHON if VENV_PYTHON.is_file() else sys.executable
+
+# Map requested_by values to (script, python_path) tuples
+DISPATCH = {
+    "admin-ui": (COLLECTOR_WRAPPER, COLLECTOR_PYTHON),
+    "first-contact": (FIRST_CONTACT_SCRIPT, COLLECTOR_PYTHON),
+}
 
 
 def claim_next_request(conn):
-    """Atomically claim the oldest pending request. Returns its id or None."""
+    """Atomically claim the oldest pending request. Returns (id, requested_by) or (None, None)."""
     with conn.cursor() as cur:
         cur.execute("""
             UPDATE sync_requests
@@ -61,22 +73,22 @@ def claim_next_request(conn):
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
-            RETURNING id
+            RETURNING id, requested_by
         """)
         row = cur.fetchone()
         conn.commit()
-        return row[0] if row else None
+        return (row[0], row[1]) if row else (None, None)
 
 
-def run_collector():
-    """Invoke the collector wrapper. Returns (returncode, stdout, stderr)."""
-    log.info(f"Running collector: {COLLECTOR_WRAPPER}")
+def run_collector(python_path: Path, script: Path):
+    """Invoke a collector script. Returns (returncode, stdout, stderr)."""
+    log.info(f"Running: {python_path} {script}")
     proc = subprocess.run(
-        [sys.executable, str(COLLECTOR_WRAPPER)],
+        [str(python_path), str(script)],
         capture_output=True,
         text=True,
         cwd=str(PROJECT_ROOT),
-        timeout=600,  # 10 min hard cap
+        timeout=600,
     )
     return proc.returncode, proc.stdout, proc.stderr
 
@@ -114,13 +126,24 @@ def mark_failed(conn, req_id, error):
 
 def process_one(conn):
     """Claim and run one pending request. Returns True if something was processed."""
-    req_id = claim_next_request(conn)
+    req_id, requested_by = claim_next_request(conn)
     if req_id is None:
         return False
 
-    log.info(f"Claimed sync_request id={req_id}")
+    script, python_path = DISPATCH.get(requested_by, (None, None))
+    if script is None:
+        mark_failed(conn, req_id, f"Unknown requested_by: {requested_by}")
+        log.error(f"Request {req_id}: unknown type '{requested_by}'")
+        return True
+
+    if not script.is_file():
+        mark_failed(conn, req_id, f"Script not found: {script}")
+        log.error(f"Request {req_id}: script missing {script}")
+        return True
+
+    log.info(f"Claimed request id={req_id} type={requested_by} → {script.name}")
     try:
-        rc, stdout, stderr = run_collector()
+        rc, stdout, stderr = run_collector(python_path, script)
         if rc == 0:
             sync_log_id = find_latest_sync_log_id(conn)
             tail = (stdout or "").strip().splitlines()[-1] if (stdout or "").strip() else "completed"
@@ -131,7 +154,7 @@ def process_one(conn):
             mark_failed(conn, req_id, err)
             log.error(f"Request {req_id} failed: {err}")
     except subprocess.TimeoutExpired:
-        mark_failed(conn, req_id, "Collector timed out after 600s")
+        mark_failed(conn, req_id, "Script timed out after 600s")
         log.error(f"Request {req_id} timed out")
     except Exception as e:
         mark_failed(conn, req_id, str(e))
