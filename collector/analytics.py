@@ -274,7 +274,7 @@ class SleepMetrics(BaseAnalytics):
                 'end_ts': end_ts
             })
 
-            if stage not in ['WAKE', 'W']:
+            if stage.lower() not in ('wake', 'w', 'unknown'):
                 total_sleep_minutes += duration_minutes
 
         # If no sleep detected, fall back to HR-based inference
@@ -558,11 +558,8 @@ class SleepMetrics(BaseAnalytics):
                     daily_samples[day]['evening'] = rmssd
 
         # Analyze most recent complete day
-        latest_day = date.today()
-        if latest_day not in daily_samples:
-            # Try yesterday
-            yesterday = date.today() - timedelta(days=1)
-            latest_day = yesterday if yesterday in daily_samples else list(daily_samples.keys())[-1]
+        if not daily_samples:
+            return {'day': date.today(), 'stress_class': 'no_data'}
 
         samples = daily_samples[latest_day]
 
@@ -605,8 +602,9 @@ class SleepMetrics(BaseAnalytics):
         sleep_records = self.get_sleep_data(30)
         temp_records = self.get_temperature_data(168)
         sleep_stages = self.detect_sleep_stages(sleep_records, temp_records)
-        score, detailed = self.compute_sleep_quality_score(sleep_stages, temp_records)
-        self.store_sleep_metrics(score, detailed)
+        if sleep_stages:
+            score, detailed = self.compute_sleep_quality_score(sleep_stages, temp_records)
+            self.store_sleep_metrics(score, detailed)
 
         log.info("Computing circadian HR...")
         self.compute_circadian_hr()

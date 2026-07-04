@@ -1,7 +1,6 @@
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime
-from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware

@@ -169,7 +169,7 @@ def _parse_hrv_data(data: bytes) -> List[Dict[str, Any]]:
             ts, hrv_val = struct.unpack_from("<IH", data, i)
             if ts > 0:
                 records.append({
-                    "ts": datetime.fromtimestamp(ts, tz=timezone.utc),
+                    "ts": datetime.fromtimestamp(ts),
                     "hrv_value": hrv_val,
                     "hrv_type": "composite",
                 })
