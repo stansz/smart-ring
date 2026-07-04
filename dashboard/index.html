@@ -133,7 +133,7 @@
                         const latest = data[0];
                         this.recoveryScore = latest.z_score ? Math.round(50 + latest.z_score * 10) : null;
                         this.recoveryLabel = latest.readiness_text || '';
-                        this.renderRecoveryChart(data.reverse());
+                        this.renderRecoveryChart([...data].reverse());
                     }
                 },
 
@@ -143,7 +143,7 @@
                     if (data.length > 0) {
                         this.sleepScore = Math.round(data[0].score || 0);
                         this.sleepLabel = `${data[0].total_sleep_minutes || 0} min total`;
-                        this.renderSleepChart(data.reverse());
+                        this.renderSleepChart([...data].reverse());
                     }
                 },
 
@@ -152,7 +152,7 @@
                     const data = await res.json();
                     if (data.length > 0) {
                         this.hrv7d = data[0].rmssd_7d ? Math.round(data[0].rmssd_7d) : null;
-                        this.renderHRVChart(data.reverse());
+                        this.renderHRVChart([...data].reverse());
                     }
                     // Resting HR from raw data
                     const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');

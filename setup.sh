@@ -6,20 +6,23 @@ Installs dependencies, configures environment, and sets up cron jobs.
 import os
 import subprocess
 import sys
+import time
 import logging
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/home/sz/Code/smart-ring/setup.log"),
+        logging.FileHandler(SCRIPT_DIR / "setup.log"),
         logging.StreamHandler()
     ]
 )
 log = logging.getLogger(__name__)
 
-PROJECT_ROOT = Path("/home/sz/Code/smart-ring")
+PROJECT_ROOT = SCRIPT_DIR
 COLMI_CLIENT_DIR = PROJECT_ROOT / "colmi_client"
 
 def run_command(cmd, check=True, capture=True):
@@ -87,7 +90,14 @@ def setup_postgres():
 
     # Wait for PostgreSQL
     log.info("Waiting for PostgreSQL to be ready...")
-    run_command("sleep 5", capture=False)
+    for i in range(30):
+        rc, _, _ = run_command("pg_isready -U smart_ring -d smart_ring 2>/dev/null", check=False)
+        if rc == 0:
+            log.info("PostgreSQL is ready")
+            break
+        time.sleep(1)
+    else:
+        log.warning("PostgreSQL did not become ready within 30s — continuing anyway")
 
     # Run initialization script
     init_file = PROJECT_ROOT / "db" / "init.sql"
@@ -102,11 +112,13 @@ def setup_collector_cron(python_path: str):
     script_path = PROJECT_ROOT / "collector" / "collector-wrapper.py"
 
     with open(script_path, "w") as f:
-        f.write(f"""#!/usr/bin/env python3
+        f.write("""#!/usr/bin/env python3
+import asyncio
 import sys
-sys.path.insert(0, "{PROJECT_ROOT}")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.sync_ring import main
-main()
+asyncio.run(main())
 """)
 
     os.chmod(script_path, 0o755)
@@ -125,9 +137,10 @@ def setup_analytics_cron(python_path: str):
     script_path = PROJECT_ROOT / "collector" / "analytics-wrapper.py"
 
     with open(script_path, "w") as f:
-        f.write(f"""#!/usr/bin/env python3
+        f.write("""#!/usr/bin/env python3
 import sys
-sys.path.insert(0, "{PROJECT_ROOT}")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.analytics import main
 main()
 """)
@@ -146,6 +159,9 @@ def create_test_data_script(python_path: str):
 
     with open(script_path, "w") as f:
         f.write("""#!/usr/bin/env python3
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 """)
 
     os.chmod(script_path, 0o755)

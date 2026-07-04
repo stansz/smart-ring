@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
 import sys
-sys.path.insert(0, "/home/sz/Code/smart-ring")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.sync_ring import main
 asyncio.run(main())

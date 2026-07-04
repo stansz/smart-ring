@@ -18,11 +18,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from pathlib import Path
+
+LOG_DIR = Path(__file__).resolve().parent
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler("/home/sz/Code/smart-ring/collector/analytics.log"),
+        logging.FileHandler(LOG_DIR / "analytics.log"),
         logging.StreamHandler()
     ]
 )
@@ -103,36 +107,13 @@ class BaseAnalytics:
                 result[hour] = float(r['avg_hr']) if r['avg_hr'] else None
             return result
 
-    def upsert_metrics(self, metrics: Dict[str, Any]):
-        """Bulk upsert metrics using ON CONFLICT."""
-        with self.conn.cursor() as cur:
-            for table, values in metrics.items():
-                if isinstance(values, list):
-                    for v in values:
-                        cur.execute(f"""
-                            INSERT INTO {table} ({', '.join(v.keys())})
-                            VALUES ({', '.join(['%s'] * len(v))})
-                            ON CONFLICT (day) DO UPDATE SET
-                            {', '.join([f'{k} = EXCLUDED.{k}' for k in v.keys() if k != 'day'])}
-                        """, list(v.values()))
-                elif isinstance(values, dict):
-                    # Handle circadian_hr which uses hour as primary key
-                    placeholders = ', '.join(['%s'] * len(values))
-                    updates = ', '.join([f'{k} = EXCLUDED.{k}' for k in values.keys() if k != 'hour'])
-                    cur.execute(f"""
-                        INSERT INTO {table} ({', '.join(values.keys())})
-                        VALUES ({placeholders})
-                        ON CONFLICT ({'hour' if 'hour' in values else 'day'}) DO UPDATE SET {updates}
-                    """, list(values.values()))
-
-
 class HRVMetrics(BaseAnalytics):
-    def compute_rmssd(self, rr_intervals: List[float]) -> float:
-        """Compute RMSSD from RR intervals."""
-        if not rr_intervals:
+    def compute_rmssd(self, rr_intervals_ms: List[float]) -> float:
+        """Compute RMSSD from RR intervals (already in ms)."""
+        if not rr_intervals_ms:
             return 0.0
-        diffs = [(rr_intervals[i] - rr_intervals[i-1]) ** 2 for i in range(1, len(rr_intervals))]
-        return float(np.sqrt(np.mean(diffs))) * 1000  # Convert to ms
+        diffs = [(rr_intervals_ms[i] - rr_intervals_ms[i-1]) ** 2 for i in range(1, len(rr_intervals_ms))]
+        return float(np.sqrt(np.mean(diffs)))
 
     def compute_pnn50(self, rr_intervals: List[float]) -> float:
         """Compute pNN50 from RR intervals."""
@@ -173,6 +154,7 @@ class HRVMetrics(BaseAnalytics):
                 'rmssd': rmssd,
                 'pnn50': pnn50,
                 'avg_hrv': avg_hrv,
+                'rr_intervals': rr_intervals,
                 'rr_intervals_count': len(rr_intervals)
             })
 
@@ -372,20 +354,21 @@ class SleepMetrics(BaseAnalytics):
             key = f"{s['stage'].lower()}_pct"
             stage_percentages[key] = (s['duration_minutes'] / total_minutes) * 100
 
-        # Calculate average temp drop during sleep
-        temp_drop_avg = 0.0
-        if temp_records:
-            temp_drop_avg = statistics.mean([r['temp_c'] for r in temp_records]) if temp_records else 0.0
+        # Calculate temperature drop during sleep (highest - lowest)
+        temp_drop_c = 0.0
+        if len(temp_records) >= 2:
+            temps = [r['temp_c'] for r in temp_records]
+            temp_drop_c = max(temps) - min(temps)
 
         return (
             {
                 'day': date.today(),
                 'score': normalized_score,
                 **stage_percentages,
-                'temp_drop_c': temp_drop_avg,
+                'temp_drop_c': temp_drop_c,
                 'total_sleep_minutes': total_minutes
             },
-            {date.today(): {'stages': detailed_scores, 'temp_drop_c': temp_drop_avg}}
+            {date.today(): {'stages': detailed_scores, 'temp_drop_c': temp_drop_c}}
         )
 
     def compute_temperature_bonus(self, temp_records: List[Dict]) -> float:
@@ -534,7 +517,7 @@ class SleepMetrics(BaseAnalytics):
 
         return {'day': date.today(), 'resting_hr': None}
 
-    def compute_recife_score(self, rmssd_metrics: List[Dict], resting_hr: Dict) -> Dict:
+    def compute_recovery_score(self, rmssd_metrics: List[Dict], resting_hr: Dict) -> Dict:
         """Compute Recife Recovery Score (z-score)."""
         if not rmssd_metrics:
             return {'day': date.today(), 'rmssd': None, 'baseline_rmssd': None, 'z_score': None, 'readiness_text': None}
@@ -671,7 +654,7 @@ class SleepMetrics(BaseAnalytics):
             """, (resting_hr['day'], resting_hr['resting_hr'], None, None, None, resting_hr['day']))
 
         log.info("Computing recovery score...")
-        recovery_score = self.compute_recife_score(hrv_metrics, resting_hr)
+        recovery_score = self.compute_recovery_score(hrv_metrics, resting_hr)
         if recovery_score['z_score'] is not None:
             with self.conn.cursor() as cur:
                 cur.execute("""

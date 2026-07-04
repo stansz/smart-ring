@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS raw_heart_rate (
     ts TIMESTAMPTZ NOT NULL,
     bpm INT NOT NULL,
     source TEXT DEFAULT 'ring',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (ts, source)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_heart_rate_ts ON raw_heart_rate(ts DESC);
 
@@ -15,7 +16,8 @@ CREATE TABLE IF NOT EXISTS raw_hrv (
     hrv_type TEXT,
     rr_intervals INT[],
     source TEXT DEFAULT 'ring',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (ts, hrv_type, source)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_hrv_ts ON raw_hrv(ts DESC);
 
@@ -26,7 +28,8 @@ CREATE TABLE IF NOT EXISTS raw_sleep (
     start_ts TIMESTAMPTZ NOT NULL,
     end_ts TIMESTAMPTZ NOT NULL,
     source TEXT DEFAULT 'ring',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (day, stage, source)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_sleep_day ON raw_sleep(day DESC);
 
@@ -35,7 +38,8 @@ CREATE TABLE IF NOT EXISTS raw_steps (
     ts TIMESTAMPTZ NOT NULL,
     steps INT NOT NULL,
     source TEXT DEFAULT 'ring',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (ts, source)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_steps_ts ON raw_steps(ts DESC);
 
@@ -44,7 +48,8 @@ CREATE TABLE IF NOT EXISTS raw_spo2 (
     ts TIMESTAMPTZ NOT NULL,
     spo2_pct INT NOT NULL,
     source TEXT DEFAULT 'ring',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (ts, source)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_spo2_ts ON raw_spo2(ts DESC);
 
@@ -53,7 +58,8 @@ CREATE TABLE IF NOT EXISTS raw_temperature (
     ts TIMESTAMPTZ NOT NULL,
     temp_c NUMERIC(4,2) NOT NULL,
     source TEXT DEFAULT 'ring',
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (ts, source)
 );
 CREATE INDEX IF NOT EXISTS idx_raw_temperature_ts ON raw_temperature(ts DESC);
 

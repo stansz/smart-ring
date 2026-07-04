@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-LOG_DIR = Path("/home/sz/Code/smart-ring/collector")
+LOG_DIR = Path(__file__).resolve().parent
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 logging.basicConfig(
@@ -289,7 +289,7 @@ def upsert_heart_rate(records: List[Dict]) -> int:
                     cur.execute("""
                         INSERT INTO raw_heart_rate (ts, bpm, source)
                         VALUES (%s, %s, 'ring')
-                        ON CONFLICT DO NOTHING
+                        ON CONFLICT (ts, source) DO NOTHING
                     """, (ts, bpm))
                     count += cur.rowcount
     return count
@@ -305,7 +305,7 @@ def upsert_hrv(records: List[Dict]) -> int:
                 cur.execute("""
                     INSERT INTO raw_hrv (ts, hrv_value, hrv_type, source)
                     VALUES (%s, %s, %s, 'ring')
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (ts, hrv_type, source) DO NOTHING
                 """, (r["ts"], r["hrv_value"], r.get("hrv_type", "composite")))
                 count += cur.rowcount
     return count
@@ -321,7 +321,7 @@ def upsert_sleep(records: List[Dict]) -> int:
                 cur.execute("""
                     INSERT INTO raw_sleep (day, stage, source)
                     VALUES (%s, %s, 'ring')
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (day, stage, source) DO NOTHING
                 """, (r["day"], r["stage"]))
                 count += cur.rowcount
     return count
@@ -337,7 +337,7 @@ def upsert_steps(records: List[Dict]) -> int:
                 cur.execute("""
                     INSERT INTO raw_steps (ts, steps, source)
                     VALUES (%s, %s, 'ring')
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (ts, source) DO NOTHING
                 """, (r.get("ts", datetime.now(tz=timezone.utc)), r.get("steps", 0)))
                 count += cur.rowcount
     return count
@@ -353,7 +353,7 @@ def upsert_spo2(records: List[Dict]) -> int:
                 cur.execute("""
                     INSERT INTO raw_spo2 (ts, spo2_pct, source)
                     VALUES (%s, %s, 'ring')
-                    ON CONFLICT DO NOTHING
+                    ON CONFLICT (ts, source) DO NOTHING
                 """, (r["ts"], r["spo2_pct"]))
                 count += cur.rowcount
     return count
@@ -368,7 +368,7 @@ def upsert_temperature(temp_c: float, ts: Optional[datetime] = None) -> int:
             cur.execute("""
                 INSERT INTO raw_temperature (ts, temp_c, source)
                 VALUES (%s, %s, 'ring')
-                ON CONFLICT DO NOTHING
+                ON CONFLICT (ts, source) DO NOTHING
             """, (ts, temp_c))
             return cur.rowcount
 

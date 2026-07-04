@@ -2,8 +2,6 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir fastapi uvicorn[standard] sqlalchemy psycopg2-binary python-dotenv pydantic-settings
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
