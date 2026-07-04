@@ -16,16 +16,29 @@
         .loading { opacity: 0.6; pointer-events: none; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen" x-data="dashboard()" x-init="loadAll()">
+<body class="bg-gray-50 min-h-screen" x-data="dashboard()" x-init="init()">
     <nav class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
-                <div class="flex items-center">
+                <div class="flex items-center space-x-8">
                     <h1 class="text-xl font-semibold text-gray-900">Smart Ring</h1>
+                    <!-- Tabs -->
+                    <div class="flex space-x-1">
+                        <button @click="switchTab('dashboard')"
+                                class="px-3 py-1.5 text-sm rounded-md transition"
+                                :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'">
+                            Dashboard
+                        </button>
+                        <button @click="switchTab('admin')"
+                                class="px-3 py-1.5 text-sm rounded-md transition"
+                                :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'">
+                            Admin
+                        </button>
+                    </div>
                 </div>
                 <div class="flex items-center space-x-4">
                     <span class="text-sm text-gray-500" x-text="lastSync"></span>
-                    <button @click="loadAll()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" :class="{ loading: loading }">
+                    <button @click="refreshActiveTab()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" :class="{ loading: loading }">
                         Refresh
                     </button>
                 </div>
@@ -33,7 +46,8 @@
         </div>
     </nav>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- ============= DASHBOARD TAB ============= -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
                 <p class="text-sm font-medium text-gray-500">Recovery Score</p>
@@ -98,9 +112,175 @@
         </div>
     </main>
 
+    <!-- ============= ADMIN TAB ============= -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'admin'" x-cloak>
+
+        <!-- Ring status -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">Battery</p>
+                <p class="text-3xl font-bold text-gray-900 mt-1">
+                    <span x-text="ringStatus.battery_pct ?? '—'"></span><span class="text-base text-gray-400" x-show="ringStatus.battery_pct != null">%</span>
+                </p>
+                <p class="text-xs text-gray-400 mt-1" x-text="ringStatus.ts ? 'As of ' + new Date(ringStatus.ts).toLocaleString() : 'No data yet — ring not synced'"></p>
+            </div>
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">Firmware</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1" x-text="ringStatus.firmware_version || '—'"></p>
+                <p class="text-xs text-gray-400 mt-1">From device info read</p>
+            </div>
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">Last Sync</p>
+                <p class="text-2xl font-bold text-gray-900 mt-1" x-text="lastSyncSummary.completed_at ? new Date(lastSyncSummary.completed_at).toLocaleString() : 'Never'"></p>
+                <p class="text-xs text-gray-400 mt-1">
+                    <span x-text="lastSyncSummary.records_synced != null ? lastSyncSummary.records_synced + ' records' : ''"></span>
+                </p>
+            </div>
+            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
+                <p class="text-sm font-medium text-gray-500">DB Status</p>
+                <p class="text-2xl font-bold mt-1" :class="health.db === 'connected' ? 'text-green-600' : 'text-red-600'" x-text="health.db === 'connected' ? 'OK' : 'DOWN'"></p>
+                <p class="text-xs text-gray-400 mt-1" x-text="health.container_host ? 'host: ' + health.container_host : ''"></p>
+            </div>
+        </div>
+
+        <!-- Sync controls -->
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Sync Controls</h2>
+            <div class="flex flex-wrap items-center gap-4">
+                <button @click="queueSync()"
+                        :disabled="syncQueueBusy"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                    <span x-show="!syncQueueBusy">Sync Now</span>
+                    <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
+                </button>
+                <div class="text-sm text-gray-600">
+                    <p>Cron schedule: <code class="bg-gray-100 px-1 py-0.5 rounded">0 */2 * * *</code> (every 2 hours)</p>
+                    <p class="text-xs text-gray-400 mt-1">Manual syncs queue in the DB; the host poller picks them up within ~60s.</p>
+                </div>
+            </div>
+
+            <!-- Pending / recent requests -->
+            <div class="mt-5" x-show="syncRequests.length > 0">
+                <h3 class="text-sm font-semibold text-gray-700 mb-2">Recent Requests</h3>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 border-b border-gray-200">
+                            <th class="pb-2 pr-4">Requested</th>
+                            <th class="pb-2 pr-4">Status</th>
+                            <th class="pb-2 pr-4">Started</th>
+                            <th class="pb-2 pr-4">Completed</th>
+                            <th class="pb-2 pr-4">Result / Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="r in syncRequests" :key="r.id">
+                            <tr class="border-b border-gray-100">
+                                <td class="py-2 pr-4" x-text="new Date(r.requested_at).toLocaleString()"></td>
+                                <td class="py-2 pr-4">
+                                    <span class="px-2 py-0.5 text-xs rounded"
+                                          :class="{
+                                              'bg-yellow-100 text-yellow-800': r.status === 'pending',
+                                              'bg-blue-100 text-blue-800': r.status === 'running',
+                                              'bg-green-100 text-green-800': r.status === 'completed',
+                                              'bg-red-100 text-red-800': r.status === 'failed'
+                                          }"
+                                          x-text="r.status"></span>
+                                </td>
+                                <td class="py-2 pr-4" x-text="r.started_at ? new Date(r.started_at).toLocaleTimeString() : '—'"></td>
+                                <td class="py-2 pr-4" x-text="r.completed_at ? new Date(r.completed_at).toLocaleTimeString() : '—'"></td>
+                                <td class="py-2 pr-4 text-gray-600" x-text="r.error || r.result || '—'"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- System health -->
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">System Health</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                    <p class="text-gray-500">Database</p>
+                    <p class="font-semibold" :class="health.db === 'connected' ? 'text-green-600' : 'text-red-600'" x-text="health.db"></p>
+                </div>
+                <div>
+                    <p class="text-gray-500">Ring status rows</p>
+                    <p class="font-semibold" x-text="health.ring_status_rows ?? '—'"></p>
+                </div>
+                <div>
+                    <p class="text-gray-500">Sync log rows</p>
+                    <p class="font-semibold" x-text="health.sync_log_rows ?? '—'"></p>
+                </div>
+                <div>
+                    <p class="text-gray-500">Pending requests</p>
+                    <p class="font-semibold" :class="(health.pending_requests ?? 0) > 0 ? 'text-yellow-600' : 'text-gray-900'" x-text="health.pending_requests ?? 0"></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Full sync log -->
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Sync Log</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 border-b border-gray-200">
+                            <th class="pb-2 pr-4">Started</th>
+                            <th class="pb-2 pr-4">Completed</th>
+                            <th class="pb-2 pr-4">Records</th>
+                            <th class="pb-2 pr-4">Battery</th>
+                            <th class="pb-2 pr-4">Status</th>
+                            <th class="pb-2 pr-4">Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-for="s in adminSyncLog" :key="s.id">
+                            <tr class="border-b border-gray-100">
+                                <td class="py-2 pr-4" x-text="s.started_at ? new Date(s.started_at).toLocaleString() : '—'"></td>
+                                <td class="py-2 pr-4" x-text="s.completed_at ? new Date(s.completed_at).toLocaleString() : '—'"></td>
+                                <td class="py-2 pr-4" x-text="s.records_synced ?? 0"></td>
+                                <td class="py-2 pr-4" x-text="s.battery_pct != null ? s.battery_pct + '%' : '—'"></td>
+                                <td class="py-2 pr-4">
+                                    <span class="px-2 py-0.5 text-xs rounded"
+                                          :class="{
+                                              'bg-green-100 text-green-800': s.status === 'completed',
+                                              'bg-yellow-100 text-yellow-800': s.status === 'running',
+                                              'bg-red-100 text-red-800': s.status === 'error'
+                                          }"
+                                          x-text="s.status"></span>
+                                </td>
+                                <td class="py-2 pr-4 text-red-600 text-xs" x-text="s.error || ''"></td>
+                            </tr>
+                        </template>
+                        <tr x-show="adminSyncLog.length === 0">
+                            <td colspan="6" class="py-6 text-center text-gray-400">No syncs yet. Ring hasn't been paired.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Hardware test panel -->
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mt-6">
+            <h2 class="text-lg font-semibold text-gray-900 mb-2">Hardware Tests</h2>
+            <p class="text-sm text-gray-500 mb-3">Run <code class="bg-gray-100 px-1 py-0.5 rounded">test_open_questions.py</code> once the ring arrives to resolve the known unknowns.</p>
+            <div class="bg-gray-50 border border-gray-200 rounded p-3 text-sm text-gray-600">
+                <p class="font-mono text-xs">ssh into the Linux box and run:</p>
+                <pre class="mt-1 text-xs bg-gray-900 text-gray-100 p-2 rounded overflow-x-auto">cd ~/code/smart-ring
+source venv/bin/activate
+python3 collector/test_open_questions.py</pre>
+                <p class="text-xs mt-2 text-gray-500">This tests: sync behavior (read-only vs read-and-clear), HRV format (RR intervals vs composite), temperature sampling cadence.</p>
+            </div>
+        </div>
+    </main>
+
     <script>
         function dashboard() {
             return {
+                // Tab routing
+                tab: 'dashboard',
+
                 loading: false,
                 lastSync: '—',
                 recoveryScore: null,
@@ -114,7 +294,37 @@
                 hrvChart: null,
                 circadianChart: null,
 
-                async loadAll() {
+                // Admin state
+                ringStatus: {},
+                lastSyncSummary: {},
+                health: {},
+                adminSyncLog: [],
+                syncRequests: [],
+                syncQueueBusy: false,
+                syncQueueStatus: '',
+                _pollTimer: null,
+
+                init() {
+                    // Always load health + sync summary so the nav bar shows something useful
+                    this.loadHealth();
+                    this.loadRingStatus();
+                    this.loadDashboard();
+                },
+
+                switchTab(t) {
+                    this.tab = t;
+                    if (t === 'admin') this.loadAdmin();
+                    if (t === 'dashboard') this.loadDashboard();
+                },
+
+                refreshActiveTab() {
+                    if (this.tab === 'admin') this.loadAdmin();
+                    else this.loadDashboard();
+                    this.loadHealth();
+                    this.loadRingStatus();
+                },
+
+                async loadDashboard() {
                     this.loading = true;
                     await Promise.all([
                         this.loadRecovery(),
@@ -124,6 +334,16 @@
                         this.loadSyncLog()
                     ]);
                     this.loading = false;
+                },
+
+                async loadAdmin() {
+                    await Promise.all([
+                        this.loadRingStatus(),
+                        this.loadHealth(),
+                        this.loadAdminSyncLog(),
+                        this.loadSyncRequests()
+                    ]);
+                    this.startPolling();
                 },
 
                 async loadRecovery() {
@@ -296,9 +516,92 @@
                             </td>
                         </tr>
                     `).join('');
+                },
+
+                // ---------------- Admin methods ----------------
+                async loadRingStatus() {
+                    try {
+                        const res = await fetch('/api/admin/ring-status');
+                        const data = await res.json();
+                        this.ringStatus = data.ring || {};
+                        this.lastSyncSummary = data.last_sync || {};
+                        if (data.last_sync && data.last_sync.completed_at) {
+                            this.lastSync = 'Last sync: ' + new Date(data.last_sync.completed_at).toLocaleString();
+                        }
+                    } catch (e) { console.error('ring-status', e); }
+                },
+
+                async loadHealth() {
+                    try {
+                        const res = await fetch('/api/admin/health');
+                        this.health = await res.json();
+                    } catch (e) { console.error('health', e); }
+                },
+
+                async loadAdminSyncLog() {
+                    try {
+                        const res = await fetch('/api/admin/sync-log?limit=50');
+                        this.adminSyncLog = await res.json();
+                    } catch (e) { console.error('admin sync-log', e); }
+                },
+
+                async loadSyncRequests() {
+                    try {
+                        const res = await fetch('/api/admin/sync-requests?limit=20');
+                        this.syncRequests = await res.json();
+                        // If any request is pending or running, reflect that on the button
+                        const active = this.syncRequests.find(r => r.status === 'pending' || r.status === 'running');
+                        if (active) {
+                            this.syncQueueBusy = true;
+                            this.syncQueueStatus = active.status === 'pending' ? 'Queued...' : 'Syncing...';
+                        } else {
+                            this.syncQueueBusy = false;
+                            this.syncQueueStatus = '';
+                        }
+                    } catch (e) { console.error('sync-requests', e); }
+                },
+
+                async queueSync() {
+                    try {
+                        const res = await fetch('/api/admin/sync', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ requested_by: 'admin-ui' })
+                        });
+                        if (res.status === 409) {
+                            const err = await res.json();
+                            alert(err.detail || 'A sync is already in progress.');
+                        } else if (!res.ok) {
+                            alert('Failed to queue sync (HTTP ' + res.status + ')');
+                        } else {
+                            this.syncQueueBusy = true;
+                            this.syncQueueStatus = 'Queued...';
+                            await this.loadSyncRequests();
+                        }
+                    } catch (e) {
+                        console.error('queue sync', e);
+                        alert('Network error queueing sync.');
+                    }
+                },
+
+                // Poll for status updates while a sync is pending/running
+                startPolling() {
+                    if (this._pollTimer) return;
+                    this._pollTimer = setInterval(async () => {
+                        await this.loadSyncRequests();
+                        await this.loadAdminSyncLog();
+                        await this.loadRingStatus();
+                        // Stop polling once nothing is active AND we're not seeing changes
+                        const active = this.syncRequests.find(r => r.status === 'pending' || r.status === 'running');
+                        if (!active) {
+                            clearInterval(this._pollTimer);
+                            this._pollTimer = null;
+                        }
+                    }, 5000);
                 }
             }
         }
     </script>
+    <style>[x-cloak] { display: none !important; }</style>
 </body>
 </html>

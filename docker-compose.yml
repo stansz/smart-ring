@@ -1,5 +1,8 @@
 version: "3.8"
 
+# Local-first deployment: everything runs on the Linux box.
+# Collector runs bare-metal (not in compose) for BLE access.
+
 services:
   postgres:
     image: docker.io/postgres:16-alpine
@@ -12,7 +15,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U smart_ring -d smart_ring"]
       interval: 10s
@@ -30,7 +33,7 @@ services:
       API_HOST: "0.0.0.0"
       API_PORT: "8000"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       postgres:
         condition: service_healthy

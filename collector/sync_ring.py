@@ -396,9 +396,9 @@ async def sync_ring(address: str) -> SyncResult:
         except Exception as e:
             log.warning(f"Battery read failed: {e}")
 
-        # 2. Sync time
+        # 2. Sync time (use local time — the ring stores year/month/day/hour/minute/second with no timezone)
         try:
-            await client.set_time(datetime.now(timezone.utc))
+            await client.set_time(datetime.now())
             log.info("Time synced")
         except Exception as e:
             log.warning(f"Time sync failed: {e}")

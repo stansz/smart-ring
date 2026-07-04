@@ -1,15 +1,17 @@
 import os
+import subprocess
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from datetime import date, datetime, timedelta
+from typing import Optional, List
+
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from pydantic_settings import BaseSettings
-from datetime import date, datetime
-from typing import Optional, List
-from pydantic import BaseModel
 
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 
@@ -148,6 +150,110 @@ def get_sync_log(limit: int = 50):
                    clock_drift_ms, status, error
             FROM sync_log
             ORDER BY started_at DESC LIMIT :limit
+        """), {"limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------- Admin endpoints ----------------------------
+# These power the Admin tab in the dashboard. They do NOT directly run the
+# collector (the API lives in a container without BLE access). Instead, sync
+# requests are queued in the `sync_requests` table; a host-side poller
+# (collector/sync_request_poller.py) picks them up and runs the collector.
+
+@app.get("/api/admin/ring-status")
+def get_ring_status():
+    """Latest ring battery / firmware / connection info."""
+    with SessionLocal() as db:
+        row = db.execute(text("""
+            SELECT ts, battery_pct, clock_drift_ms, firmware_version
+            FROM ring_status
+            ORDER BY ts DESC LIMIT 1
+        """)).mappings().first()
+        # Latest sync info too
+        sync = db.execute(text("""
+            SELECT completed_at, records_synced, status
+            FROM sync_log
+            WHERE completed_at IS NOT NULL
+            ORDER BY completed_at DESC LIMIT 1
+        """)).mappings().first()
+    return {
+        "ring": dict(row) if row else None,
+        "last_sync": dict(sync) if sync else None,
+    }
+
+
+@app.get("/api/admin/health")
+def admin_health():
+    """Deeper health check: DB, recent sync, pending requests, container info."""
+    health = {"db": "unknown", "ring_status_rows": 0,
+              "sync_log_rows": 0, "pending_requests": 0,
+              "container_host": os.uname().nodename if hasattr(os, "uname") else "unknown"}
+    try:
+        with SessionLocal() as db:
+            db.execute(text("SELECT 1"))
+            health["db"] = "connected"
+            health["ring_status_rows"] = db.execute(
+                text("SELECT COUNT(*) FROM ring_status")).scalar() or 0
+            health["sync_log_rows"] = db.execute(
+                text("SELECT COUNT(*) FROM sync_log")).scalar() or 0
+            health["pending_requests"] = db.execute(
+                text("SELECT COUNT(*) FROM sync_requests WHERE status = 'pending'")).scalar() or 0
+    except Exception as e:
+        health["db"] = f"error: {e}"
+    return health
+
+
+@app.get("/api/admin/sync-log")
+def admin_sync_log(limit: int = 50):
+    """Detailed sync log for the admin view (more rows than the dashboard widget)."""
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT id, started_at, completed_at, records_synced, battery_pct,
+                   clock_drift_ms, status, error
+            FROM sync_log
+            ORDER BY started_at DESC LIMIT :limit
+        """), {"limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+class SyncRequest(BaseModel):
+    requested_by: str = "admin-ui"
+
+
+@app.post("/api/admin/sync")
+def queue_sync(req: SyncRequest):
+    """Queue a sync. The host-side poller will pick this up within ~60s."""
+    with SessionLocal() as db:
+        # Refuse if a sync is already pending or running
+        active = db.execute(text("""
+            SELECT id, status, requested_at FROM sync_requests
+            WHERE status IN ('pending', 'running')
+            ORDER BY requested_at DESC LIMIT 1
+        """)).mappings().first()
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail=f"A sync is already {active['status']} (id={active['id']}, "
+                       f"requested at {active['requested_at']}). Wait for it to finish.",
+            )
+        row = db.execute(text("""
+            INSERT INTO sync_requests (requested_by, status)
+            VALUES (:by, 'pending')
+            RETURNING id, requested_at, status
+        """), {"by": req.requested_by}).mappings().first()
+        db.commit()
+    return dict(row)
+
+
+@app.get("/api/admin/sync-requests")
+def list_sync_requests(limit: int = 20):
+    """Recent sync requests (pending/running/completed/failed)."""
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT id, requested_at, requested_by, status, started_at,
+                   completed_at, sync_log_id, result, error
+            FROM sync_requests
+            ORDER BY requested_at DESC LIMIT :limit
         """), {"limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 

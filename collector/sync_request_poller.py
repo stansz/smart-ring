@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""
+Host-side poller for admin-triggered syncs.
+
+The dashboard's "Sync Now" button (in the API container) inserts a row into
+`sync_requests` with status='pending'. This script runs on the host (where BLE
+access works) and:
+
+  1. Polls `sync_requests` for pending rows.
+  2. Marks one as 'running', invokes collector/sync_ring.py, waits for it.
+  3. On success, marks the row 'completed' with the new sync_log id.
+  4. On failure, marks the row 'failed' with the error.
+
+Run as a systemd timer (every minute) or as a long-running service. See
+AGENTS.md for installation.
+
+Usage:
+    python3 collector/sync_request_poller.py            # one-shot (process one pending request)
+    python3 collector/sync_request_poller.py --loop     # long-running, polls every 15s
+    python3 collector/sync_request_poller.py --loop --interval 30
+"""
+import argparse
+import logging
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import psycopg2
+from dotenv import load_dotenv
+
+load_dotenv()
+
+LOG_DIR = Path(__file__).resolve().parent
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_DIR / "sync_request_poller.log"),
+        logging.StreamHandler(),
+    ],
+)
+log = logging.getLogger(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smart_ring:changeme@localhost:5432/smart_ring")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+COLLECTOR_WRAPPER = PROJECT_ROOT / "collector" / "collector-wrapper.py"
+
+
+def claim_next_request(conn):
+    """Atomically claim the oldest pending request. Returns its id or None."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE sync_requests
+            SET status = 'running', started_at = NOW()
+            WHERE id = (
+                SELECT id FROM sync_requests
+                WHERE status = 'pending'
+                ORDER BY requested_at ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING id
+        """)
+        row = cur.fetchone()
+        conn.commit()
+        return row[0] if row else None
+
+
+def run_collector():
+    """Invoke the collector wrapper. Returns (returncode, stdout, stderr)."""
+    log.info(f"Running collector: {COLLECTOR_WRAPPER}")
+    proc = subprocess.run(
+        [sys.executable, str(COLLECTOR_WRAPPER)],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+        timeout=600,  # 10 min hard cap
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def find_latest_sync_log_id(conn):
+    """The collector writes a row to sync_log on start; grab its id."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT id FROM sync_log ORDER BY started_at DESC LIMIT 1
+        """)
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
+def mark_completed(conn, req_id, sync_log_id, summary):
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE sync_requests
+            SET status = 'completed', completed_at = NOW(),
+                sync_log_id = %s, result = %s
+            WHERE id = %s
+        """, (sync_log_id, summary, req_id))
+        conn.commit()
+
+
+def mark_failed(conn, req_id, error):
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE sync_requests
+            SET status = 'failed', completed_at = NOW(), error = %s
+            WHERE id = %s
+        """, (error[:500], req_id))
+        conn.commit()
+
+
+def process_one(conn):
+    """Claim and run one pending request. Returns True if something was processed."""
+    req_id = claim_next_request(conn)
+    if req_id is None:
+        return False
+
+    log.info(f"Claimed sync_request id={req_id}")
+    try:
+        rc, stdout, stderr = run_collector()
+        if rc == 0:
+            sync_log_id = find_latest_sync_log_id(conn)
+            tail = (stdout or "").strip().splitlines()[-1] if (stdout or "").strip() else "completed"
+            mark_completed(conn, req_id, sync_log_id, f"rc=0 ({tail})")
+            log.info(f"Request {req_id} completed (sync_log_id={sync_log_id})")
+        else:
+            err = (stderr or stdout or f"exit {rc}").strip()
+            mark_failed(conn, req_id, err)
+            log.error(f"Request {req_id} failed: {err}")
+    except subprocess.TimeoutExpired:
+        mark_failed(conn, req_id, "Collector timed out after 600s")
+        log.error(f"Request {req_id} timed out")
+    except Exception as e:
+        mark_failed(conn, req_id, str(e))
+        log.exception(f"Request {req_id} raised")
+
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--loop", action="store_true", help="Run forever, polling at --interval")
+    parser.add_argument("--interval", type=int, default=15, help="Seconds between polls in --loop mode")
+    args = parser.parse_args()
+
+    conn = psycopg2.connect(DATABASE_URL)
+    log.info(f"Poller started (loop={args.loop}, interval={args.interval}s)")
+
+    if args.loop:
+        try:
+            while True:
+                try:
+                    while process_one(conn):
+                        pass  # drain the queue
+                except psycopg2.OperationalError:
+                    log.warning("DB connection lost, reconnecting...")
+                    conn = psycopg2.connect(DATABASE_URL)
+                time.sleep(args.interval)
+        except KeyboardInterrupt:
+            log.info("Shutting down")
+    else:
+        process_one(conn)
+
+
+if __name__ == "__main__":
+    main()

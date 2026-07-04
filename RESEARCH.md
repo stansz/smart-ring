@@ -114,7 +114,7 @@ Stock firmware is the starting point. Custom firmware mods to explore:
 
 Flash via atc1441's web-based OTA tool: https://atc1441.github.io/ATC_RF03_Writer.html (WebBluetooth, Chrome required)
 
-## Architecture Options (DECISION PENDING)
+## Architecture (CONFIRMED — Local-First)
 
 Both options share the same components — they differ in WHERE things run.
 
@@ -226,103 +226,48 @@ Research shows periodic sampling throughout the day is scientifically valid and 
 
 ---
 
-### OPTION A: All-Local (Linux box does everything)
+## Architecture (CONFIRMED — Local-First)
 
+The agent (Hermes) runs on the same local Linux box, so full local deployment is now the starting point. Remote access can be added later (e.g. Cloudflare tunnel or reverse proxy to the VPS).
+
+Current topology (Linux Mint HTPC):
 ```
-┌─────────────────────────────────────────────┐
-│ HOME — Linux Mint Box (24/7)                 │
-│                                              │
-│  Ring (R09)                                  │
-│    ↓ BLE                                     │
-│  Collector (cron, every 2-4 hrs)             │
-│    ↓                                         │
-│  Postgres (container)                        │
-│    ├─ raw sensor data                        │
-│    └─ computed metrics                       │
-│    ↑                                         │
-│  Analytics (cron) — RMSSD, pNN50, sleep      │
-│    ↓                                         │
-│  FastAPI + Dashboard (container)             │
-│    ↓ :PORT                                   │
-│  Browser (local or via Cloudflare tunnel)    │
-└─────────────────────────────────────────────┘
+Home Network
+├─ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
+   ├─ Collector (Python venv, bare metal — needs BlueZ/DBus for BLE)
+   ├─ Postgres (Podman/Docker container)
+   ├─ FastAPI (container)
+   └─ Dashboard (served by FastAPI from container)
 ```
 
-**Pros:**
-- Raw biometric data never leaves your house
-- Full control, no remote dependency
-- One machine, one network — simpler security model
-- No cloud/VPS costs
-- Lowest latency
-- Analytics run on 3800x with 64GB RAM — overkill
+**Why local-first?**
+- ✅ Agent can build, test, debug, maintain everything
+- ✅ Full control, no data leaves the house
+- ✅ Lowest latency, no network dependency
+- ✅ Can add remote access later (Cloudflare tunnel, VPN, or sync to VPS)
+- ✅ Postgres + FastAPI run fine in containers; collector stays bare metal for BLE
 
-**Cons:**
-- ❌ Agent (Hermes) can't directly build/debug/maintain
-- ❌ Remote access requires Cloudflare tunnel setup (manual on Sz's side)
-- ❌ If the box goes down, dashboard goes down
-- ❌ Sz must troubleshoot issues locally or screen-share
+**When to consider VPS hybrid:**
+- When you want remote dashboard access (add Cloudflare tunnel to the local FastAPI container)
+- When you want a backup copy (sync computed metrics, not raw data, to VPS)
+- Not needed for initial dev or data collection
 
 ---
 
-### OPTION B: Hybrid (Local collector + OVH backend)
+## Deployment Topology — BARE METAL + CONTAINERS
 
-```
-┌──────────────────────┐       ┌──────────────────────────┐
-│ HOME — Linux Mint     │       │ OVH (51.254.128.5)       │
-│                       │       │                          │
-│  Ring (R09)           │       │  Postgres (container)    │
-│    ↓ BLE              │       │    ├─ raw sensor data    │
-│  Collector (cron)     │──────>|    └─ computed metrics   │
-│  (~50 lines Python,   │ HTTPS │    ↑                     │
-│   syncs ring, POSTs   │  TLS  │  Analytics (cron)        │
-│   raw data as JSON)   │       │    — RMSSD, pNN50, sleep │
-│                       │       │    ↓                     │
-└──────────────────────┘       │  FastAPI + Dashboard     │
-                                │    (container)           │
-                                │    ↓ :PORT               │
-                                │  Browser (anywhere)      │
-                                │  Agent has full access   │
-                                └──────────────────────────┘
-```
-
-**Pros:**
-- ✅ Agent (Hermes) can build, test, debug, maintain everything
-- ✅ Dashboard accessible from anywhere (phone, laptop, work)
-- ✅ OVH already publicly reachable
-- ✅ If home box goes down, dashboard still serves last data
-- ✅ OVH handles all the backend heavy lifting
-- ✅ Collector is dead simple (~50 lines) — easy for Sz to deploy
-
-**Cons:**
-- ❌ Raw biometric data leaves your house (encrypted TLS to your own server)
-- ❌ Slightly more moving parts (network config, auth)
-- ❌ Depends on home internet being up for data collection
-- ❌ OVH is a shared VPS (single-user but not physically yours)
+- **Collector:** Runs on bare metal host (Python venv) — needs direct BlueZ/DBus access for BLE
+- **Postgres, FastAPI, Dashboard, Analytics:** Isolated in Podman/Docker containers
+- **Windows 10 VM:** Unchanged, untouched
+- **Why not VM with BT passthrough?** The BT chip is a combo WiFi+BT on motherboard PCIe. Passing it through to a VM would lose host connectivity (mouse dies). Bare metal avoids the mess entirely.
+- **Collector on host vs container:** Host is simpler — collector is a thin script that needs DBus/BlueZ. Can containerize later by mounting `/var/run/dbus` if isolation is ever needed.
 
 ---
 
-### Comparison Summary
+## REMOVED — Old Multi-Option Comparison
 
-| Factor | Option A (All-Local) | Option B (Hybrid) |
-|--------|---------------------|-------------------|
-| Data privacy | ✅ Stays home | Raw data goes to OVH |
-| Remote access | Needs CF tunnel | ✅ Native |
-| Agent can maintain | ❌ No | ✅ Yes — full access |
-| Complexity to build | Sz does most of it locally | Agent builds backend on OVH |
-| Debugging | Hard (need screen share) | ✅ Direct SSH/terminal |
-| Dashboard uptime | Tied to home box | ✅ 24/7 VPS |
-| Cost | Free | OVH already paid for |
-| Single point of failure | Home box | Home internet for collection |
+> The previous multi-option comparison (All-Local vs OVH Hybrid vs Read-Only Mirror) has been removed. Local-first is the confirmed starting point. If a VPS component is needed later, it will be added as a remote mirror, not a hybrid backend.
 
-### Possible Hybrid Approach (Option C)
-Run everything locally like Option A, but use OVH only as a read-only mirror:
-- Linux box does full pipeline (collector + analytics + dashboard)
-- Sync script pushes computed metrics (NOT raw data) to OVH Postgres
-- OVH runs a second dashboard instance for remote access
-- Best of both worlds, but most complex to build
-
-### Recommendation
-TBD — Sz is thinking about it.
 
 ## Quick Oura Comparison (for context)
 

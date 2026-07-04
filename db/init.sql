@@ -104,12 +104,14 @@ CREATE TABLE IF NOT EXISTS hrv_trends (
 );
 
 CREATE TABLE IF NOT EXISTS circadian_hr (
-    hour INT PRIMARY KEY,
+    day DATE NOT NULL,
+    hour INT NOT NULL,
     avg_hr NUMERIC,
     min_hr NUMERIC,
     max_hr NUMERIC,
     sample_count INT,
-    computed_at TIMESTAMPTZ DEFAULT NOW()
+    computed_at TIMESTAMPTZ DEFAULT NOW(),
+    PRIMARY KEY (day, hour)
 );
 
 CREATE TABLE IF NOT EXISTS stress_classification (
@@ -133,3 +135,20 @@ CREATE TABLE IF NOT EXISTS sync_log (
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_log_started ON sync_log(started_at DESC);
+
+-- Admin job queue (API -> host poller -> collector)
+-- The API inserts rows here when admin clicks "Sync Now" in the dashboard.
+-- A host-side poller (collector/sync_request_poller.py) picks up pending rows,
+-- runs the collector, and updates the row with the result.
+CREATE TABLE IF NOT EXISTS sync_requests (
+    id BIGSERIAL PRIMARY KEY,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    requested_by TEXT DEFAULT 'admin-ui',
+    status TEXT NOT NULL DEFAULT 'pending',  -- pending | running | completed | failed
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    sync_log_id BIGINT REFERENCES sync_log(id),
+    result TEXT,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sync_requests_status ON sync_requests(status, requested_at DESC);

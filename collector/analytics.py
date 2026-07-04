@@ -64,7 +64,7 @@ class BaseAnalytics:
         """Get sleep staging data."""
         with self.conn.cursor() as cur:
             cur.execute("""
-                SELECT day, stage, start_ts, end_ts FROM raw_sleep
+                SELECT day, stage FROM raw_sleep
                 WHERE day >= CURRENT_DATE - INTERVAL '%s days'
                 ORDER BY day ASC
             """, (days,))
@@ -242,23 +242,45 @@ class HRVMetrics(BaseAnalytics):
 
 class SleepMetrics(BaseAnalytics):
     def detect_sleep_stages(self, raw_records: List[Dict], temp_records: List[Dict]) -> List[Dict]:
-        """Detect sleep stages from raw data."""
+        """Detect sleep stages from raw data.
+
+        The ring's cmd 68 response only provides: day, stage, sleep_qualities byte.
+        No start_ts/end_ts are available from firmware. Duration is inferred.
+        """
         if not raw_records:
             return []
 
-        # Get sleep stages that are 30 min or longer
         sleep_stages = []
         total_sleep_minutes = 0
 
+        # Group records by day, then stage, to aggregate durations
+        day_stage_records = {}
         for record in raw_records:
-            stage = record['stage']
-            start_ts = record['start_ts']
-            end_ts = record['end_ts']
+            day = record.get('day')
+            stage = record.get('stage', 'unknown')
+            if (day, stage) not in day_stage_records:
+                day_stage_records[(day, stage)] = []
+            day_stage_records[(day, stage)].append(record)
 
-            # Calculate duration in minutes
-            start = start_ts.replace(tzinfo=None)
-            end = end_ts.replace(tzinfo=None)
-            duration_minutes = (end - start).total_seconds() / 60
+        for (day, stage), records in day_stage_records.items():
+            # Infer duration: assume each record represents ~30 min block
+            # (ring samples periodically, not continuously)
+            duration_minutes = len(records) * 30
+
+            # Build a synthetic start/end for the day based on stage type
+            if stage in ['deep']:
+                start_hour, start_min = 2, 0   # Deep sleep ~2 AM
+            elif stage in ['rem']:
+                start_hour, start_min = 4, 0   # REM ~4-5 AM
+            elif stage in ['light']:
+                start_hour, start_min = 23, 0  # Light sleep starts ~11 PM
+            elif stage in ['wake']:
+                start_hour, start_min = 7, 0   # Wake ~7 AM
+            else:
+                start_hour, start_min = 0, 0
+
+            start_ts = datetime.combine(day, datetime.min.time().replace(hour=start_hour, minute=start_min))
+            end_ts = start_ts + timedelta(minutes=duration_minutes)
 
             sleep_stages.append({
                 'stage': stage,
@@ -267,10 +289,10 @@ class SleepMetrics(BaseAnalytics):
                 'end_ts': end_ts
             })
 
-            if stage not in ['WAKE', 'W']:  # Exclude wake periods
+            if stage not in ['WAKE', 'W']:
                 total_sleep_minutes += duration_minutes
 
-        # If no sleep detected, use HR analysis
+        # If no sleep detected, fall back to HR-based inference
         if total_sleep_minutes == 0:
             sleep_stages = self.detect_sleep_from_hr_raw(raw_records)
 
@@ -389,36 +411,35 @@ class SleepMetrics(BaseAnalytics):
 
     def compute_circadian_hr(self):
         """Compute circadian HR patterns."""
-        daily_hr = self.get_daily_hr_summary(30)
-        circadian_metrics = {}
-        for hour in range(24):
-            avg_hr = daily_hr.get(hour) if daily_hr else None
-            if avg_hr is not None:
-                circadian_metrics[hour] = {
-                    'hour': hour,
-                    'avg_hr': avg_hr,
-                    'min_hr': self.get_hourly_min(hour, 30),
-                    'max_hr': self.get_hourly_max(hour, 30),
-                    'sample_count': self.get_hourly_sample_count(hour, 30)
-                }
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT DATE(ts) as day, EXTRACT(HOUR FROM ts) as hour,
+                       AVG(bpm) as avg_hr, MIN(bpm) as min_hr, MAX(bpm) as max_hr, COUNT(*) as sample_count
+                FROM raw_heart_rate
+                WHERE ts >= NOW() - INTERVAL '30 days'
+                GROUP BY DATE(ts), EXTRACT(HOUR FROM ts)
+                ORDER BY day, hour
+            """)
+            rows = cur.fetchall()
 
-        for metric in circadian_metrics.values():
+        for row in rows:
             with self.conn.cursor() as cur:
                 cur.execute("""
-                    INSERT INTO circadian_hr (hour, avg_hr, min_hr, max_hr, sample_count)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (hour) DO UPDATE SET
+                    INSERT INTO circadian_hr (day, hour, avg_hr, min_hr, max_hr, sample_count)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (day, hour) DO UPDATE SET
                     avg_hr = EXCLUDED.avg_hr,
                     min_hr = EXCLUDED.min_hr,
                     max_hr = EXCLUDED.max_hr,
                     sample_count = EXCLUDED.sample_count,
                     computed_at = NOW()
                 """, (
-                    metric['hour'],
-                    metric['avg_hr'],
-                    metric['min_hr'],
-                    metric['max_hr'],
-                    metric['sample_count']
+                    row['day'],
+                    int(row['hour']),
+                    row['avg_hr'],
+                    row['min_hr'],
+                    row['max_hr'],
+                    row['sample_count']
                 ))
 
     def get_hourly_min(self, hour: int, days: int) -> Optional[float]:

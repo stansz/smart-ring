@@ -81,12 +81,18 @@ def setup_postgres():
     run_command("apt-get update && apt-get install -y postgresql-client 2>/dev/null || true")
 
     env_file = PROJECT_ROOT / ".env"
+    env_example = PROJECT_ROOT / ".env.example"
 
-    if not env_file.exists():
+    if not env_file.exists() and env_example.exists():
+        log.info("Creating .env file from .env.example...")
+        import shutil
+        shutil.copy(env_example, env_file)
+    elif not env_file.exists():
         log.info("Creating .env file...")
         with open(env_file, "w") as f:
             f.write("DATABASE_URL=postgresql://smart_ring:changeme@localhost:5432/smart_ring\n")
             f.write("RING_ADDRESS=\n")
+            f.write("POSTGRES_PASSWORD=changeme\n")
 
     # Wait for PostgreSQL
     log.info("Waiting for PostgreSQL to be ready...")
@@ -108,11 +114,11 @@ def setup_collector_cron(python_path: str):
     """Set up cron job for ring collector."""
     log.info("Setting up collector cron job...")
 
-    # Create collector script wrapper
+    # Create collector script wrapper if it doesn't exist
     script_path = PROJECT_ROOT / "collector" / "collector-wrapper.py"
-
-    with open(script_path, "w") as f:
-        f.write("""#!/usr/bin/env python3
+    if not script_path.exists():
+        with open(script_path, "w") as f:
+            f.write("""#!/usr/bin/env python3
 import asyncio
 import sys
 from pathlib import Path
@@ -120,8 +126,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.sync_ring import main
 asyncio.run(main())
 """)
-
-    os.chmod(script_path, 0o755)
+        os.chmod(script_path, 0o755)
+        log.info("Created collector-wrapper.py")
 
     # Add to crontab: every 2 hours at minute 0
     cron_cmd = f"{python_path} {script_path}"
@@ -133,19 +139,19 @@ def setup_analytics_cron(python_path: str):
     """Set up cron job for analytics."""
     log.info("Setting up analytics cron job...")
 
-    # Create analytics script wrapper
+    # Create analytics script wrapper if it doesn't exist
     script_path = PROJECT_ROOT / "collector" / "analytics-wrapper.py"
-
-    with open(script_path, "w") as f:
-        f.write("""#!/usr/bin/env python3
+    if not script_path.exists():
+        with open(script_path, "w") as f:
+            f.write("""#!/usr/bin/env python3
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.analytics import main
 main()
 """)
-
-    os.chmod(script_path, 0o755)
+        os.chmod(script_path, 0o755)
+        log.info("Created analytics-wrapper.py")
 
     # Add to crontab (run 2 minutes after collector)
     cron_cmd = f"{python_path} {script_path}"
@@ -154,19 +160,19 @@ main()
     log.info("Analytics cron setup: every 2 hours at minute 2 (after collector)")
 
 def create_test_data_script(python_path: str):
-    """Create script for testing open questions."""
+    """Create script for testing open questions if it doesn't exist."""
     script_path = PROJECT_ROOT / "collector" / "test_open_questions.py"
 
-    with open(script_path, "w") as f:
-        f.write("""#!/usr/bin/env python3
+    if not script_path.exists():
+        with open(script_path, "w") as f:
+            f.write("""#!/usr/bin/env python3
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 """)
 
-    os.chmod(script_path, 0o755)
-
-    log.info("Created test script for open questions")
+        os.chmod(script_path, 0o755)
+        log.info("Created test script for open questions")
 
 def main():
     """Main setup function."""
