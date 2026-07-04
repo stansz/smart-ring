@@ -39,7 +39,7 @@ Home Network
    └─ Dashboard (served by FastAPI)
 ```
 
-Services are started with Podman/Docker Compose. The collector runs as a cron job on the host.
+Services are managed by systemd quadlets (rootless Podman). The collector runs as a cron job on the host.
 
 ## Remote Access (Optional, Later)
 

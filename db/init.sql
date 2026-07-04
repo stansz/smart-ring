@@ -152,3 +152,7 @@ CREATE TABLE IF NOT EXISTS sync_requests (
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_requests_status ON sync_requests(status, requested_at DESC);
+-- Partial unique index: only one row can be pending or running at a time.
+-- This is what prevents a race when two POSTs try to queue a sync simultaneously.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_requests_one_active ON sync_requests(status)
+    WHERE status IN ('pending', 'running');

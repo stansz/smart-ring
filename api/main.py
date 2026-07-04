@@ -1,7 +1,6 @@
 import os
-import subprocess
 from contextlib import asynccontextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException
@@ -11,6 +10,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
@@ -224,24 +224,19 @@ class SyncRequest(BaseModel):
 def queue_sync(req: SyncRequest):
     """Queue a sync. The host-side poller will pick this up within ~60s."""
     with SessionLocal() as db:
-        # Refuse if a sync is already pending or running
-        active = db.execute(text("""
-            SELECT id, status, requested_at FROM sync_requests
-            WHERE status IN ('pending', 'running')
-            ORDER BY requested_at DESC LIMIT 1
-        """)).mappings().first()
-        if active:
+        try:
+            row = db.execute(text("""
+                INSERT INTO sync_requests (requested_by, status)
+                VALUES (:by, 'pending')
+                RETURNING id, requested_at, status
+            """), {"by": req.requested_by}).mappings().first()
+            db.commit()
+        except IntegrityError:
+            db.rollback()
             raise HTTPException(
                 status_code=409,
-                detail=f"A sync is already {active['status']} (id={active['id']}, "
-                       f"requested at {active['requested_at']}). Wait for it to finish.",
+                detail="A sync is already pending or running. Check recent requests for details.",
             )
-        row = db.execute(text("""
-            INSERT INTO sync_requests (requested_by, status)
-            VALUES (:by, 'pending')
-            RETURNING id, requested_at, status
-        """), {"by": req.requested_by}).mappings().first()
-        db.commit()
     return dict(row)
 
 

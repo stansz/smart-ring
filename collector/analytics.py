@@ -90,22 +90,7 @@ class BaseAnalytics:
             """, (hours,))
             return cur.fetchall()
 
-    def get_daily_hr_summary(self, days: int = 30) -> Dict:
-        """Get daily average HR for circadian patterns."""
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                SELECT DATE_TRUNC('hour', ts) as hour, AVG(bpm) as avg_hr
-                FROM raw_heart_rate
-                WHERE ts >= NOW() - INTERVAL '%s days'
-                GROUP BY DATE_TRUNC('hour', ts)
-                ORDER BY hour
-            """, (days,))
-            rows = cur.fetchall()
-            result = {}
-            for r in rows:
-                hour = r['hour'].hour
-                result[hour] = float(r['avg_hr']) if r['avg_hr'] else None
-            return result
+
 
 class HRVMetrics(BaseAnalytics):
     def compute_rmssd(self, rr_intervals_ms: List[float]) -> float:
@@ -294,37 +279,36 @@ class SleepMetrics(BaseAnalytics):
 
         # If no sleep detected, fall back to HR-based inference
         if total_sleep_minutes == 0:
-            sleep_stages = self.detect_sleep_from_hr_raw(raw_records)
+            sleep_stages = self.detect_sleep_from_hr_raw()
 
         return sleep_stages
 
-    def detect_sleep_from_hr_raw(self, raw_records: List[Dict]) -> List[Dict]:
-        """Detect sleep from raw HR patterns when ring data missing."""
-        if not raw_records:
+    def detect_sleep_from_hr_raw(self) -> List[Dict]:
+        """Fallback: detect sleep from overnight HR patterns when ring sleep data is missing.
+        Uses raw_heart_rate data (ts, bpm) queried from DB — not raw_sleep."""
+        hr_data = self.get_heart_rate_beats(hours=24)
+        if not hr_data:
             return []
 
         sleep_stages = []
         night_hr = []
 
-        for record in raw_records:
+        for record in hr_data:
             ts = record['ts']
             bpm = record['bpm']
 
-            # Check if it's nighttime (1 AM - 5 AM)
             hour = ts.hour
             if 1 <= hour <= 5:
                 night_hr.append({'ts': ts, 'bpm': bpm})
 
-        # Simple heuristic: if night HR is stable, classify as sleep
         if len(night_hr) >= 3:
             avg_hr = sum(r['bpm'] for r in night_hr) / len(night_hr)
             hr_variance = statistics.variance([r['bpm'] for r in night_hr]) if len(night_hr) > 1 else 0
 
-            # Low variance indicates stable HR (sleep)
-            if hr_variance < 50:  # Threshold
+            if hr_variance < 50:
                 sleep_stages.append({
                     'stage': 'SLEEP',
-                    'duration_minutes': 180,  # Assume 3 hours for now
+                    'duration_minutes': 180,
                     'start_ts': datetime.now().replace(hour=22, minute=0),
                     'end_ts': datetime.now().replace(hour=5, minute=0)
                 })
@@ -441,42 +425,6 @@ class SleepMetrics(BaseAnalytics):
                     row['max_hr'],
                     row['sample_count']
                 ))
-
-    def get_hourly_min(self, hour: int, days: int) -> Optional[float]:
-        """Get minimum HR for a specific hour."""
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                SELECT MIN(bpm) as min_hr
-                FROM raw_heart_rate
-                WHERE EXTRACT(HOUR FROM ts) = %s
-                AND ts >= NOW() - INTERVAL '%s days'
-            """, (hour, days))
-            result = cur.fetchone()
-            return float(result['min_hr']) if result and result['min_hr'] else None
-
-    def get_hourly_max(self, hour: int, days: int) -> Optional[float]:
-        """Get maximum HR for a specific hour."""
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                SELECT MAX(bpm) as max_hr
-                FROM raw_heart_rate
-                WHERE EXTRACT(HOUR FROM ts) = %s
-                AND ts >= NOW() - INTERVAL '%s days'
-            """, (hour, days))
-            result = cur.fetchone()
-            return float(result['max_hr']) if result and result['max_hr'] else None
-
-    def get_hourly_sample_count(self, hour: int, days: int) -> int:
-        """Get sample count for a specific hour."""
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*) as count
-                FROM raw_heart_rate
-                WHERE EXTRACT(HOUR FROM ts) = %s
-                AND ts >= NOW() - INTERVAL '%s days'
-            """, (hour, days))
-            result = cur.fetchone()
-            return result['count'] if result else 0
 
     def store_sleep_metrics(self, score: Dict, detailed: Dict):
         """Store sleep quality metrics."""

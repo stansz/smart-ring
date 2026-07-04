@@ -268,6 +268,7 @@
             <div class="bg-gray-50 border border-gray-200 rounded p-3 text-sm text-gray-600">
                 <p class="font-mono text-xs">ssh into the Linux box and run:</p>
                 <pre class="mt-1 text-xs bg-gray-900 text-gray-100 p-2 rounded overflow-x-auto">cd ~/code/smart-ring
+python3 setup.sh      # first-time: creates venv + installs deps
 source venv/bin/activate
 python3 collector/test_open_questions.py</pre>
                 <p class="text-xs mt-2 text-gray-500">This tests: sync behavior (read-only vs read-and-clear), HRV format (RR intervals vs composite), temperature sampling cadence.</p>

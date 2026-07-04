@@ -219,7 +219,8 @@ Research shows periodic sampling throughout the day is scientifically valid and 
 
 ### Deployment Topology — BARE METAL + CONTAINERS
 - **Collector:** Runs on bare metal host (Python venv) — needs direct BlueZ/DBus access for BLE
-- **Postgres, FastAPI, Dashboard, Analytics:** Isolated in Podman containers
+- **Postgres, FastAPI, Dashboard:** Isolated in Podman containers
+- **Analytics:** Runs on host via cron (2 min after collector, shares collector's venv)
 - **Windows 10 VM:** Unchanged, untouched
 - **Why not VM with BT passthrough?** The BT chip is a combo WiFi+BT on motherboard PCIe. Passing it through to a VM would lose host connectivity (mouse dies). Bare metal avoids the mess entirely.
 - **Collector on host vs container:** Host is simpler — collector is a thin script that needs DBus/BlueZ. Can containerize later by mounting `/var/run/dbus` if isolation is ever needed.
@@ -257,7 +258,8 @@ Home Network
 ## Deployment Topology — BARE METAL + CONTAINERS
 
 - **Collector:** Runs on bare metal host (Python venv) — needs direct BlueZ/DBus access for BLE
-- **Postgres, FastAPI, Dashboard, Analytics:** Isolated in Podman/Docker containers
+- **Postgres, FastAPI, Dashboard:** Isolated in Podman/Docker containers
+- **Analytics:** Runs on host via cron (2 min after collector, shares collector's venv)
 - **Windows 10 VM:** Unchanged, untouched
 - **Why not VM with BT passthrough?** The BT chip is a combo WiFi+BT on motherboard PCIe. Passing it through to a VM would lose host connectivity (mouse dies). Bare metal avoids the mess entirely.
 - **Collector on host vs container:** Host is simpler — collector is a thin script that needs DBus/BlueZ. Can containerize later by mounting `/var/run/dbus` if isolation is ever needed.
