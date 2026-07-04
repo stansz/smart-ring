@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS raw_sleep (
     id BIGSERIAL PRIMARY KEY,
     day DATE NOT NULL,
     stage TEXT NOT NULL,
-    start_ts TIMESTAMPTZ NOT NULL,
-    end_ts TIMESTAMPTZ NOT NULL,
+    start_ts TIMESTAMPTZ,
+    end_ts TIMESTAMPTZ,
     source TEXT DEFAULT 'ring',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (day, stage, source)
