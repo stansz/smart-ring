@@ -50,6 +50,7 @@ Home Network
 |------|---------|-------|
 | `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)** |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
+| `collector/first_contact.py` | Safe read-only diagnostics | Reads battery, firmware, device info, sets clock — NO data sync |
 | `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Runs on host (not container); claims rows from `sync_requests` and invokes the collector |
 | `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/` |
 | `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed |
@@ -145,9 +146,13 @@ The API lives in a container without BLE access. The collector must run on the h
 - POST `/api/admin/sync` queues a row, second POST correctly returns HTTP 409
 - Schema applied to running DB without restart
 
-**Still TODO (install before ring arrives):**
-- [ ] Wire up `sync_request_poller.py` as a systemd user timer (every 60s)
-- [ ] OR run it as `--loop` under a systemd user service
+**Poller wired up (2026-07-08):**
+- Created `smart-ring-poller.service` in `~/.config/systemd/user/` — `--loop --interval 2s`, enabled, active
+- Smoketested end-to-end: POST /api/admin/first-contact → DB row claimed within ~1s → `first_contact.py` ran → failed as expected (no ring in range)
+- Both "First Contact" and "Sync Now" buttons now fully functional
+
+**Still TODO before ring arrives:**
+- [ ] Set up collector + analytics cron jobs (`setup.sh` ran but `psql` was unavailable — crontab is empty)
 
 ---
 
@@ -179,7 +184,10 @@ Set `RING_ADDRESS=XX:XX:XX:XX:XX:XX` in `.env` once known.
 
 ### Step 3 — PC info-only connection (read-only)
 Connect, read battery + firmware + device info, set clock. **No data sync.**
-(Will be handled by `collector/first_contact.py` — TODO, see Future Work)
+Handled by `collector/first_contact.py` — fully implemented. Queue from the Admin tab "First Contact" button, or run directly:
+```bash
+source venv/bin/activate && python3 collector/first_contact.py
+```
 
 ### Step 4 — Run `test_open_questions.py` (the actual experiments)
 ```bash
@@ -215,7 +223,7 @@ This resolves the three Known Unknowns below:
 ## Future Work (Post-Hardware)
 
 - [ ] Verify actual ring data format against current parsers
-- [ ] Write `collector/first_contact.py` — safe read-only first contact script (scan + battery + firmware + set clock, NO data sync)
+- [x] Write `collector/first_contact.py` — safe read-only first contact script (scan + battery + firmware + set clock, NO data sync) — done, fully functional
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
 - [ ] Evaluate custom firmware (atc1441) for enhanced features
