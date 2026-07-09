@@ -12,7 +12,7 @@ Private, self-hosted health tracking system built around the **Colmi R09** smart
 - **Hardware:** Colmi R09 (BlueX RF03 SoC, PPG + SpO2 + skin temp + accelerometer)
 - **Stack:** Python (async BLE), FastAPI, Postgres, Alpine.js + Chart.js
 - **Deployment:** Local-first on Linux Mint HTPC (AMD 3800x, 64GB RAM)
-- **Status:** Awaiting hardware delivery (~2-4 weeks from AliExpress)
+- **Status:** 🟢 Ring arrived, validated, and working end-to-end. First contact succeeds, sync pulls data, dashboard operational. Sleep/retry hardening remaining.
 
 **Update 2026-07-09:** Ring arrived, hardware confirmed working. Firmware RT09_3.10.21_251107, HW RT09_V3.1. Nordic UART protocol (UUIDs match colmi_r02_client). See work log entries for full validation.
 
@@ -50,15 +50,18 @@ Home Network
 
 | File | Purpose | Notes |
 |------|---------|-------|
-| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)** |
+| `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient` (upstream hangs without one); replaces `assert packet_type < 127` with `logger.debug` so async ring pushes don't kill the listener |
+| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)**; uses `ring_client.Client` |
+| `collector/collector-wrapper.py` | Tiny shim that sets `sys.path` and runs `sync_ring.main()` | Cron / poller entry point |
+| `collector/first_contact.py` | Safe read-only diagnostics | Reads battery (`battery_level`), firmware, device info, sets clock — NO data sync |
+| `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
+| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Runs on host (not container); claims rows from `sync_requests` via `FOR UPDATE SKIP LOCKED`, dispatches based on `requested_by` |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
-| `collector/first_contact.py` | Safe read-only diagnostics | Reads battery, firmware, device info, sets clock — NO data sync |
-| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Runs on host (not container); claims rows from `sync_requests` and invokes the collector |
-| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/` |
-| `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed |
+| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; 5 admin endpoints (`ring-status`, `health`, `sync-log`, `first-contact`, `sync`, `sync-requests`) |
+| `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed; polls every 5s for active sync status |
 | `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue |
 | `setup.sh` | Python-based setup + cron configuration | Does NOT overwrite existing files anymore |
-| `docker-compose.yml` | Legacy fallback (Podman quadlets are the live deployment) | Binds to `127.0.0.1` |
+| `docker-compose.yml` | Legacy fallback (rootless Podman quadlets are the live deployment) | Binds to `127.0.0.1` only |
 
 ---
 
@@ -217,68 +220,62 @@ The API lives in a container without BLE access. The collector must run on the h
 
 ---
 
-## Testing the Ring (When It Arrives)
+## Testing the Ring (Validated 2026-07-09)
 
-> **Goal:** Validate hardware works → determine sync behavior → start collection.
-> **Critical rule:** Treat the ring's stored data as precious until we know whether sync clears the buffer.
+Both the Admin tab buttons and direct scripts work end-to-end. The three Known Unknowns from AGENTS.md are now partially resolved (see 2026-07-09 work log below).
 
-### Step 1 — PC BLE scan (zero risk, no connection)
+### One-time setup (already done for this ring)
+1. **Pair the ring** (one-time, via bluetoothctl only):
+   ```bash
+   bluetoothctl scan on                         # wait for R09_2103 to appear
+   bluetoothctl pair 30:35:42:37:21:03          # "Pairing successful"
+   bluetoothctl trust 30:35:42:37:21:03         # optional: auto-allow reconnects
+   bluetoothctl disconnect 30:35:42:37:21:03    # let bleak own the connection
+   ```
+   ⚠️ **Never** use `bluetoothctl connect` after pairing — it takes exclusive GATT ownership and breaks the Python collector.
+
+### Daily operations
 ```bash
-python3 collector/sync_ring.py scan
-```
-Just discovers the BLE address. No data access. Confirms the Linux box sees the ring.
-Set `RING_ADDRESS=XX:XX:XX:XX:XX:XX` in `.env` once known.
+source venv/bin/activate
 
-### Step 2 — Gadgetbridge for visual hardware validation (safe IF no sync)
-- Install from F-Droid: `nodomain.freeyourgadget.gadgetbridge` (NOT Play Store)
-- Pair via BLE, set the clock
-- Verify sensors fire: live HR, SpO2, temperature, step counter
-- ⚠️ **DO NOT tap "Sync" / "Fetch data" in Gadgetbridge yet** — we don't know if it clears the ring's buffer. Live HR viewing (cmd 30) is safe; the Sync button is not.
+# Read-only diagnostic (battery, firmware, set clock — no data sync)
+python3 collector/first_contact.py
 
-### Step 3 — PC info-only connection (read-only)
-Connect, read battery + firmware + device info, set clock. **No data sync.**
-Handled by `collector/first_contact.py` — fully implemented. Queue from the Admin tab "First Contact" button, or run directly:
-```bash
-source venv/bin/activate && python3 collector/first_contact.py
+# Full sync to Postgres (HR, steps, HRV, sleep, SpO2, temperature)
+python3 collector/sync_ring.py
+
+# Or use the Admin tab "First Contact" / "Sync Now" buttons
+# → POST /api/admin/first-contact, /api/admin/sync
+# → sync_request_poller.py picks up the row within ~2s
 ```
 
-### Step 4 — Run `test_open_questions.py` (the actual experiments)
-```bash
-python3 collector/test_open_questions.py
-```
-This resolves the three Known Unknowns below:
-- Sync behavior (test syncs twice, compares counts — small data loss acceptable on fresh ring)
-- HRV format (RR intervals vs composite score)
-- Temperature sampling cadence
-
-### Step 5 — Configure collector based on test results
-- If sync is read-and-clear → don't use Gadgetbridge sync at all going forward
-- If HRV is RR intervals → enable RMSSD/pNN50 computation
-- If temp cadence is workable → enable sleep staging with temperature bonus
-
-### Then check logs
-- `collector/collector.log` for sync errors
-- `journalctl --user -u smart-ring-api` for API/dashboard issues
+### Observability
+- `collector/collector.log` — sync errors
+- `collector/first_contact.log` — first-contact diagnostics
+- `collector/sync_request_poller.log` — poller activity
+- `journalctl --user -u smart-ring-poller -f` — poller service logs
+- `podman logs smart-ring-api` — FastAPI logs
+- `journalctl --user -u smart-ring-db` — Postgres logs
 
 ---
 
-## Known Unknowns (Block on Hardware)
+## Known Unknowns (Partial — see work log for details)
 
 | Question | Status (2026-07-09) | Test Plan / Notes |
 |----------|---------------------|---------------------|
-| Sync behavior: read-only or read-and-clear? | **Tentatively read-only** — first sync pulled 2 records | Run sync twice, compare DB counts; needs ring to stay awake |
+| Sync behavior: read-only or read-and-clear? | **Tentatively read-only** — first sync pulled 2 records to DB | Run sync twice, compare DB counts; needs ring to stay awake long enough |
 | HRV data format: RR intervals vs composite score? | **TBD** — 0 records on fresh ring | Need to wear 24h+ for HRV log to populate |
 | Temperature sensor sampling rate | **Event-driven** — no push in 10s window | Confirm in longer window once data accumulates |
 | R09 firmware compatibility with tahnok client | **WORKS** — FW 3.10.21 + colmi_r02_client | UUIDs match exactly; admin UI works end-to-end |
 
 ---
 
-## Future Work (Post-Hardware)
+## Future Work (Hardening, Once Hardware Is Stable)
 
 - [x] Verify actual ring data format against current parsers
-- [x] Write `collector/first_contact.py` — safe read-only first contact script (scan + battery + firmware + set clock, NO data sync) — done, fully functional
+- [x] Write `collector/first_contact.py` — safe read-only first contact script — done, fully functional
 - [x] Create `collector/ring_client.py` — robust BLE client wrapper with explicit timeout
-- [x] Add `BLE pairing once via bluetoothctl` instructions to AGENTS.md (in step 3 of "Testing the Ring")
+- [x] Add `BLE pairing once via bluetoothctl` instructions to AGENTS.md
 - [ ] Add retry-on-sleep logic to `sync_ring.py` (R09 falls asleep fast)
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
