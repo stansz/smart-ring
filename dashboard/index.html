@@ -143,21 +143,6 @@
             </div>
         </div>
 
-        <!-- Ring Setup -->
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
-            <h2 class="text-lg font-semibold text-gray-900 mb-2">Ring Setup</h2>
-            <p class="text-sm text-gray-500 mb-4">Safe read-only diagnostics (Step 3 in AGENTS.md). No data sync — just validates the hardware.</p>
-            <div class="flex flex-wrap items-center gap-4">
-                <button @click="queueFirstContact()"
-                        :disabled="syncQueueBusy"
-                        class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
-                    <span x-show="!syncQueueBusy">First Contact</span>
-                    <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
-                </button>
-                <span class="text-sm text-gray-500">Reads battery, firmware, device info, and sets the clock. Does NOT sync data.</span>
-            </div>
-        </div>
-
         <!-- Sync controls -->
         <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
             <h2 class="text-lg font-semibold text-gray-900 mb-4">Sync Controls</h2>
@@ -273,20 +258,6 @@
                         </tr>
                     </tbody>
                 </table>
-            </div>
-        </div>
-
-        <!-- Hardware test panel -->
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mt-6">
-            <h2 class="text-lg font-semibold text-gray-900 mb-2">Hardware Tests</h2>
-            <p class="text-sm text-gray-500 mb-3">Run <code class="bg-gray-100 px-1 py-0.5 rounded">test_open_questions.py</code> once the ring arrives to resolve the known unknowns.</p>
-            <div class="bg-gray-50 border border-gray-200 rounded p-3 text-sm text-gray-600">
-                <p class="font-mono text-xs">ssh into the Linux box and run:</p>
-                <pre class="mt-1 text-xs bg-gray-900 text-gray-100 p-2 rounded overflow-x-auto">cd ~/code/smart-ring
-python3 setup.sh      # first-time: creates venv + installs deps
-source venv/bin/activate
-python3 collector/test_open_questions.py</pre>
-                <p class="text-xs mt-2 text-gray-500">This tests: sync behavior (read-only vs read-and-clear), HRV format (RR intervals vs composite), temperature sampling cadence.</p>
             </div>
         </div>
     </main>
@@ -597,29 +568,6 @@ python3 collector/test_open_questions.py</pre>
                     } catch (e) {
                         console.error('queue sync', e);
                         alert('Network error queueing sync.');
-                    }
-                },
-
-                async queueFirstContact() {
-                    try {
-                        const res = await fetch('/api/admin/first-contact', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ requested_by: 'first-contact' })
-                        });
-                        if (res.status === 409) {
-                            const err = await res.json();
-                            alert(err.detail || 'Another job is already pending/running.');
-                        } else if (!res.ok) {
-                            alert('Failed to queue first contact (HTTP ' + res.status + ')');
-                        } else {
-                            this.syncQueueBusy = true;
-                            this.syncQueueStatus = 'Queued...';
-                            await this.loadSyncRequests();
-                        }
-                    } catch (e) {
-                        console.error('queue first-contact', e);
-                        alert('Network error.');
                     }
                 },
 

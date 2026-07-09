@@ -39,7 +39,7 @@ Home Network
    │   ├─ Requires=smart-ring-db.service
    │   └─ port 127.0.0.1:8000, serves dashboard
    ├─ smart-ring-poller.service  (systemd user unit, python sync_request_poller.py --loop --interval 2)
-   │   └─ picks up admin tab "First Contact" / "Sync Now" requests from `sync_requests` table
+   │   └─ picks up admin tab "Sync Now" requests from `sync_requests` table
    └─ Collector cron (every 2h)  (python collector-wrapper.py → sync_ring.py)
        └─ needs BlueZ/DBus access for BLE, runs on host not in container
 ```
