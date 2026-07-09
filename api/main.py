@@ -239,26 +239,6 @@ def queue_sync(req: SyncRequest):
     return dict(row)
 
 
-@app.post("/api/admin/first-contact")
-def queue_first_contact(req: SyncRequest):
-    """Queue a first-contact diagnostic. Same queue pattern as sync."""
-    with SessionLocal() as db:
-        try:
-            row = db.execute(text("""
-                INSERT INTO sync_requests (requested_by, status)
-                VALUES (:by, 'pending')
-                RETURNING id, requested_at, status
-            """), {"by": req.requested_by}).mappings().first()
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(
-                status_code=409,
-                detail="A sync or first-contact is already pending/running.",
-            )
-    return dict(row)
-
-
 @app.get("/api/admin/sync-requests")
 def list_sync_requests(limit: int = 20):
     """Recent sync requests (pending/running/completed/failed)."""

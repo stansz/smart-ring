@@ -46,7 +46,6 @@ log = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smart_ring:changeme@localhost:5432/smart_ring")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COLLECTOR_WRAPPER = PROJECT_ROOT / "collector" / "collector-wrapper.py"
-FIRST_CONTACT_SCRIPT = PROJECT_ROOT / "collector" / "first_contact.py"
 
 # Use venv Python for collector scripts (needs bleak, colmi_r02_client, etc.)
 # Fall back to sys.executable if venv doesn't exist yet (will fail gracefully).
@@ -56,7 +55,6 @@ COLLECTOR_PYTHON = VENV_PYTHON if VENV_PYTHON.is_file() else sys.executable
 # Map requested_by values to (script, python_path) tuples
 DISPATCH = {
     "admin-ui": (COLLECTOR_WRAPPER, COLLECTOR_PYTHON),
-    "first-contact": (FIRST_CONTACT_SCRIPT, COLLECTOR_PYTHON),
 }
 
 

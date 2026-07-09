@@ -57,7 +57,7 @@ Home Network
 | `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
 | `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Runs on host (not container); claims rows from `sync_requests` via `FOR UPDATE SKIP LOCKED`, dispatches based on `requested_by` |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
-| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; 5 admin endpoints (`ring-status`, `health`, `sync-log`, `first-contact`, `sync`, `sync-requests`) |
+| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; 4 admin endpoints (`ring-status`, `health`, `sync-log`, `sync`, `sync-requests`) |
 | `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed; polls every 5s for active sync status |
 | `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue |
 | `setup.sh` | Python-based setup + cron configuration | Does NOT overwrite existing files anymore |
@@ -77,7 +77,7 @@ Use this section to append notes about what the agent has done, decisions made, 
 - Created `~/.config/systemd/user/smart-ring-poller.service` — `--loop --interval 2s`, enabled, active
 - Poller claims DB rows via `FOR UPDATE SKIP LOCKED`, dispatches to `first_contact.py` or `sync_ring.py` depending on `requested_by`
 - Smoketested end-to-end: POST `/api/admin/first-contact` → row claimed within ~1s → `first_contact.py` ran → failed as expected (no ring in range)
-- Both "First Contact" and "Sync Now" Admin tab buttons now fully functional end-to-end
+- Both "First Contact" and "Sync Now" Admin tab buttons now fully functional end-to-end *(First Contact button later removed — see 2026-07-09(c))*
 
 ### 2026-07-04 — Initial Review + Critical Fixes
 
@@ -164,7 +164,7 @@ The API lives in a container without BLE access. The collector must run on the h
 **Poller wired up (2026-07-08):**
 - Created `smart-ring-poller.service` in `~/.config/systemd/user/` — `--loop --interval 2s`, enabled, active
 - Smoketested end-to-end: POST /api/admin/first-contact → DB row claimed within ~1s → `first_contact.py` ran → failed as expected (no ring in range)
-- Both "First Contact" and "Sync Now" buttons now fully functional
+- Both "First Contact" and "Sync Now" buttons now fully functional *(First Contact button later removed — see 2026-07-09(c))*
 
 **Still TODO before ring arrives:**
 - [ ] Set up collector + analytics cron jobs (`setup.sh` ran but `psql` was unavailable — crontab is empty)
@@ -234,6 +234,36 @@ The API lives in a container without BLE access. The collector must run on the h
 - `collector/first_contact.py` — uses `connect_with_retry`, sys.path shim
 - `.env.example` — added commented knobs (`SYNC_ATTEMPTS`, `FIRST_CONTACT_ATTEMPTS`, `BLE_CONNECT_TIMEOUT`)
 - `AGENTS.md` — this entry, plus ticking the corresponding Future Work checkbox
+
+### 2026-07-09 (c) — Remove "First Contact" UI/API/Poller Mapping
+
+**Task:** User decided manual sync is fine for now (no cron yet), and the Admin tab "First Contact" button is no longer needed now that the ring is paired and validated. Removed the button from the dashboard, the API endpoint, and the poller's `requested_by='first-contact'` dispatch entry. Standalone `first_contact.py` script remains useful for CLI use.
+
+**What was done:**
+- `dashboard/index.html` — removed the entire "Ring Setup" block (the box with the First Contact button + description) and the `queueFirstContact()` JS method. Also removed the "Hardware Tests" pre block (`test_open_questions.py` instructions) since the ring is already past that stage.
+- `api/main.py` — removed `@app.post("/api/admin/first-contact")` route + its `queue_first_contact` function. Kept the shared `SyncRequest` pydantic class (still used by `/api/admin/sync`). Updated `/api/admin/sync`'s 409 detail to no longer mention "first-contact".
+- `collector/sync_request_poller.py` — removed `FIRST_CONTACT_SCRIPT` constant and the `"first-contact"` entry from the `DISPATCH` dict. The poller will log "Unknown requested_by" and mark failed if any future DB row claims that value (it can't, since the API endpoint is gone).
+- `db/init.sql` — **no change**. `sync_requests` schema is generic; no migration needed.
+- `collector/first_contact.py` — **kept** (still useful as a one-off CLI: `python3 collector/first_contact.py` for "why is sync failing" debugging).
+
+**Migration / break-things risk considered (none materialized):**
+- DB unique partial index `idx_sync_requests_one_active` only blocks `pending`/`running` rows → no conflict on cleanup.
+- Poller's `requested_by` column is unconstrained `TEXT` → dropping the mapping is safe.
+- API removal is backward-compatible (clients get 404 instead of 200; the only client was the deleted button).
+- Pre-removal: 9 historical `first-contact` rows + 1 `smoke-test` row, all in `failed` status (ring had never successfully synced via this path). `DELETE FROM sync_requests WHERE requested_by IN ('first-contact','smoke-test');` cleared them.
+
+**Operational steps (clean, not hot):**
+1. `systemctl --user stop smart-ring-poller` (kills the long-running Python process so it re-reads the source on next start).
+2. `systemctl --user stop smart-ring-api` (stops the Podman container that mounts the API source).
+3. Edits applied.
+4. `systemctl --user start smart-ring-api smart-ring-poller` (restart picks up the changes — Podman quadlet recreates the container, poller re-execs Python).
+5. Smoke test: `curl -X POST http://127.0.0.1:8000/api/admin/first-contact` → `{"detail":"Not Found"}` (404), `/api/admin/sync` → 200 + row id. `curl http://127.0.0.1:8000/` → 0 occurrences of `First Contact|queueFirstContact|test_open_questions` in served HTML.
+
+**Files changed:**
+- `dashboard/index.html` — removed Ring Setup block, queueFirstContact method, Hardware Tests pre block
+- `api/main.py` — removed `queue_first_contact` endpoint (lines 242-259) and its 409 message
+- `collector/sync_request_poller.py` — removed `FIRST_CONTACT_SCRIPT` and `DISPATCH['first-contact']` entry
+- `AGENTS.md` — this entry; also updated `api/main.py` row in Key Source Files (5 → 4 endpoints) and added "*(First Contact button later removed — see 2026-07-09(c))*" annotation to two earlier work-log lines that mentioned the button
 
 ---
 
