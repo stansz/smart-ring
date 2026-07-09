@@ -14,9 +14,15 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from pathlib import Path
 
+# Allow running sync_ring.py directly: add the project root to sys.path
+# so `from collector import ...` works.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from bleak import BleakScanner
+from bleak import BleakScanner, BleakError
 from colmi_r02_client import hr as hr_mod
 from colmi_r02_client import steps as steps_mod
 from colmi_r02_client import packet
@@ -24,12 +30,6 @@ from collector.ring_client import Client  # robust wrapper with timeout
 from dotenv import load_dotenv
 
 load_dotenv()
-
-# Allow running sync_ring.py directly: add the project root to sys.path
-# so `from collector import ...` works.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 LOG_DIR = Path(__file__).resolve().parent
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -118,6 +118,60 @@ async def scan_ring(name_filter: str = "") -> Optional[str]:
                 log.info(f"Device: {name} ({addr})")
 
     return None
+
+
+async def connect_with_retry(
+    address: str,
+    *,
+    attempts: int = 5,
+    initial_backoff: float = 2.0,
+    connect_timeout: float = 30.0,
+    wake_ping: bool = False,
+) -> "Client":
+    """Connect to the ring, retrying on failure.
+
+    R09 firmware 3.10.21 puts the radio to sleep aggressively — within ~30s of
+    disconnect it stops advertising. Sync attempts outside an active wear
+    window will fail at the connect step every time, so we retry with
+    exponential backoff.
+
+    On the last attempt, if `wake_ping` is True, we issue a short BLE scan first
+    to nudge the ring's radio (if it's awake but silent). Most of the time,
+    plain retry is sufficient — the user wears / taps / charges the ring
+    while the collector waits.
+
+    Returns a connected Client. Caller MUST call `client.disconnect()` (or use
+    as an async context manager) when done.
+    """
+    last_exc: Optional[BaseException] = None
+    for i in range(attempts):
+        if wake_ping and i == attempts - 1:
+            # Last-ditch: run a scan loop to coax the radio awake.
+            # This forces the kernel to populate the inquiry cache, which
+            # sometimes nudges a sleepy R09 to advertise.
+            log.info("Final attempt: running wake-ping scan (10s)...")
+            from bleak import BleakScanner  # local import keeps top tidy
+            await BleakScanner.discover(timeout=10.0, return_adv=True)
+
+        try:
+            client = Client(address, timeout=connect_timeout)
+            await client.__aenter__()
+            return client
+        except (BleakError, OSError, asyncio.TimeoutError) as e:
+            last_exc = e
+            if i < attempts - 1:
+                wait = initial_backoff * (2 ** i)
+                log.info(
+                    f"Connect attempt {i + 1}/{attempts} failed ({type(e).__name__}: "
+                    f"{getattr(e, 'args', [''])[0] or e}). Retrying in {wait:.0f}s..."
+                )
+                await asyncio.sleep(wait)
+            else:
+                log.warning(f"Connect attempt {i + 1}/{attempts} failed: {e!r}")
+
+    raise RuntimeError(
+        f"Failed to connect to {address} after {attempts} attempts: {last_exc!r}"
+    )
 
 
 async def fetch_hrv_raw(client: Client) -> List[Dict[str, Any]]:
@@ -379,12 +433,12 @@ def upsert_temperature(temp_c: float, ts: Optional[datetime] = None) -> int:
             return cur.rowcount
 
 
-async def sync_ring(address: str) -> SyncResult:
-    """Main async sync routine."""
+async def _collect_data(client: Client, address: str) -> SyncResult:
+    """All sync work after the BLE link is up. Used by sync_ring() and tests."""
     result = SyncResult()
     total_records = 0
 
-    async with Client(address) as client:
+    try:
         log.info(f"Connected to {address}")
 
         # 1. Device info + battery
@@ -484,10 +538,42 @@ async def sync_ring(address: str) -> SyncResult:
         except Exception as e:
             log.debug(f"Temperature listen failed: {e}")
 
-    result.records_synced = total_records
-    log_ring_status(result.battery_pct, result.fw_version)
-    log.info(f"Sync complete: {total_records} total new records")
+    finally:
+        result.records_synced = total_records
+        log_ring_status(result.battery_pct, result.fw_version)
+        log.info(f"Sync complete: {total_records} total new records")
+
     return result
+
+
+async def sync_ring(
+    address: str,
+    *,
+    attempts: int = 5,
+    wake_ping: bool = True,
+) -> SyncResult:
+    """Main async sync routine with retry-on-sleep.
+
+    The R09 ring is very aggressive about sleeping — within ~30s of disconnect
+    it stops advertising. Most cron-driven sync attempts will arrive while the
+    ring is asleep. `connect_with_retry` retries connect with exponential
+    backoff; a `wake_ping` scan runs before the final attempt to nudge the
+    radio.
+
+    Manual (Admin-tab) syncs use the default (5 attempts, ~2 minutes total)
+    which is short enough that a user-triggered sync feels fast. Cron-driven
+    syncs pass larger `attempts` from `main()` to wait longer.
+    """
+    client = await connect_with_retry(
+        address, attempts=attempts, wake_ping=wake_ping
+    )
+    try:
+        return await _collect_data(client, address)
+    finally:
+        try:
+            await client.__aexit__(None, None, None)
+        except Exception:
+            pass
 
 
 async def test_sync_behavior(address: str):
@@ -525,6 +611,16 @@ async def main():
         await test_sync_behavior(address)
         return
 
+    # CLI flags:
+    #   --no-retry       fail fast on first connect failure (testing)
+    #   --attempts N     override default 5 retries (cron should use 12+)
+    attempts = 5
+    no_retry = "--no-retry" in sys.argv
+    if "--attempts" in sys.argv:
+        idx = sys.argv.index("--attempts")
+        if idx + 1 < len(sys.argv):
+            attempts = int(sys.argv[idx + 1])
+
     address = os.environ.get("RING_ADDRESS")
     if not address:
         log.info("No RING_ADDRESS set. Scanning...")
@@ -535,7 +631,20 @@ async def main():
 
     sync_id = log_sync_start()
     try:
-        result = await sync_ring(address)
+        if no_retry:
+            log.info("--no-retry: skipping connect retry loop")
+            client = Client(address, timeout=30.0)
+            try:
+                await client.__aenter__()
+                result = await _collect_data(client, address)
+            finally:
+                try:
+                    await client.__aexit__(None, None, None)
+                except Exception:
+                    pass
+        else:
+            result = await sync_ring(address, attempts=attempts)
+
         log_sync_complete(sync_id, result)
         if result.error:
             sys.exit(1)

@@ -18,8 +18,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Allow running first_contact.py directly: add the project root to sys.path
+# so `from collector import ...` works.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 from bleak import BleakScanner
-from collector.ring_client import Client
+from collector.sync_ring import connect_with_retry
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -58,16 +64,20 @@ async def scan(name_filter: str = "R0") -> Optional[str]:
     return None
 
 
-async def first_contact(address: str) -> int:
-    """Connect, read info, set clock, disconnect. Returns exit code."""
+async def first_contact(address: str, *, attempts: int = 5, wake_ping: bool = True) -> int:
+    """Connect (with retry), read info, set clock, disconnect. Returns exit code."""
     print("=" * 50)
     print(f" First Contact: {address}")
     print("=" * 50)
 
-    async with Client(address, timeout=60.0) as client:
+    # R09 ring sleeps within ~30s — use the shared retry helper so a manual
+    # "First Contact" button click survives the ring napping in a drawer.
+    battery_pct: Optional[int] = None
+    client = await connect_with_retry(address, attempts=attempts, wake_ping=wake_ping)
+    try:
+
         # --- Device info ---
         print("\n[1/3] Device info...")
-        support_flags = {}
         try:
             info = await client.get_device_info()
             for key in sorted(info or {}):
@@ -83,7 +93,6 @@ async def first_contact(address: str) -> int:
 
         # --- Battery ---
         print("\n[2/3] Battery...")
-        battery_pct: Optional[int] = None
         try:
             battery_info = await client.get_battery()
             battery_pct = battery_info.battery_level
@@ -102,6 +111,12 @@ async def first_contact(address: str) -> int:
             print(f"  Clock synced: {now.strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception as e:
             print(f"  WARNING: clock sync failed: {e}")
+
+    finally:
+        try:
+            await client.__aexit__(None, None, None)
+        except Exception:
+            pass
 
     print("\n" + "=" * 50)
     print(" First contact complete. Ring hardware confirmed.")
