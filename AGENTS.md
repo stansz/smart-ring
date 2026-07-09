@@ -205,10 +205,35 @@ The API lives in a container without BLE access. The collector must run on the h
 
 **Known open items:**
 - [ ] Run collector once more after waking ring → confirm 0 new step records → confirm sync is read-only
-- [ ] Add retry-on-sleep to `sync_ring.py` (try N attempts before failing)
+- [x] Add retry-on-sleep to `sync_ring.py` (try N attempts before failing) — done; see 2026-07-09b below
 - [ ] Add automatic wake gesture (heavy BLE activity) before sync attempts
 - [ ] Collect enough HRV data to determine format (RR vs composite): wear for 24h+
 - [ ] Investigate the `0x80`-bit packets (probably sleep or temperature reported asynchronously)
+
+### 2026-07-09 (b) — Retry-on-Sleep Helper
+
+**Task:** R09 hardware validated last session, but the ring's aggressive sleep behavior would make any cron-driven sync fail (ring stops advertising ~30s after disconnect). Added a `connect_with_retry` helper so both sync_ring.py and first_contact.py survive an asleep ring.
+
+**What was done:**
+- New `connect_with_retry(address, attempts=5, wake_ping=False)` in `collector/sync_ring.py`
+  - Wraps each connect attempt in try/except (BleakError / OSError / TimeoutError)
+  - Exponential backoff: 2s, 4s, 8s, 16s, 32s — total ~62s wait across 5 attempts
+  - Optional `wake_ping` runs a 10s BLE scan before the *final* attempt to nudge the radio awake
+  - Returns a connected Client; raises RuntimeError on exhaustion
+- `sync_ring(address, *, attempts=5, wake_ping=True)` rebuilt on top of it. Includes a `main()` `--attempts N` and `--no-retry` flag for testing.
+- `first_contact.py` now also uses `connect_with_retry(...)` (default 5 attempts) — a manual Admin-tab "First Contact" click now waits for the ring to wake instead of failing instantly.
+- CLI flags `--no-retry` and `--attempts N` added for cron to use longer retries (e.g., `--attempts 12`).
+- Refactored sync data work into `_collect_data(client, address)` so the test_open_questions.py / connect_with_retry path can reuse it.
+- Added `sys.path` shim to both `sync_ring.py` and `first_contact.py` so they can run directly without the collector-wrapper.py poller shim.
+
+**Tested:**
+- Real run of `first_contact.py` against the sleeping ring: Attempt 1 failed → wait 2s → Attempt 2 failed → wait 4s → Attempt 3 failed → wait 8s → Attempt 4 in progress at timeout. Confirms exponential backoff works as designed.
+
+**Files changed:**
+- `collector/sync_ring.py` — added `connect_with_retry`, refactored into `_collect_data`/new `sync_ring`, CLI flags
+- `collector/first_contact.py` — uses `connect_with_retry`, sys.path shim
+- `.env.example` — added commented knobs (`SYNC_ATTEMPTS`, `FIRST_CONTACT_ATTEMPTS`, `BLE_CONNECT_TIMEOUT`)
+- `AGENTS.md` — this entry, plus ticking the corresponding Future Work checkbox
 
 ---
 
@@ -276,7 +301,7 @@ python3 collector/sync_ring.py
 - [x] Write `collector/first_contact.py` — safe read-only first contact script — done, fully functional
 - [x] Create `collector/ring_client.py` — robust BLE client wrapper with explicit timeout
 - [x] Add `BLE pairing once via bluetoothctl` instructions to AGENTS.md
-- [ ] Add retry-on-sleep logic to `sync_ring.py` (R09 falls asleep fast)
+- [x] Add retry-on-sleep logic to `sync_ring.py` (R09 falls asleep fast) — done; new `connect_with_retry` helper in `sync_ring.py`, used by both `sync_ring` and `first_contact`
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
 - [ ] Evaluate custom firmware (atc1441) for enhanced features
