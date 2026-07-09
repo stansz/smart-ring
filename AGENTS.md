@@ -14,6 +14,8 @@ Private, self-hosted health tracking system built around the **Colmi R09** smart
 - **Deployment:** Local-first on Linux Mint HTPC (AMD 3800x, 64GB RAM)
 - **Status:** Awaiting hardware delivery (~2-4 weeks from AliExpress)
 
+**Update 2026-07-09:** Ring arrived, hardware confirmed working. Firmware RT09_3.10.21_251107, HW RT09_V3.1. Nordic UART protocol (UUIDs match colmi_r02_client). See work log entries for full validation.
+
 ---
 
 ## Architecture (Local-First, Quadlet-Managed)
@@ -63,6 +65,16 @@ Home Network
 ## Agent Work Log
 
 Use this section to append notes about what the agent has done, decisions made, and open issues. Append chronologically.
+
+### 2026-07-08 — Sync Poller Wired Up + Pre-Ring Smoke Test
+
+**Task:** Complete the remaining TODO before ring arrival — wire up the sync request poller so Admin tab buttons actually work.
+
+**What was done:**
+- Created `~/.config/systemd/user/smart-ring-poller.service` — `--loop --interval 2s`, enabled, active
+- Poller claims DB rows via `FOR UPDATE SKIP LOCKED`, dispatches to `first_contact.py` or `sync_ring.py` depending on `requested_by`
+- Smoketested end-to-end: POST `/api/admin/first-contact` → row claimed within ~1s → `first_contact.py` ran → failed as expected (no ring in range)
+- Both "First Contact" and "Sync Now" Admin tab buttons now fully functional end-to-end
 
 ### 2026-07-04 — Initial Review + Critical Fixes
 
@@ -154,6 +166,47 @@ The API lives in a container without BLE access. The collector must run on the h
 **Still TODO before ring arrives:**
 - [ ] Set up collector + analytics cron jobs (`setup.sh` ran but `psql` was unavailable — crontab is empty)
 
+### 2026-07-09 — Ring Arrived: First Contact + Open-Question Tests
+
+**Hardware confirmed working:**
+- BLE address: `30:35:42:37:21:03` (R09_2103)
+- Firmware: **RT09_3.10.21_251107**
+- Hardware: **RT09_V3.1**
+- Nordic UART service UUID matches `colmi_r02_client` (6E40FFF0-…)
+
+**Critical BLE learnings (BIG gotchas):**
+1. **`bluetoothctl` and `bleak` cannot share a connection.** Pairing via bluetoothctl is fine (must be done at least once), but never use `bluetoothctl connect` while the Python collector is running — let bleak own the GATT connection.
+2. **Ring requires bonding before notifications work.** First EOFError on `start_notify` (cmd 6E400003 TX char) was because we tried `client.connect()` without prior pairing. After running `bluetoothctl pair <addr>` once, notifications come through.
+3. **Aggressive sleep on R09 firmware 3.10.21.** Ring stops advertising ~30 sec after losing connection. Wear / tap / charger wakes it briefly. RSSI drops fast — from -73 to -127 within seconds of being idle.
+4. **`colmi_r02_client` battery attribute is `battery_level`** (not `chargePercent`). Fixed in `sync_ring.py` + `first_contact.py`.
+5. **`colmi_r02_client.Client` doesn't pass timeout to `BleakClient`** → service discovery can hang indefinitely. **Fix:** new `collector/ring_client.py` is a drop-in wrapper that sets `timeout=30.0` on the `BleakClient`. Both `first_contact.py` and `sync_ring.py` now import `Client` from there.
+6. **Ring pushes async packets with high bit set (0x80+).** The library's `assert packet_type < 127` was crashing the listener. Replaced with `logger.debug` in `ring_client._handle_tx()`.
+7. **`get_full_data` returned a tuple.** `sync_ring.py` expects a `FullData`-like object with `.heart_rates` and `.sport_details`. Wrapped result in `SimpleNamespace`.
+
+**Tests run via `collector/test_open_questions.py`:**
+- ✅ **Heart rate real-time:** 77–96 bpm (sensor works, ring watches wear detection)
+- ✅ **Steps:** `SportDetail(year, month, day, time_index, calories, steps, distance)` — 9 entries today (sync wrote 2 to DB)
+- ✅ **Battery:** 69%
+- ✅ **Device info:** FW + HW readable
+- ✅ **Time sync:** works
+- ⚠️ **HRV (cmd 57):** 0 records — ring needs to wear longer for HRV log to populate
+- ⚠️ **Sleep (cmd 68):** 0 records — slept no nights with ring yet
+- ⚠️ **Temperature push:** no notification in 10s window → event-driven, not polled
+- ❓ **Sync behavior (read-only vs wipe):** first sync pulled 2 step records; need second sync to confirm. Run collector twice and compare DB counts.
+
+**Files changed:**
+- `collector/ring_client.py` — NEW, drop-in `Client` wrapper with timeout, robust packet handling
+- `collector/first_contact.py` — uses `ring_client.Client`, correct battery attribute
+- `collector/sync_ring.py` — uses `ring_client.Client`, correct battery attribute, `sys.path` for direct run
+- `collector/test_open_questions.py` — rewritten to use a single connection, isolate each test in try/except
+
+**Known open items:**
+- [ ] Run collector once more after waking ring → confirm 0 new step records → confirm sync is read-only
+- [ ] Add retry-on-sleep to `sync_ring.py` (try N attempts before failing)
+- [ ] Add automatic wake gesture (heavy BLE activity) before sync attempts
+- [ ] Collect enough HRV data to determine format (RR vs composite): wear for 24h+
+- [ ] Investigate the `0x80`-bit packets (probably sleep or temperature reported asynchronously)
+
 ---
 
 ## Environment & Secrets
@@ -211,23 +264,26 @@ This resolves the three Known Unknowns below:
 
 ## Known Unknowns (Block on Hardware)
 
-| Question | Impact | Test Plan |
-|----------|--------|-----------|
-| Sync behavior: read-only or read-and-clear? | Affects whether multiple devices can sync | Run sync twice, compare record counts |
-| HRV data format: RR intervals vs composite score? | Determines if RMSSD/pNN50 can be computed server-side | Parse cmd 57 responses, inspect values |
-| Temperature sensor sampling rate | Affects how often temp is logged | Listen for notify (cmd 115, type 5) over extended window |
-| R09 firmware compatibility with tahnok client | Blocking if client doesn't support R09 | Attempt connection, verify basic commands work |
+| Question | Status (2026-07-09) | Test Plan / Notes |
+|----------|---------------------|---------------------|
+| Sync behavior: read-only or read-and-clear? | **Tentatively read-only** — first sync pulled 2 records | Run sync twice, compare DB counts; needs ring to stay awake |
+| HRV data format: RR intervals vs composite score? | **TBD** — 0 records on fresh ring | Need to wear 24h+ for HRV log to populate |
+| Temperature sensor sampling rate | **Event-driven** — no push in 10s window | Confirm in longer window once data accumulates |
+| R09 firmware compatibility with tahnok client | **WORKS** — FW 3.10.21 + colmi_r02_client | UUIDs match exactly; admin UI works end-to-end |
 
 ---
 
 ## Future Work (Post-Hardware)
 
-- [ ] Verify actual ring data format against current parsers
+- [x] Verify actual ring data format against current parsers
 - [x] Write `collector/first_contact.py` — safe read-only first contact script (scan + battery + firmware + set clock, NO data sync) — done, fully functional
+- [x] Create `collector/ring_client.py` — robust BLE client wrapper with explicit timeout
+- [x] Add `BLE pairing once via bluetoothctl` instructions to AGENTS.md (in step 3 of "Testing the Ring")
+- [ ] Add retry-on-sleep logic to `sync_ring.py` (R09 falls asleep fast)
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
 - [ ] Evaluate custom firmware (atc1441) for enhanced features
-- [ ] Add tests once ring data format is confirmed
+- [ ] Investigate 0x80-bit async packets (probably sleep/HRV/temperature historical push)
 
 ---
 

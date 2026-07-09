@@ -17,13 +17,19 @@ from pathlib import Path
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from bleak import BleakScanner
-from colmi_r02_client.client import Client
 from colmi_r02_client import hr as hr_mod
 from colmi_r02_client import steps as steps_mod
 from colmi_r02_client import packet
+from collector.ring_client import Client  # robust wrapper with timeout
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Allow running sync_ring.py directly: add the project root to sys.path
+# so `from collector import ...` works.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 LOG_DIR = Path(__file__).resolve().parent
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -391,7 +397,7 @@ async def sync_ring(address: str) -> SyncResult:
 
         try:
             battery = await client.get_battery()
-            result.battery_pct = battery.chargePercent
+            result.battery_pct = battery.battery_level
             log.info(f"Battery: {result.battery_pct}%")
         except Exception as e:
             log.warning(f"Battery read failed: {e}")
