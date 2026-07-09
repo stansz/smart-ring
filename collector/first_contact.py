@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Optional
 
 from bleak import BleakScanner
-from colmi_r02_client.client import Client
+from collector.ring_client import Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -64,7 +64,7 @@ async def first_contact(address: str) -> int:
     print(f" First Contact: {address}")
     print("=" * 50)
 
-    async with Client(address) as client:
+    async with Client(address, timeout=60.0) as client:
         # --- Device info ---
         print("\n[1/3] Device info...")
         support_flags = {}
@@ -85,9 +85,9 @@ async def first_contact(address: str) -> int:
         print("\n[2/3] Battery...")
         battery_pct: Optional[int] = None
         try:
-            battery = await client.get_battery()
-            battery_pct = battery.chargePercent
-            charging = getattr(battery, "isCharging", None)
+            battery_info = await client.get_battery()
+            battery_pct = battery_info.battery_level
+            charging = getattr(battery_info, "charging", None)
             print(f"  Charge: {battery_pct}%")
             if charging is not None:
                 print(f"  Charging: {'yes' if charging else 'no'}")
