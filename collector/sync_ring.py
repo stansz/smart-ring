@@ -553,18 +553,32 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.error(f"Heart rate sync failed: {e}")
 
         # 4. Sync steps
+        # The ring stores time_index as HOUR-OF-DAY in LOCAL time (we set the
+        # ring's clock with datetime.now() which is naive local). So we must
+        # build the timestamp from local midnight, not UTC midnight. Storing
+        # in UTC (with the correct offset) keeps the DB consistent and
+        # avoids the "future timestamp" bug where target+time_index lands
+        # beyond now.
         try:
             step_records = []
-            current_day = datetime.now(timezone.utc)
+            local_now = datetime.now()
             for d_offset in range(7):
-                target = current_day - timedelta(days=d_offset)
-                steps_data = await client.get_steps(target)
+                # Local midnight of the target day, in local TZ
+                local_target = local_now.replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ) - timedelta(days=d_offset)
+                steps_data = await client.get_steps(local_target)
                 if isinstance(steps_data, list):
                     for s in steps_data:
-                        ts = target + timedelta(hours=s.time_index)
+                        # Build a local datetime from the day's date + the
+                        # ring's hour-of-day (time_index). Then attach the
+                        # local timezone offset so it converts to UTC cleanly.
+                        local_ts = local_target + timedelta(hours=s.time_index)
+                        ts = local_ts.astimezone()
                         step_records.append({"ts": ts, "steps": s.steps})
                 elif isinstance(steps_data, steps_mod.SportDetail):
-                    ts = target + timedelta(hours=steps_data.time_index)
+                    local_ts = local_target + timedelta(hours=steps_data.time_index)
+                    ts = local_ts.astimezone()
                     step_records.append({"ts": ts, "steps": steps_data.steps})
             count = upsert_steps(step_records)
             total_records += count
