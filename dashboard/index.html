@@ -123,7 +123,8 @@
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 mt-2">Active Time</p>
-                    <p class="text-xs text-gray-400" x-text="`${activePct}% of 60 min`"></p>
+                    <p class="text-xs text-gray-400"
+                       x-text="`${activeSlotCount} slots ≥ ${activeThreshold} steps`"></p>
                 </div>
 
                 <!-- Distance Dial -->
@@ -395,6 +396,8 @@
                 hrDateLabel: 'today',
                 activeMinutes: 0,
                 activePct: 0,
+                activeSlotCount: 0,
+                activeThreshold: 30,
                 distanceKm: '—',
                 dialsLastRefresh: null,
 
@@ -581,20 +584,27 @@
 
                 computeDials(hrData, stepsData) {
                     // "Today" = local-time entries from today's date only.
-                    // The ring's SportDetail.steps appears to be a per-hour
-                    // count (5 duplicate entries per hour from the ring
-                    // protocol). Dedupe by hour, then sum for daily total.
                     const now = new Date();
                     const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
                     const todaysSteps = stepsData.filter(s => {
                         const t = new Date(s.ts);
                         return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
                     });
-                    // Each step entry represents a 15-MINUTE SLOT (the ring
-                    // stores one value per 15-min slot). So active minutes
-                    // = number of slots with data × 15, NOT × 60.
-                    this.activeMinutes = todaysSteps.length * 15;
+                    // ACTIVE TIME: count 15-min slots where steps exceed a movement
+                    // threshold. Gadgetbridge uses "intensity" from the
+                    // accelerometer; we don't have that, so we use step count
+                    // as a proxy. Threshold of 30 steps/15min = ~2 steps/min
+                    // (slow walk). Below that = barely moving, not "active".
+                    // Reference: Gadgetbridge marks "Running" at >120 steps/min
+                    // and "Exercise" at HR>90 + intensity>15. Our ring's
+                    // 15-min slot with 30+ steps is a reasonable proxy for
+                    // "you were actually moving around".
+                    const ACTIVE_STEP_THRESHOLD = 30;
+                    const activeSlots = todaysSteps.filter(s => s.steps >= ACTIVE_STEP_THRESHOLD);
+                    this.activeMinutes = activeSlots.length * 15;
                     this.activePct = Math.min(100, Math.round(this.activeMinutes / 60 * 100)).toString();
+                    this.activeSlotCount = activeSlots.length;
+                    this.activeThreshold = ACTIVE_STEP_THRESHOLD;
 
                     // Dedupe by hour: ring sends 5 copies per hour with the
                     // same value. Take the max per hour (all 5 are equal
