@@ -9,9 +9,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="https://unpkg.com/htmx.org@2.0.2/dist/htmx.min.js"></script>
     <style>
-        .chart-container { position: relative; height: 300px; }
+        .chart-container { position: relative; height: 300px; width: 100%; }
+        .chart-container canvas { display: block; }
         @media (max-width: 768px) { .chart-container { height: 250px; } }
-        .stat-card { transition: transform 0.2s; }
+        .stat-card { transition: transform: 0.2s; }
         .stat-card:hover { transform: translateY(-2px); }
         .loading { opacity: 0.6; pointer-events: none; }
     </style>
@@ -295,25 +296,31 @@
                     // Always load health + sync summary so the nav bar shows something useful
                     this.loadHealth();
                     this.loadRingStatus();
-                    this.loadDashboard();
+                    // Defer dashboard load so Alpine has finished rendering the canvases
+                    // before Chart.js tries to draw on them. Without this the chart
+                    // canvases can be 0x0 and the charts appear blank.
+                    this.$nextTick(() => this.loadDashboard());
                 },
 
                 switchTab(t) {
                     this.tab = t;
                     if (t === 'admin') this.loadAdmin();
-                    if (t === 'dashboard') this.loadDashboard();
+                    if (t === 'dashboard') this.$nextTick(() => this.loadDashboard());
                 },
 
                 refreshActiveTab() {
                     if (this.tab === 'admin') this.loadAdmin();
-                    else this.loadDashboard();
+                    else this.$nextTick(() => this.loadDashboard());
                     this.loadHealth();
                     this.loadRingStatus();
                 },
 
                 async loadDashboard() {
                     this.loading = true;
-                    await Promise.all([
+                    // Use allSettled so one failing endpoint doesn't break the rest.
+                    // Old code used Promise.all which rejected on first error and
+                    // prevented the loading state from clearing, blocking the UI.
+                    await Promise.allSettled([
                         this.loadRecovery(),
                         this.loadSleep(),
                         this.loadHRV(),
@@ -324,7 +331,7 @@
                 },
 
                 async loadAdmin() {
-                    await Promise.all([
+                    await Promise.allSettled([
                         this.loadRingStatus(),
                         this.loadHealth(),
                         this.loadAdminSyncLog(),
@@ -334,75 +341,116 @@
                 },
 
                 async loadRecovery() {
-                    const res = await fetch('/api/recovery?days=30');
-                    const data = await res.json();
-                    if (data.length > 0) {
+                    try {
+                        const res = await fetch('/api/recovery?days=30');
+                        const data = await res.json();
+                        if (!data.length) return;
                         const latest = data[0];
-                        this.recoveryScore = latest.z_score ? Math.round(50 + latest.z_score * 10) : null;
+                        this.recoveryScore = latest.z_score != null
+                            ? Math.round(50 + latest.z_score * 10) : null;
                         this.recoveryLabel = latest.readiness_text || '';
-                        this.renderRecoveryChart([...data].reverse());
-                    }
+                        // Use rmssd as the chart value when z_score is null — gives
+                        // the user something to see before we have 7+ days of baseline.
+                        const values = data.map(d => d.z_score != null ? d.z_score : (d.rmssd != null ? d.rmssd : null));
+                        this.renderRecoveryChart(
+                            [...data].map(d => d.day).reverse(),
+                            values.reverse()
+                        );
+                    } catch (e) { console.error('loadRecovery', e); }
                 },
 
                 async loadSleep() {
-                    const res = await fetch('/api/sleep?days=30');
-                    const data = await res.json();
-                    if (data.length > 0) {
+                    try {
+                        const res = await fetch('/api/sleep?days=30');
+                        const data = await res.json();
+                        if (!data.length) return;
                         this.sleepScore = Math.round(data[0].score || 0);
                         this.sleepLabel = `${data[0].total_sleep_minutes || 0} min total`;
                         this.renderSleepChart([...data].reverse());
-                    }
+                    } catch (e) { console.error('loadSleep', e); }
                 },
 
                 async loadHRV() {
-                    const res = await fetch('/api/hrv-trends?days=60');
-                    const data = await res.json();
-                    if (data.length > 0) {
-                        this.hrv7d = data[0].rmssd_7d ? Math.round(data[0].rmssd_7d) : null;
-                        this.renderHRVChart([...data].reverse());
-                    }
-                    // Resting HR from raw data
-                    const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
-                    const hrData = await hrRes.json();
-                    const nightHR = hrData.filter(d => {
-                        const h = new Date(d.ts).getHours();
-                        return h >= 1 && h <= 5;
-                    });
-                    if (nightHR.length > 0) {
-                        this.restingHr = Math.round(nightHR.reduce((a, b) => a + b.bpm, 0) / nightHR.length);
-                    }
+                    try {
+                        const res = await fetch('/api/hrv-trends?days=60');
+                        const data = await res.json();
+                        if (data.length > 0) {
+                            this.hrv7d = data[0].rmssd_7d ? Math.round(data[0].rmssd_7d) : null;
+                            this.renderHRVChart([...data].reverse());
+                        }
+                        // Resting HR from raw data
+                        const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
+                        const hrData = await hrRes.json();
+                        const nightHR = hrData.filter(d => {
+                            const h = new Date(d.ts).getHours();
+                            return h >= 1 && h <= 5;
+                        });
+                        if (nightHR.length > 0) {
+                            this.restingHr = Math.round(nightHR.reduce((a, b) => a + b.bpm, 0) / nightHR.length);
+                        }
+                    } catch (e) { console.error('loadHRV', e); }
                 },
 
                 async loadCircadian() {
-                    const res = await fetch('/api/circadian-hr');
-                    const data = await res.json();
-                    this.renderCircadianChart(data);
+                    try {
+                        const res = await fetch('/api/circadian-hr');
+                        const data = await res.json();
+                        if (!data.length) return;
+                        // Aggregate by hour-of-day across all days (so chart is
+                        // 24 points, not 26 with overlapping labels).
+                        const byHour = {};
+                        for (const d of data) {
+                            const h = d.hour;
+                            if (!byHour[h]) byHour[h] = { sum: 0, n: 0, min: Infinity, max: 0 };
+                            byHour[h].sum += Number(d.avg_hr);
+                            byHour[h].n += 1;
+                            byHour[h].min = Math.min(byHour[h].min, d.min_hr);
+                            byHour[h].max = Math.max(byHour[h].max, d.max_hr);
+                        }
+                        const labels = [];
+                        const values = [];
+                        for (let h = 0; h < 24; h++) {
+                            if (byHour[h]) {
+                                labels.push(`${h}:00`);
+                                values.push(byHour[h].sum / byHour[h].n);
+                            } else {
+                                labels.push(`${h}:00`);
+                                values.push(null);
+                            }
+                        }
+                        this.renderCircadianChart(labels, values);
+                    } catch (e) { console.error('loadCircadian', e); }
                 },
 
                 async loadSyncLog() {
-                    const res = await fetch('/api/sync-log?limit=20');
-                    const data = await res.json();
-                    if (data.length > 0) {
-                        this.lastSync = new Date(data[0].started_at).toLocaleString();
-                        this.renderSyncTable(data);
-                    }
+                    try {
+                        const res = await fetch('/api/sync-log?limit=20');
+                        const data = await res.json();
+                        if (data.length > 0) {
+                            this.lastSync = new Date(data[0].started_at).toLocaleString();
+                            this.renderSyncTable(data);
+                        }
+                    } catch (e) { console.error('loadSyncLog', e); }
                 },
 
-                renderRecoveryChart(data) {
-                    const ctx = document.getElementById('recoveryChart').getContext('2d');
+                renderRecoveryChart(labels, values) {
+                    const canvas = document.getElementById('recoveryChart');
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
                     if (this.recoveryChart) this.recoveryChart.destroy();
                     this.recoveryChart = new Chart(ctx, {
                         type: 'line',
                         data: {
-                            labels: data.map(d => new Date(d.day).toLocaleDateString()),
+                            labels: labels.map(d => new Date(d).toLocaleDateString()),
                             datasets: [{
                                 label: 'Recovery Z-Score',
-                                data: data.map(d => d.z_score || 0),
+                                data: values,
                                 borderColor: 'rgb(59, 130, 246)',
                                 backgroundColor: 'rgba(59, 130, 246, 0.1)',
                                 fill: true,
                                 tension: 0.3,
-                                pointRadius: 3
+                                pointRadius: 3,
+                                spanGaps: true,
                             }]
                         },
                         options: {
@@ -417,7 +465,9 @@
                 },
 
                 renderSleepChart(data) {
-                    const ctx = document.getElementById('sleepChart').getContext('2d');
+                    const canvas = document.getElementById('sleepChart');
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
                     if (this.sleepChart) this.sleepChart.destroy();
                     this.sleepChart = new Chart(ctx, {
                         type: 'bar',
@@ -443,7 +493,9 @@
                 },
 
                 renderHRVChart(data) {
-                    const ctx = document.getElementById('hrvChart').getContext('2d');
+                    const canvas = document.getElementById('hrvChart');
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
                     if (this.hrvChart) this.hrvChart.destroy();
                     this.hrvChart = new Chart(ctx, {
                         type: 'line',
@@ -463,20 +515,23 @@
                     });
                 },
 
-                renderCircadianChart(data) {
-                    const ctx = document.getElementById('circadianChart').getContext('2d');
+                renderCircadianChart(labels, values) {
+                    const canvas = document.getElementById('circadianChart');
+                    if (!canvas) return;
+                    const ctx = canvas.getContext('2d');
                     if (this.circadianChart) this.circadianChart.destroy();
                     this.circadianChart = new Chart(ctx, {
                         type: 'line',
                         data: {
-                            labels: data.map(d => `${d.hour}:00`),
+                            labels: labels,
                             datasets: [{
                                 label: 'Avg HR',
-                                data: data.map(d => d.avg_hr || null),
+                                data: values,
                                 borderColor: 'rgb(239, 68, 68)',
                                 backgroundColor: 'rgba(239, 68, 68, 0.1)',
                                 fill: true,
-                                tension: 0.3
+                                tension: 0.3,
+                                spanGaps: true,
                             }]
                         },
                         options: {
