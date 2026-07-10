@@ -62,9 +62,9 @@
                 <p class="text-xs text-gray-400 mt-1" x-text="sleepLabel || ''"></p>
             </div>
             <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">RMSSD (7d avg)</p>
-                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="hrv7d || '—'"></p>
-                <p class="text-xs text-gray-400 mt-1">ms</p>
+                <p class="text-sm font-medium text-gray-500">Stress</p>
+                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="stressLevel || '—'"></p>
+                <p class="text-xs text-gray-400 mt-1" x-text="stressLabel || ''"></p>
             </div>
             <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
                 <p class="text-sm font-medium text-gray-500">Resting HR</p>
@@ -96,7 +96,8 @@
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 mt-2">Steps</p>
-                    <p class="text-xs text-gray-400" x-text="`${stepsPct}% of 10,000`"></p>
+                    <p class="text-xs text-gray-400"
+                       x-text="`${stepsPct}% of ${goals?.steps_goal || '10,000'}`"></p>
                 </div>
 
                 <!-- HR Avg Dial -->
@@ -142,7 +143,8 @@
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 mt-2">Calories</p>
-                    <p class="text-xs text-gray-400" x-text="`${caloriesPct}% of 2,000 kcal`"></p>
+                    <p class="text-xs text-gray-400"
+                       x-text="`${caloriesPct}% of ${goals?.calories_goal ? Math.round(goals.calories_goal/1000) : '300'} kcal`"></p>
                 </div>
             </div>
         </div>
@@ -337,6 +339,8 @@
                 sleepLabel: '',
                 hrv7d: null,
                 restingHr: null,
+                stressLevel: null,
+                stressLabel: '',
                 rawHrCount: 0,
                 rawStepsCount: 0,
                 // Today's activity dials
@@ -353,6 +357,7 @@
                 distanceKm: '—',
                 caloriesToday: 0,
                 caloriesPct: '0',
+                goals: {},
 
                 // Admin state
                 ringStatus: {},
@@ -392,7 +397,8 @@
                         this.loadHRV(),
                         this.loadCircadian(),
                         this.loadSyncLog(),
-                        this.loadDialsData()
+                        this.loadDialsData(),
+                        this.loadStressCard()
                     ]);
                     this.loading = false;
                 },
@@ -513,16 +519,35 @@
                 },
 
                 async loadDialsData() {
-                    // Fetch raw HR + steps for Today's Activity dials.
+                    // Fetch raw HR + steps + stress + goals for Today's Activity dials.
                     try {
-                        const [hrRes, stepsRes] = await Promise.all([
+                        const [hrRes, stepsRes, stressRes, goalsRes] = await Promise.all([
                             fetch('/api/raw/heart-rate?hours=168&limit=500'),
-                            fetch('/api/raw/steps?hours=168&limit=500')
+                            fetch('/api/raw/steps?hours=168&limit=500'),
+                            fetch('/api/raw/stress?hours=168&limit=500'),
+                            fetch('/api/goals')
                         ]);
                         const hrData = await hrRes.json();
                         const stepsData = await stepsRes.json();
-                        this.computeDials(hrData, stepsData);
+                        const stressData = await stressRes.json();
+                        const goals = await goalsRes.json();
+                        this.computeDials(hrData, stepsData, stressData, goals);
                     } catch (e) { console.error('loadDialsData', e); }
+                },
+
+                async loadStressCard() {
+                    try {
+                        const res = await fetch('/api/raw/stress?hours=24&limit=1');
+                        const data = await res.json();
+                        if (data.length > 0) {
+                            const v = data[0].stress_value;
+                            this.stressLevel = v;
+                            if (v <= 29) this.stressLabel = 'Relaxed';
+                            else if (v <= 59) this.stressLabel = 'Normal';
+                            else if (v <= 79) this.stressLabel = 'Medium';
+                            else this.stressLabel = 'High';
+                        }
+                    } catch (e) { console.error('loadStressCard', e); }
                 },
 
                 async loadRawTables() {
@@ -558,7 +583,9 @@
                     }).join('');
                 },
 
-                computeDials(hrData, stepsData) {
+                computeDials(hrData, stepsData, stressData, goals) {
+                    // Cache goals for the template
+                    this.goals = goals || {};
                     // "Today" = local-time entries from today's date only.
                     const now = new Date();
                     const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
@@ -598,7 +625,8 @@
                     let stepsTotal = 0;
                     for (const v of byHour.values()) stepsTotal += v;
                     this.stepsToday = stepsTotal;
-                    this.stepsPct = Math.min(100, Math.round(stepsTotal / 100)).toString();
+                    const stepsGoal = (goals && goals.steps_goal) || 10000;
+                    this.stepsPct = Math.min(100, Math.round(stepsTotal / stepsGoal * 100)).toString();
 
                     // HR stats: prefer today, fall back to most recent day
                     // with data (user may not be wearing the ring today).
@@ -648,7 +676,8 @@
                     for (const v of calorieByHour.values()) caloriesTotal += v;
                     // Ring reports calories in 0.001 kcal units — convert to kcal.
                     this.caloriesToday = Math.round(caloriesTotal / 1000);
-                    this.caloriesPct = Math.min(100, Math.round(this.caloriesToday / 20)).toString();
+                    const calGoal = goals && goals.calories_goal ? Math.round(goals.calories_goal / 1000) : 300;
+                    this.caloriesPct = Math.min(100, Math.round(this.caloriesToday / calGoal * 100)).toString();
 
                     // Distance: from ring's actual data (or estimate as fallback)
                     let distTotal = 0;

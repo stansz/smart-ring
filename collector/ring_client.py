@@ -51,7 +51,17 @@ def _empty_parse(_packet: bytearray) -> None:
     return None
 
 
+def _pass_through(packet: bytearray) -> bytearray:
+    """Return the raw packet — caller parses the bytes."""
+    return packet
+
+
 COMMAND_HANDLERS: dict[int, Callable[[bytearray], Any]] = dict(_BASE_COMMAND_HANDLERS)
+
+# Register commands that the colmi_r02_client library doesn't know about
+# but that the R09 firmware supports (documented in Gadgetbridge).
+COMMAND_HANDLERS[0x21] = _pass_through   # CMD_GOALS
+COMMAND_HANDLERS[0x37] = _pass_through   # CMD_SYNC_STRESS
 
 
 # ---------------------------------------------------------------------------
