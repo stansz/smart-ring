@@ -519,6 +519,137 @@ async def fetch_hr_history(
     return records
 
 
+async def _read_multi_packet(
+    client: Client, cmd: int, timeout: float = 10.0
+) -> list[bytearray]:
+    """Read all packets for a multi-packet ring response (stress, HRV, etc.).
+    Each packet goes through the notification handler and ends up in
+    client.queues[cmd]. We read until the expected last sub_type or timeout."""
+    items: list[bytearray] = []
+    deadline = asyncio.get_event_loop().time() + timeout
+    while True:
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            break
+        try:
+            item = await asyncio.wait_for(
+                client.queues[cmd].get(),
+                timeout=min(remaining, 2.0),
+            )
+        except asyncio.TimeoutError:
+            break
+        if not isinstance(item, (bytearray, bytes)):
+            break
+        items.append(bytearray(item))
+        # Gadgetbridge stress: sub_type==4 is the last data packet
+        if len(item) >= 2 and item[1] in (4, 0xFF):
+            break
+    return items
+
+
+async def fetch_stress_history(client: Client) -> list[dict]:
+    """Fetch stress history using cmd 0x37 (multi-packet, 30-min intervals).
+    Protocol from Gadgetbridge ColmiR0xPacketHandler.historicalStress:
+      - Packet sub_type 0: header, byte[2]=expected packet count
+      - Packet 1: byte[2]=timestamp flag?, bytes[3-14]=12 stress values
+      - Packets 2..4: bytes[2-14]=13 stress values each
+      - Each value is 0-99. 0=no data. 1-29=relaxed, 30-59=normal,
+        60-79=medium, 80-99=high.
+    """
+    await client.send_packet(make_packet(0x37, bytes(14)))
+    packets = await _read_multi_packet(client, 0x37, timeout=10.0)
+    if not packets:
+        return []
+
+    records = []
+    local_now = datetime.now()
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    thirty_min = timedelta(minutes=30)
+    minutes_in_previous = 0
+
+    for pkt in packets:
+        sub_type = pkt[1]
+        if sub_type == 0 or sub_type == 0xFF:
+            continue
+        start = 3 if sub_type == 1 else 2  # packet 1: data starts at byte 3
+        if sub_type > 1:
+            minutes_in_previous = 12 * 30  # 12 values in packet 1
+            minutes_in_previous += (sub_type - 2) * 13 * 30
+        for i in range(start, min(len(pkt) - 1, 15)):
+            val = pkt[i] & 0xFF
+            if val == 0:
+                continue
+            minute_of_day = minutes_in_previous + (i - start) * 30
+            ts = local_midnight + timedelta(minutes=minute_of_day)
+            records.append({"ts": ts, "stress_value": val})
+
+    return records
+
+
+def upsert_stress(records: list[dict]) -> int:
+    if not records:
+        return 0
+    count = 0
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            for r in records:
+                cur.execute("""
+                    INSERT INTO raw_stress (ts, stress_value, source)
+                    VALUES (%s, %s, 'ring')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """, (r["ts"], r["stress_value"]))
+                count += cur.rowcount
+    return count
+
+
+async def fetch_goals(client: Client) -> dict | None:
+    """Fetch the ring's daily goals (steps, calories, distance, sport, sleep).
+    CMD_GOALS (0x21) with PREF_READ (0x01). Gadgetbridge goalsSettings format."""
+    pkt = make_packet(0x21, bytes([1]))  # PREF_READ
+    await client.send_packet(pkt)
+    try:
+        result = await asyncio.wait_for(
+            client.queues[0x21].get(), timeout=5.0,
+        )
+    except asyncio.TimeoutError:
+        return None
+    if not isinstance(result, (bytearray, bytes)) or len(result) < 15:
+        return None
+    # Gadgetbridge layout:
+    #  steps   = uint32(value[2], value[3], value[4], 0)
+    #  calories= uint32(value[5], value[6], value[7], 0)
+    #  distance= uint32(value[8], value[9], value[10], 0)
+    #  sport   = uint16(value[11], value[12])  — minutes
+    #  sleep   = uint16(value[13], value[14])  — minutes
+    steps = (result[4] << 16) | (result[3] << 8) | result[2]
+    cal = (result[7] << 16) | (result[6] << 8) | result[5]
+    dist = (result[10] << 16) | (result[9] << 8) | result[8]
+    sport = (result[12] << 8) | result[11]
+    sleep = (result[14] << 8) | result[13]
+    return {
+        "steps_goal": steps,
+        "calories_goal": cal,
+        "distance_m_goal": dist,
+        "sport_min_goal": sport,
+        "sleep_min_goal": sleep,
+    }
+
+
+def upsert_goals(goals: dict) -> int:
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO ring_goals (steps_goal, calories_goal, distance_m_goal,
+                                        sport_min_goal, sleep_min_goal)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (
+                goals["steps_goal"], goals["calories_goal"],
+                goals["distance_m_goal"], goals["sport_min_goal"],
+                goals["sleep_min_goal"],
+            ))
+            return cur.rowcount
+
+
 async def _collect_data(client: Client, address: str) -> SyncResult:
     """All sync work after the BLE link is up. Used by sync_ring() and tests."""
     result = SyncResult()
@@ -637,6 +768,24 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
                 log.info("No temperature data (ring may not have pushed it)")
         except Exception as e:
             log.debug(f"Temperature listen failed: {e}")
+
+        # 9. Stress history (cmd 0x37, multi-packet, 30-min intervals)
+        try:
+            stress_records = await fetch_stress_history(client)
+            count = upsert_stress(stress_records)
+            total_records += count
+            log.info(f"Stress: {count} new records")
+        except Exception as e:
+            log.warning(f"Stress sync failed: {e}")
+
+        # 10. Ring goals (steps, calories, distance targets)
+        try:
+            goals = await fetch_goals(client)
+            if goals:
+                upsert_goals(goals)
+                log.info(f"Goals: steps={goals['steps_goal']} cal={goals['calories_goal']} dist={goals['distance_m_goal']}m")
+        except Exception as e:
+            log.debug(f"Goals fetch failed: {e}")
 
     finally:
         result.records_synced = total_records

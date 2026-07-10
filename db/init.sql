@@ -65,6 +65,27 @@ CREATE TABLE IF NOT EXISTS raw_temperature (
 );
 CREATE INDEX IF NOT EXISTS idx_raw_temperature_ts ON raw_temperature(ts DESC);
 
+CREATE TABLE IF NOT EXISTS raw_stress (
+    id BIGSERIAL PRIMARY KEY,
+    ts TIMESTAMPTZ NOT NULL,
+    stress_value INT NOT NULL,
+    source TEXT DEFAULT 'ring',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (ts, source)
+);
+CREATE INDEX IF NOT EXISTS idx_raw_stress_ts ON raw_stress(ts DESC);
+
+CREATE TABLE IF NOT EXISTS ring_goals (
+    id BIGSERIAL PRIMARY KEY,
+    ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    steps_goal INT,
+    calories_goal INT,
+    distance_m_goal INT,
+    sport_min_goal INT,
+    sleep_min_goal INT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS ring_status (
     id BIGSERIAL PRIMARY KEY,
     ts TIMESTAMPTZ NOT NULL,

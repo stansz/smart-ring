@@ -141,6 +141,28 @@ def get_raw_steps(hours: int = 168, limit: int = 1000):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/raw/stress")
+def get_raw_stress(hours: int = 168, limit: int = 500):
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, stress_value FROM raw_stress
+            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            ORDER BY ts DESC LIMIT :limit
+        """), {"hours": hours, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/goals")
+def get_goals():
+    with SessionLocal() as db:
+        row = db.execute(text("""
+            SELECT steps_goal, calories_goal, distance_m_goal,
+                   sport_min_goal, sleep_min_goal
+            FROM ring_goals ORDER BY ts DESC LIMIT 1
+        """)).mappings().first()
+    return dict(row) if row else {}
+
+
 @app.get("/api/raw/temperature")
 def get_raw_temp(hours: int = 48, limit: int = 1000):
     with SessionLocal() as db:
