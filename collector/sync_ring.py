@@ -145,18 +145,26 @@ async def connect_with_retry(
             If the re-pair fails (ring not advertising), falls through to
             plain retry — the ring may wake up during the backoff window.
 
-    On the last attempt, if `wake_ping` is True, we issue a short BLE scan first
-    to nudge the ring's radio awake.
+        wake_ping: If True, run a short BLE scan FIRST (before forget+repair)
+            to nudge the ring's radio awake. Also runs a scan on the last
+            retry attempt as a last-ditch wake-up.
 
     Returns a connected Client. Caller MUST call ``await client.__aexit__(...)``
     when done.
     """
     from collector.ring_client import forget_and_repair, forget_ring
 
+    # Wake-ping FIRST: scan before anything else to nudge the ring awake.
+    # The scan MUST happen before forget+repair because the ring needs to
+    # be advertising for pair_ring to succeed.
+    if wake_ping:
+        log.info("Wake-ping: scanning to nudge ring awake...")
+        await BleakScanner.discover(timeout=5.0, return_adv=True)
+
     # R09 reconnect-bug workaround: clear stale BlueZ state before connecting
     if forget_repair:
         log.info("Forget+repair: clearing stale BlueZ state...")
-        paired = forget_and_repair(address)
+        paired = await forget_and_repair(address)
         if paired:
             log.info("Re-paired successfully, attempting connect...")
         else:
@@ -450,6 +458,57 @@ def upsert_temperature(temp_c: float, ts: Optional[datetime] = None) -> int:
             return cur.rowcount
 
 
+async def fetch_hr_history(
+    client: Client, start: datetime, end: datetime
+) -> list[dict]:
+    """Fetch heart rate history using the library's notification handler.
+    The handler (HeartRateLogParser.parse) is stateful: it accumulates
+    multi-packet responses and returns a HeartRateLog on completion.
+    We give it a longer timeout (10s) and drain the queue between days
+    in case the parser's state needs flushing."""
+    records = []
+    local_now = datetime.now()
+    for days_ago in range(7, 0, -1):
+        local_midnight = (local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+                          - timedelta(days=days_ago))
+        hr_request = make_packet(21, struct.pack("<L", int(local_midnight.timestamp())))
+        await client.send_packet(hr_request)
+
+        # Read from the notification queue. The HR handler puts a
+        # HeartRateLog in the queue when all packets for the day arrive,
+        # or a NoData if the day has no data.
+        try:
+            result = await asyncio.wait_for(
+                client.queues[21].get(),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            log.debug(f"HR timeout for {d.date()}")
+            # Drain stale items that may arrive late
+            while True:
+                try:
+                    client.queues[21].get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            continue
+
+        if isinstance(result, hr_mod.NoData):
+            continue
+
+        if isinstance(result, hr_mod.HeartRateLog):
+            # The heartbeat_rates list has 288 elements (one per 5-min interval).
+            # Each element is the BPM value or 0/-1 for no data.
+            # Use local midnight as the base since the ring stores times in local time.
+            ts = local_midnight
+            five_min = timedelta(minutes=5)
+            for hr_val in result.heart_rates:
+                if hr_val > 0:
+                    records.append({"ts": ts, "bpm": hr_val})
+                ts += five_min
+
+    return records
+
+
 async def _collect_data(client: Client, address: str) -> SyncResult:
     """All sync work after the BLE link is up. Used by sync_ring() and tests."""
     result = SyncResult()
@@ -480,18 +539,13 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
         except Exception as e:
             log.warning(f"Time sync failed: {e}")
 
-        # 3. Sync heart rate (last 7 days)
-        end = datetime.now(timezone.utc)
-        start = end - timedelta(days=7)
-        log.info(f"Syncing data {start.date()} → {end.date()}")
-
+        # 3. Sync heart rate (last 7 days) — direct protocol handler
+        # The colmi_r02_client library's HeartRateLogParser is stateful and
+        # only returns results for today's data. We handle the multi-packet
+        # protocol ourselves, following Gadgetbridge's ColmiR0xDeviceSupport.
+        log.info("Syncing heart rate history...")
         try:
-            full_data = await client.get_full_data(start, end)
-            hr_records = []
-            for day_log in full_data.heart_rates:
-                if isinstance(day_log, hr_mod.HeartRateLog):
-                    for entry in day_log.heart_rates:
-                        hr_records.append({"ts": entry.timestamp, "bpm": entry.heart_rate})
+            hr_records = await fetch_hr_history(client, start, end)
             count = upsert_heart_rate(hr_records)
             total_records += count
             log.info(f"Heart rate: {count} new records ({len(hr_records)} total)")
@@ -507,9 +561,11 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
                 steps_data = await client.get_steps(target)
                 if isinstance(steps_data, list):
                     for s in steps_data:
-                        step_records.append({"ts": target, "steps": s.steps})
+                        ts = target + timedelta(hours=s.time_index)
+                        step_records.append({"ts": ts, "steps": s.steps})
                 elif isinstance(steps_data, steps_mod.SportDetail):
-                    step_records.append({"ts": target, "steps": steps_data.steps})
+                    ts = target + timedelta(hours=steps_data.time_index)
+                    step_records.append({"ts": ts, "steps": steps_data.steps})
             count = upsert_steps(step_records)
             total_records += count
             log.info(f"Steps: {count} new records")

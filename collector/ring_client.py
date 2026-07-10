@@ -65,12 +65,19 @@ COMMAND_HANDLERS: dict[int, Callable[[bytearray], Any]] = dict(_BASE_COMMAND_HAN
 # ---------------------------------------------------------------------------
 
 def forget_ring(address: str) -> None:
-    """Remove the ring from BlueZ's known-device cache.
+    """Disconnect, then remove the ring from BlueZ's known-device cache.
 
     This clears ALL cached state: GATT services, pairing/bonding, connection
-    history. It's the nuclear option but it's what the R09 requires after a
-    disconnect to accept a new connection reliably.
+    history. Disconnect first ensures BlueZ releases any lingering GATT link
+    before we clear the bond. The R09 requires this to accept a new connection.
     """
+    try:
+        subprocess.run(
+            ["bluetoothctl", "disconnect", address],
+            capture_output=True, timeout=10,
+        )
+    except Exception:
+        pass  # ring may already be disconnected
     try:
         subprocess.run(
             ["bluetoothctl", "remove", address],
@@ -79,6 +86,18 @@ def forget_ring(address: str) -> None:
         logger.info(f"Forgot ring {address} from BlueZ")
     except Exception as e:
         logger.warning(f"forget_ring failed (non-fatal): {e}")
+
+
+def disconnect_ring(address: str) -> None:
+    """Disconnect the ring from BlueZ (release GATT link)."""
+    try:
+        subprocess.run(
+            ["bluetoothctl", "disconnect", address],
+            capture_output=True, timeout=10,
+        )
+        logger.info(f"Disconnected ring {address} from BlueZ")
+    except Exception as e:
+        logger.warning(f"disconnect_ring failed (non-fatal): {e}")
 
 
 def pair_ring(address: str, timeout: float = 30.0) -> bool:
@@ -94,6 +113,9 @@ def pair_ring(address: str, timeout: float = 30.0) -> bool:
         success = "Pairing successful" in (result.stdout or "")
         if success:
             logger.info(f"Paired ring {address}")
+            # bluetoothctl holds the GATT link after pairing —
+            # disconnect immediately so bleak can own it.
+            disconnect_ring(address)
         else:
             logger.warning(f"Pairing failed: {result.stdout} {result.stderr}")
         return success
@@ -117,13 +139,16 @@ async def scan_for_address(address: str, timeout: float = 15.0) -> bool:
     return found
 
 
-def forget_and_repair(address: str, timeout: float = 30.0) -> bool:
-    """Forget the ring from BlueZ, then re-pair it.
+async def forget_and_repair(address: str, timeout: float = 30.0) -> bool:
+    """Forget the ring from BlueZ, re-discover via scan, then re-pair.
 
-    This is the full R09 reconnect-bug workaround. Ring must be advertising
-    for the pair step to succeed. Returns True if pairing succeeded.
+    This is the full R09 reconnect-bug workaround. After `remove`, BlueZ
+    doesn't know about the device — we must scan to re-discover before
+    pairing. Returns True if pairing succeeded.
     """
     forget_ring(address)
+    # Quick scan so BlueZ re-discovers the device after forget
+    await scan_for_address(address, timeout=5.0)
     return pair_ring(address, timeout=timeout)
 
 

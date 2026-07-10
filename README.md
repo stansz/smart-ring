@@ -78,4 +78,4 @@ Topics covered:
 
 ## Status
 
-🟢 **Working end-to-end.** R09 ring paired and validated. First contact succeeds, sync pulls data, dashboard operational, Gadgetbridge paired on phone.
+🟢 **Working end-to-end.** R09 ring paired and validated (BLE `30:35:42:37:21:03`, FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls HR + steps to Postgres, dashboard operational, Gadgetbridge paired on phone. Sync behavior confirmed read-only (safe to sync from multiple devices). Sleep/HRV commands need Gadgetbridge alignment.
