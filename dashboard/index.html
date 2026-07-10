@@ -154,8 +154,8 @@
                     <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
                 </button>
                 <div class="text-sm text-gray-600">
-                    <p>Cron schedule: <code class="bg-gray-100 px-1 py-0.5 rounded">0 */2 * * *</code> (every 2 hours)</p>
-                    <p class="text-xs text-gray-400 mt-1">Manual syncs queue in the DB; the host poller picks them up within ~60s.</p>
+                    <p>On-demand only — no automatic sync.</p>
+                    <p class="text-xs text-gray-400 mt-1">Click Sync Now to queue a request. The host poller picks it up within ~30s, runs the BLE sync, and disconnects. The ring is automatically released for phone pairing afterward.</p>
                 </div>
             </div>
 
