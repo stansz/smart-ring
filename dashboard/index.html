@@ -219,23 +219,6 @@
             </div>
         </div>
 
-        <!-- Sync controls -->
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
-            <h2 class="text-lg font-semibold text-gray-900 mb-4">Sync Controls</h2>
-            <div class="flex flex-wrap items-center gap-4">
-                <button @click="queueSync()"
-                        :disabled="syncQueueBusy"
-                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
-                    <span x-show="!syncQueueBusy">Sync Now</span>
-                    <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
-                </button>
-                <div class="text-sm text-gray-600">
-                    <p>On-demand only — no automatic sync.</p>
-                    <p class="text-xs text-gray-400 mt-1">Click Sync Now to queue a request. The host poller picks it up within ~30s, runs the BLE sync, and disconnects. The ring is automatically released for phone pairing afterward.</p>
-                </div>
-            </div>
-        </div>
-
         <!-- System health -->
         <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
             <h2 class="text-lg font-semibold text-gray-900 mb-4">System Health</h2>
