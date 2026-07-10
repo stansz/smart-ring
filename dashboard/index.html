@@ -81,7 +81,7 @@
                           x-text="new Date().toLocaleDateString()"></span>
                 </h2>
                 <span class="text-xs text-gray-400"
-                      x-text="dialsLastRefresh ? 'Last refreshed ' + dialsLastRefresh : ''"></span>
+                      x-text="lastSyncSummary.completed_at ? 'Last synced ' + new Date(lastSyncSummary.completed_at).toLocaleTimeString() : ''"></span>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <!-- Steps Dial -->
@@ -349,7 +349,6 @@
                 activeSlotCount: 0,
                 activeThreshold: 50,
                 distanceKm: '—',
-                dialsLastRefresh: null,
 
                 // Admin state
                 ringStatus: {},
@@ -620,8 +619,6 @@
                         this.distanceKm = '0.00';
                     }
 
-                    // Timestamp of last compute
-                    this.dialsLastRefresh = new Date().toLocaleTimeString();
                 },
 
                 renderRawTable(tbodyId, rows, valueKey) {
