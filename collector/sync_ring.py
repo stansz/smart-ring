@@ -468,7 +468,9 @@ async def fetch_hr_history(
     in case the parser's state needs flushing."""
     records = []
     local_now = datetime.now()
-    for days_ago in range(7, 0, -1):
+    # range(7, -1, -1) = 7,6,5,4,3,2,1,0 — INCLUDES TODAY (was 7..1 before,
+    # which silently skipped today's HR data even when present).
+    for days_ago in range(7, -1, -1):
         local_midnight = (local_now.replace(hour=0, minute=0, second=0, microsecond=0)
                           - timedelta(days=days_ago))
         hr_request = make_packet(21, struct.pack("<L", int(local_midnight.timestamp())))
