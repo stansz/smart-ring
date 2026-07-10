@@ -509,7 +509,7 @@ python3 collector/sync_ring.py --forget
 - [x] Make Admin tab "Sync Now" button work end-to-end — done 2026-07-10: poller watches DB, runs `sync_ring.py --forget` (via `collector-wrapper.py` which now injects `--forget` for the R09 reconnect workaround)
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
-- [x] Use Gadgetbridge sleep/HRV commands (0xBC sleep, 0x39 HRV) instead of wrong cmd 68/57 — HRV DONE (0x39), sleep still uses cmd 68
+- [x] Use Gadgetbridge sleep/HRV commands (0xBC sleep, 0x39 HRV) instead of wrong cmd 68/57 — HRV DONE (0x39), sleep ALSO DONE (0xBC) in 2026-07-10(d)
 - [ ] Investigate 0x80-bit async packets (probably sleep/HRV/temperature historical push)
 
 ### 2026-07-10 (c) — HRV Protocol Alignment (cmd 0x39)
@@ -536,6 +536,46 @@ python3 collector/sync_ring.py --forget
 **Files changed:**
 - `collector/ring_client.py` — added 0x39 handler
 - `collector/sync_ring.py` — replaced `fetch_hrv_raw` + `_parse_hrv_data` with `fetch_hrv_history`
+- `AGENTS.md` — this entry
+
+### 2026-07-10 (d) — Big-Data Protocol Alignment (sleep, SpO2, temperature via cmd 0xBC)
+
+**Task:** Replace the broken sleep (cmd 68), SpO2 (cmd 105 realtime), and temperature (cmd 115 event-listener) with the Gadgetbridge-correct CMD_BIG_DATA_V2 (0xBC) protocol. This was the big one — all three require the V2 BLE characteristic pair, which our code didn't use at all.
+
+**Key discovery:** Big-data uses a SECOND BLE service (`de5bf728`) with its own notify/write characteristics. Responses can span multiple BLE packets (header bytes [2:3] = uint16 LE total length; accumulate until complete). This is NOT the Nordic UART path — it's a separate service that the R09 exposes.
+
+**V2 service confirmed on R09 FW 3.10.21.** The ring does expose the de5bf728 service with de5bf72a (COMMAND write) and de5bf729 (NOTIFY_V2 notify). Our previous code never subscribed to this characteristic — which is why none of the old commands ever returned data.
+
+**What was done:**
+
+`collector/ring_client.py` — V2 big-data service support:
+- Added V2 UUID constants (BIG_DATA_SERVICE_UUID, COMMAND_CHAR_UUID, NOTIFY_V2_CHAR_UUID)
+- `connect()` now discovers V2 service, subscribes to NOTIFY_V2, stores COMMAND char
+- `_handle_big_data()` — concatenates multi-packet responses (accumulate BLE chunks until `length + 6` bytes received), then pushes complete payload to `big_data_queue`
+- `send_command()` — writes raw bytes to V2 COMMAND char (no 16-byte framing — the big-data protocol uses raw bytes, unlike the UART path)
+
+`collector/sync_ring.py` — three new fetch functions + parsers:
+- `fetch_sleep_history()` / `_parse_sleep_data()`: 0xBC + 0x27 → per-session sleep data: sleepStart/sleepEnd (minutes after midnight), then (dayBytes-4)/2 stage entries with type (2=light, 3=deep, 4=rem, 5=awake) and duration (minutes). Stores ALL stage segments (not collapsed to 1/day/type).
+- `fetch_spo2_history()` / `_parse_spo2_data()`: 0xBC + 0x2A → per-day hourly min/max averaged to single SpO2%
+- `fetch_temperature_history()` / `_parse_temperature_data()`: 0xBC + 0x25 → per-day 30-min interval temps: `temp_c = (raw / 10) + 20`
+- Replaced `fetch_sleep_data` (cmd 68), `fetch_spo2_data` (cmd 105), `listen_temperature` (cmd 115) with new big-data versions. Old functions renamed to `_legacy` for reference.
+- `upsert_sleep` updated: ON CONFLICT `(start_ts, stage, source)` to preserve all per-session stage segments
+- Added `upsert_temperature_list` for bulk records (was single-value only)
+
+DB changes:
+- `raw_sleep.duration_minutes INT` added
+- Unique constraint changed from `(day, stage, source)` to `(start_ts, stage, source)` to handle multiple sessions per night with same stage type
+
+**Verified end-to-end on R09 FW 3.10.21:**
+- V2 service detected correctly
+- Sleep: 30 stage records across 3 nights (Jul 8-10) with realistic sleep architecture — deep sleep blocks at start, REM cycles every ~90 min, micro-wakes in morning. Stages: light (18), deep (3), rem (6), awake (3)
+- SpO2: 26 hourly records. Temperature: 15 records at 30-min intervals
+
+**Files changed:**
+- `collector/ring_client.py` — V2 service discovery, _handle_big_data, send_command
+- `collector/sync_ring.py` — new big-data fetch/parse functions, updated _collect_data, upsert_sleep
+- `collector/test_open_questions.py` — updated imports for renamed functions
+- `db/init.sql` — duration_minutes column, new unique constraint
 - `AGENTS.md` — this entry
 
 ---
