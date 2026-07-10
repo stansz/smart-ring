@@ -78,4 +78,4 @@ Topics covered:
 
 ## Status
 
-🟢 **Working end-to-end.** R09 ring paired and validated (BLE `30:35:42:37:21:03`, FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls data, dashboard operational, Gadgetbridge paired on phone.
+🟢 **Working end-to-end.** R09 ring paired and validated. First contact succeeds, sync pulls data, dashboard operational, Gadgetbridge paired on phone.
