@@ -6,8 +6,6 @@
     <title>Smart Ring Dashboard</title>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
-    <script src="https://unpkg.com/htmx.org@2.0.2/dist/htmx.min.js"></script>
     <style>
         .chart-container { position: relative; height: 300px; width: 100%; }
         .chart-container canvas { display: block; }
@@ -75,22 +73,22 @@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4">Recovery Trend</h2>
-                <div class="chart-container"><canvas id="recoveryChart"></canvas></div>
+                <div id="recoveryBars" class="text-sm text-gray-700"></div>
             </div>
             <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4">Sleep Quality</h2>
-                <div class="chart-container"><canvas id="sleepChart"></canvas></div>
+                <div id="sleepBars" class="text-sm text-gray-700"></div>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4">HRV Trends (7d / 28d)</h2>
-                <div class="chart-container"><canvas id="hrvChart"></canvas></div>
+                <div id="hrvBars" class="text-sm text-gray-700"></div>
             </div>
             <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4">Circadian HR Pattern</h2>
-                <div class="chart-container"><canvas id="circadianChart"></canvas></div>
+                <div id="circadianBars" class="text-sm text-gray-700"></div>
             </div>
         </div>
 
@@ -315,10 +313,6 @@
                 restingHr: null,
                 rawHrCount: 0,
                 rawStepsCount: 0,
-                recoveryChart: null,
-                sleepChart: null,
-                hrvChart: null,
-                circadianChart: null,
 
                 // Admin state
                 ringStatus: {},
@@ -391,7 +385,7 @@
                         // Use rmssd as the chart value when z_score is null — gives
                         // the user something to see before we have 7+ days of baseline.
                         const values = data.map(d => d.z_score != null ? d.z_score : (d.rmssd != null ? d.rmssd : null));
-                        this.renderRecoveryChart(
+                        this.renderRecoveryBars(
                             [...data].map(d => d.day).reverse(),
                             values.reverse()
                         );
@@ -405,7 +399,7 @@
                         if (!data.length) return;
                         this.sleepScore = Math.round(data[0].score || 0);
                         this.sleepLabel = `${data[0].total_sleep_minutes || 0} min total`;
-                        this.renderSleepChart([...data].reverse());
+                        this.renderSleepBars([...data].reverse());
                     } catch (e) { console.error('loadSleep', e); }
                 },
 
@@ -415,7 +409,7 @@
                         const data = await res.json();
                         if (data.length > 0) {
                             this.hrv7d = data[0].rmssd_7d ? Math.round(data[0].rmssd_7d) : null;
-                            this.renderHRVChart([...data].reverse());
+                            this.renderHRVBars([...data].reverse());
                         }
                         // Resting HR from raw data
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
@@ -457,7 +451,7 @@
                                 values.push(null);
                             }
                         }
-                        this.renderCircadianChart(labels, values);
+                        this.renderCircadianBars(labels, values);
                     } catch (e) { console.error('loadCircadian', e); }
                 },
 
@@ -504,114 +498,116 @@
                     `).join('');
                 },
 
-                renderRecoveryChart(labels, values) {
-                    const canvas = document.getElementById('recoveryChart');
-                    if (!canvas) return;
-                    const ctx = canvas.getContext('2d');
-                    if (this.recoveryChart) this.recoveryChart.destroy();
-                    this.recoveryChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels.map(d => new Date(d).toLocaleDateString()),
-                            datasets: [{
-                                label: 'Recovery Z-Score',
-                                data: values,
-                                borderColor: 'rgb(59, 130, 246)',
-                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                                fill: true,
-                                tension: 0.3,
-                                pointRadius: 3,
-                                spanGaps: true,
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { display: false } },
-                            scales: {
-                                y: { title: { display: true, text: 'Z-Score' } }
-                            }
+                renderRecoveryBars(labels, values) {
+                    const el = document.getElementById('recoveryBars');
+                    if (!el) return;
+                    if (!labels || !labels.length) {
+                        el.innerHTML = '<p class="text-gray-400">No recovery data yet</p>';
+                        return;
+                    }
+                    const max = Math.max(60, ...values.filter(v => v != null));
+                    const min = Math.min(0, ...values.filter(v => v != null));
+                    const range = max - min || 1;
+                    el.innerHTML = labels.map((day, i) => {
+                        const v = values[i];
+                        if (v == null) {
+                            return `<div class="flex items-center gap-2 mb-1">
+                                <span class="w-20 text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
+                                <span class="text-gray-400 text-xs">—</span>
+                            </div>`;
                         }
-                    });
+                        const widthPct = ((v - min) / range * 80 + 10).toFixed(1);
+                        return `<div class="flex items-center gap-2 mb-1">
+                            <span class="w-20 text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
+                            <div class="flex-1 bg-gray-100 rounded h-5 relative">
+                                <div class="bg-blue-500 h-5 rounded" style="width: ${widthPct}%"></div>
+                                <span class="absolute right-2 top-0 leading-5 text-xs text-gray-700">${v.toFixed(1)}</span>
+                            </div>
+                        </div>`;
+                    }).join('');
                 },
 
-                renderSleepChart(data) {
-                    const canvas = document.getElementById('sleepChart');
-                    if (!canvas) return;
-                    const ctx = canvas.getContext('2d');
-                    if (this.sleepChart) this.sleepChart.destroy();
-                    this.sleepChart = new Chart(ctx, {
-                        type: 'bar',
-                        data: {
-                            labels: data.map(d => new Date(d.day).toLocaleDateString()),
-                            datasets: [
-                                { label: 'Deep', data: data.map(d => d.deep_pct || 0), backgroundColor: 'rgb(30, 64, 175)' },
-                                { label: 'REM', data: data.map(d => d.rem_pct || 0), backgroundColor: 'rgb(124, 58, 237)' },
-                                { label: 'Light', data: data.map(d => d.light_pct || 0), backgroundColor: 'rgb(14, 165, 233)' },
-                                { label: 'Wake', data: data.map(d => d.wake_pct || 0), backgroundColor: 'rgb(107, 114, 128)' }
-                            ]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { position: 'bottom' } },
-                            scales: {
-                                x: { stacked: true },
-                                y: { stacked: true, title: { display: true, text: '%' }, max: 100 }
-                            }
-                        }
-                    });
+                renderSleepBars(data) {
+                    const el = document.getElementById('sleepBars');
+                    if (!el) return;
+                    if (!data || !data.length) {
+                        el.innerHTML = '<p class="text-gray-400">No sleep data yet (protocol gap — needs cmd 0xBC)</p>';
+                        return;
+                    }
+                    el.innerHTML = data.map(d => {
+                        const date = new Date(d.day).toLocaleDateString();
+                        return `<div class="mb-3">
+                            <div class="text-xs text-gray-500 mb-1">${date}</div>
+                            <div class="flex h-6 rounded overflow-hidden">
+                                <div class="bg-blue-800" style="width: ${d.deep_pct || 0}%" title="Deep ${(d.deep_pct || 0).toFixed(0)}%"></div>
+                                <div class="bg-purple-500" style="width: ${d.rem_pct || 0}%" title="REM ${(d.rem_pct || 0).toFixed(0)}%"></div>
+                                <div class="bg-sky-500" style="width: ${d.light_pct || 0}%" title="Light ${(d.light_pct || 0).toFixed(0)}%"></div>
+                                <div class="bg-gray-500" style="width: ${d.wake_pct || 0}%" title="Wake ${(d.wake_pct || 0).toFixed(0)}%"></div>
+                            </div>
+                        </div>`;
+                    }).join('') + `<div class="text-xs text-gray-400 mt-2 flex gap-3">
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-blue-800 inline-block"></span>Deep</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-purple-500 inline-block"></span>REM</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-sky-500 inline-block"></span>Light</span>
+                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-gray-500 inline-block"></span>Wake</span>
+                    </div>`;
                 },
 
-                renderHRVChart(data) {
-                    const canvas = document.getElementById('hrvChart');
-                    if (!canvas) return;
-                    const ctx = canvas.getContext('2d');
-                    if (this.hrvChart) this.hrvChart.destroy();
-                    this.hrvChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: data.map(d => new Date(d.day).toLocaleDateString()),
-                            datasets: [
-                                { label: 'RMSSD 7d', data: data.map(d => d.rmssd_7d || null), borderColor: 'rgb(16, 185, 129)', backgroundColor: 'rgba(16, 185, 129, 0.1)', fill: false, tension: 0.3 },
-                                { label: 'RMSSD 28d', data: data.map(d => d.rmssd_28d || null), borderColor: 'rgb(59, 130, 246)', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: false, tension: 0.3, borderDash: [5, 5] }
-                            ]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { position: 'bottom' } },
-                            scales: { y: { title: { display: true, text: 'ms' } } }
-                        }
-                    });
+                renderHRVBars(data) {
+                    const el = document.getElementById('hrvBars');
+                    if (!el) return;
+                    if (!data || !data.length) {
+                        el.innerHTML = '<p class="text-gray-400">No HRV data yet (protocol gap — needs cmd 0x39)</p>';
+                        return;
+                    }
+                    const max = Math.max(...data.map(d => d.rmssd_7d || d.rmssd_28d || 0));
+                    el.innerHTML = data.map(d => {
+                        const date = new Date(d.day).toLocaleDateString();
+                        const w7 = d.rmssd_7d ? Math.max(2, (d.rmssd_7d / max) * 90) : 0;
+                        const w28 = d.rmssd_28d ? Math.max(2, (d.rmssd_28d / max) * 90) : 0;
+                        return `<div class="mb-2">
+                            <div class="text-xs text-gray-500 mb-1">${date}</div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span class="w-12 text-green-700">7d</span>
+                                <div class="flex-1 bg-gray-100 rounded h-4">
+                                    <div class="bg-green-500 h-4 rounded" style="width: ${w7}%"></div>
+                                </div>
+                                <span class="w-12 text-right font-mono">${d.rmssd_7d ? d.rmssd_7d.toFixed(0) : '—'}</span>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs mt-0.5">
+                                <span class="w-12 text-blue-700">28d</span>
+                                <div class="flex-1 bg-gray-100 rounded h-4">
+                                    <div class="bg-blue-500 h-4 rounded border-dashed" style="width: ${w28}%; border: 1px dashed; border-color: transparent;"></div>
+                                </div>
+                                <span class="w-12 text-right font-mono">${d.rmssd_28d ? d.rmssd_28d.toFixed(0) : '—'}</span>
+                            </div>
+                        </div>`;
+                    }).join('');
                 },
 
-                renderCircadianChart(labels, values) {
-                    const canvas = document.getElementById('circadianChart');
-                    if (!canvas) return;
-                    const ctx = canvas.getContext('2d');
-                    if (this.circadianChart) this.circadianChart.destroy();
-                    this.circadianChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: 'Avg HR',
-                                data: values,
-                                borderColor: 'rgb(239, 68, 68)',
-                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                                fill: true,
-                                tension: 0.3,
-                                spanGaps: true,
-                            }]
-                        },
-                        options: {
-                            responsive: true,
-                            maintainAspectRatio: false,
-                            plugins: { legend: { display: false } },
-                            scales: { y: { title: { display: true, text: 'BPM' } } }
-                        }
-                    });
+                renderCircadianBars(labels, values) {
+                    const el = document.getElementById('circadianBars');
+                    if (!el) return;
+                    const validVals = values.filter(v => v != null);
+                    if (!validVals.length) {
+                        el.innerHTML = '<p class="text-gray-400">No circadian data yet</p>';
+                        return;
+                    }
+                    const max = Math.max(...validVals);
+                    const min = Math.min(...validVals);
+                    const range = max - min || 1;
+                    el.innerHTML = labels.map((label, i) => {
+                        const v = values[i];
+                        const widthPct = v != null ? Math.max(3, ((v - min) / range) * 90 + 5) : 0;
+                        const color = v != null && v < 65 ? 'bg-green-500' : v != null && v < 80 ? 'bg-yellow-500' : 'bg-red-500';
+                        return `<div class="flex items-center gap-2 mb-0.5 text-xs">
+                            <span class="w-12 text-gray-500 font-mono">${label}</span>
+                            <div class="flex-1 bg-gray-100 rounded h-4 relative">
+                                <div class="${color} h-4 rounded" style="width: ${widthPct}%"></div>
+                                <span class="absolute right-2 top-0 leading-4 text-gray-700">${v != null ? v.toFixed(0) : '—'}</span>
+                            </div>
+                        </div>`;
+                    }).join('');
                 },
 
                 renderSyncTable(data) {
