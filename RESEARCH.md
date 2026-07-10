@@ -10,9 +10,9 @@
 - **Firmware:** RT09_3.10.21_251107
 - **Hardware:** RT09_V3.1
 - **Cost:** ~$45 CAD from Colmi official store (AliExpress), size 11
-- **SoC:** BlueX RF03 ARM Cortex-M0 (200KB RAM, 512KB Flash) — same across entire R0x family
+- **SoC:** BlueX RF03 ARM Cortex-M0 (200KB RAM, 512KB Flash)
 - **Sensors:** accelerometer (steps, sleep, gestures), heart rate (PPG), SpO2, **skin temperature** (R09 exclusive — R02/R06/R10 lack this)
-- **Weight:** ~3.8g (20% lighter than R02 due to concave inner design)
+- **Weight:** ~3.8g (20% lighter than R02 due to concave design)
 - **Battery:** 15-18mAh, ~2-3 day battery life depending on size
 - **Storage model:** ring logs sensor data onboard, syncs on demand via BLE. No persistent phone connection needed.
 
