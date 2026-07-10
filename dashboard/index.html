@@ -494,7 +494,7 @@
                             this.hrv7d = null;
                         }
                         this.renderHRVBars(data.length ? [...data].reverse() : []);
-                        // Resting HR from raw data
+                        // Resting HR: use local hours 1-5 AM (deep sleep window)
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
                         const hrData = await hrRes.json();
                         const nightHR = hrData.filter(d => {
@@ -571,31 +571,34 @@
                 },
 
                 computeDials(hrData, stepsData) {
-                    // "Today" = local-time entries within the last 18h (covers
-                    // a full day plus some padding). Simpler than computing
-                    // midnight in the user's timezone.
-                    const now = Date.now();
-                    const eighteenHours = 18 * 60 * 60 * 1000;
+                    // "Today" = local-time entries from today's date only.
+                    // The ring's SportDetail.steps appears to be a per-hour
+                    // count (5 duplicate entries per hour from the ring
+                    // protocol). Dedupe by hour, then sum for daily total.
+                    const now = new Date();
+                    const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
                     const todaysSteps = stepsData.filter(s => {
-                        return (now - new Date(s.ts).getTime()) <= eighteenHours;
-                    });
-                    // Deduplicate by time_index: ring sends 5 duplicate step
-                    // records per hour (each with the same step count). Take
-                    // max steps per hour to get the true count.
-                    const byHour = {};
-                    let stepsTotal = 0;
-                    for (const s of todaysSteps) {
                         const t = new Date(s.ts);
-                        const hk = `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}-${t.getHours()}`;
-                        if (!byHour[hk] || s.steps > byHour[hk]) byHour[hk] = s.steps;
+                        return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
+                    });
+                    // Dedupe by hour: ring sends 5 copies per hour with the
+                    // same value. Take the max per hour (all 5 are equal
+                    // so it doesn't matter which we pick), then sum.
+                    const byHour = new Map();
+                    for (const s of todaysSteps) {
+                        const h = new Date(s.ts).getHours();
+                        const prev = byHour.get(h) || 0;
+                        byHour.set(h, Math.max(prev, s.steps));
                     }
-                    stepsTotal = Object.values(byHour).reduce((a, b) => a + b, 0);
+                    let stepsTotal = 0;
+                    for (const v of byHour.values()) stepsTotal += v;
                     this.stepsToday = stepsTotal;
                     this.stepsPct = Math.min(100, Math.round(stepsTotal / 100)).toString();
 
-                    // HR stats for "today" (last 18h)
+                    // HR stats for "today" (same local date)
                     const todaysHr = hrData.filter(h => {
-                        return (now - new Date(h.ts).getTime()) <= eighteenHours;
+                        const t = new Date(h.ts);
+                        return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
                     });
                     if (todaysHr.length > 0) {
                         const bpms = todaysHr.map(h => h.bpm);
@@ -612,13 +615,14 @@
                         this.hrPct = '0';
                     }
 
-                    // Active minutes: hours with any step entry today
-                    const activeHours = Object.keys(byHour).length;
+                    // Active hours today (unique hours with step data)
+                    const activeHours = new Set(
+                        todaysSteps.map(s => new Date(s.ts).getHours())
+                    ).size;
                     this.activeMinutes = activeHours * 60;
                     this.activePct = Math.min(100, Math.round(activeHours / 60 * 100)).toString();
 
                     // Distance: rough estimate, 0.0008 km per step
-                    // (avg adult stride ~0.762m = 0.000762 km/step, round up)
                     if (stepsTotal > 0) {
                         this.distanceKm = (stepsTotal * 0.0008).toFixed(2);
                     } else {
