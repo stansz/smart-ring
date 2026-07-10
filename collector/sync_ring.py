@@ -127,43 +127,60 @@ async def connect_with_retry(
     initial_backoff: float = 2.0,
     connect_timeout: float = 30.0,
     wake_ping: bool = False,
+    forget_repair: bool = False,
 ) -> "Client":
     """Connect to the ring, retrying on failure.
 
-    R09 firmware 3.10.21 puts the radio to sleep aggressively — within ~30s of
-    disconnect it stops advertising. Sync attempts outside an active wear
-    window will fail at the connect step every time, so we retry with
-    exponential backoff.
+    R09 firmware 3.10.21 has two known issues:
+    1. **Aggressive sleep** — stops advertising ~30s after disconnect.
+       Handled by retry + exponential backoff.
+    2. **Reconnect bug** — after a disconnect, BlueZ holds stale GATT state
+       that prevents new connections. Worked around by `bluetoothctl remove`
+       + `bluetoothctl pair` (forget + re-pair).
+
+    Parameters:
+        forget_repair: If True, run forget+re-pair BEFORE the first connect
+            attempt. Use this when the ring was previously connected and
+            disconnected (the R09 reconnect bug will block normal connects).
+            If the re-pair fails (ring not advertising), falls through to
+            plain retry — the ring may wake up during the backoff window.
 
     On the last attempt, if `wake_ping` is True, we issue a short BLE scan first
-    to nudge the ring's radio (if it's awake but silent). Most of the time,
-    plain retry is sufficient — the user wears / taps / charges the ring
-    while the collector waits.
+    to nudge the ring's radio awake.
 
-    Returns a connected Client. Caller MUST call `client.disconnect()` (or use
-    as an async context manager) when done.
+    Returns a connected Client. Caller MUST call ``await client.__aexit__(...)``
+    when done.
     """
+    from collector.ring_client import forget_and_repair, forget_ring
+
+    # R09 reconnect-bug workaround: clear stale BlueZ state before connecting
+    if forget_repair:
+        log.info("Forget+repair: clearing stale BlueZ state...")
+        paired = forget_and_repair(address)
+        if paired:
+            log.info("Re-paired successfully, attempting connect...")
+        else:
+            log.warning("Re-pair failed (ring may be asleep), trying plain connect...")
+
     last_exc: Optional[BaseException] = None
     for i in range(attempts):
         if wake_ping and i == attempts - 1:
             # Last-ditch: run a scan loop to coax the radio awake.
-            # This forces the kernel to populate the inquiry cache, which
-            # sometimes nudges a sleepy R09 to advertise.
             log.info("Final attempt: running wake-ping scan (10s)...")
-            from bleak import BleakScanner  # local import keeps top tidy
             await BleakScanner.discover(timeout=10.0, return_adv=True)
 
         try:
             client = Client(address, timeout=connect_timeout)
             await client.__aenter__()
             return client
-        except (BleakError, OSError, asyncio.TimeoutError) as e:
+        except (BleakError, OSError, asyncio.TimeoutError, EOFError, ConnectionError) as e:
             last_exc = e
             if i < attempts - 1:
                 wait = initial_backoff * (2 ** i)
+                err_msg = str(e) or type(e).__name__
                 log.info(
                     f"Connect attempt {i + 1}/{attempts} failed ({type(e).__name__}: "
-                    f"{getattr(e, 'args', [''])[0] or e}). Retrying in {wait:.0f}s..."
+                    f"{err_msg}). Retrying in {wait:.0f}s..."
                 )
                 await asyncio.sleep(wait)
             else:
@@ -551,21 +568,20 @@ async def sync_ring(
     *,
     attempts: int = 5,
     wake_ping: bool = True,
+    forget_repair: bool = False,
 ) -> SyncResult:
-    """Main async sync routine with retry-on-sleep.
+    """Main async sync routine with retry-on-sleep + R09 reconnect-bug workaround.
 
-    The R09 ring is very aggressive about sleeping — within ~30s of disconnect
-    it stops advertising. Most cron-driven sync attempts will arrive while the
-    ring is asleep. `connect_with_retry` retries connect with exponential
-    backoff; a `wake_ping` scan runs before the final attempt to nudge the
-    radio.
-
-    Manual (Admin-tab) syncs use the default (5 attempts, ~2 minutes total)
-    which is short enough that a user-triggered sync feels fast. Cron-driven
-    syncs pass larger `attempts` from `main()` to wait longer.
+    Parameters:
+        forget_repair: If True, run `bluetoothctl remove` + `bluetoothctl pair`
+            before connecting. Use this for manual syncs where the ring was
+            previously connected and disconnected (the R09 won't accept a new
+            connection without forgetting first). For cron-driven syncs, set
+            to False and let connect_with_retry handle it mid-retry if needed.
     """
     client = await connect_with_retry(
-        address, attempts=attempts, wake_ping=wake_ping
+        address, attempts=attempts, wake_ping=wake_ping,
+        forget_repair=forget_repair,
     )
     try:
         return await _collect_data(client, address)
@@ -574,6 +590,10 @@ async def sync_ring(
             await client.__aexit__(None, None, None)
         except Exception:
             pass
+        # R09 reconnect bug: forget after disconnect so the next sync can connect
+        if forget_repair:
+            from collector.ring_client import forget_ring
+            forget_ring(address)
 
 
 async def test_sync_behavior(address: str):
@@ -614,8 +634,10 @@ async def main():
     # CLI flags:
     #   --no-retry       fail fast on first connect failure (testing)
     #   --attempts N     override default 5 retries (cron should use 12+)
+    #   --forget         forget+re-pair ring before connecting (R09 workaround)
     attempts = 5
     no_retry = "--no-retry" in sys.argv
+    do_forget = "--forget" in sys.argv
     if "--attempts" in sys.argv:
         idx = sys.argv.index("--attempts")
         if idx + 1 < len(sys.argv):
@@ -643,7 +665,7 @@ async def main():
                 except Exception:
                     pass
         else:
-            result = await sync_ring(address, attempts=attempts)
+            result = await sync_ring(address, attempts=attempts, forget_repair=do_forget)
 
         log_sync_complete(sync_id, result)
         if result.error:
