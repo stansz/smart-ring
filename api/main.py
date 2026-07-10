@@ -130,6 +130,17 @@ def get_raw_hr(hours: int = 48, limit: int = 1000):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/raw/steps")
+def get_raw_steps(hours: int = 168, limit: int = 1000):
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, steps FROM raw_steps
+            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            ORDER BY ts DESC LIMIT :limit
+        """), {"hours": hours, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/raw/temperature")
 def get_raw_temp(hours: int = 48, limit: int = 1000):
     with SessionLocal() as db:
