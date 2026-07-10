@@ -78,4 +78,19 @@ Topics covered:
 
 ## Status
 
-🟢 **Working end-to-end.** R09 ring paired and validated (BLE `<ring_ble_address>`, FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls HR + steps to Postgres, dashboard operational, Gadgetbridge paired on phone. Sync behavior confirmed read-only (safe to sync from multiple devices). Sleep/HRV commands need Gadgetbridge alignment.
+🟢 **Working end-to-end.** R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls HR + steps + stress to Postgres, dashboard operational, Gadgetbridge paired on phone. Sync behavior confirmed read-only (safe to sync from multiple devices).
+
+### Currently working
+- Heart rate (49 records, 30-min intervals) — dashboard with trends + circadian pattern
+- Steps (15-min slots, per-hour counts with calories + distance)
+- Stress (29 records, 30-min intervals, all "normal" range)
+- Ring goals (steps target, calorie target) used in dashboard dials
+- On-demand sync via "Sync Now" button (poller picks up within 30s)
+- Analytics (circadian HR, resting HR, recovery score)
+
+### Next steps
+- Sleep protocol alignment (Gadgetbridge uses cmd 0xBC — we need to switch from cmd 68)
+- HRV protocol alignment (Gadgetbridge uses cmd 0x39 — we need to switch from cmd 57)
+- SpO2 protocol alignment
+- Temperature data (event-driven push from ring)
+- Remote dashboard access (Cloudflare tunnel or Tailscale)
