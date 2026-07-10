@@ -62,19 +62,17 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 
 | File | Purpose | Notes |
 |------|---------|-------|
-| `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient` (upstream hangs without one); replaces `assert packet_type < 127` with `logger.debug` so async ring pushes don't kill the listener; includes forget/pair/disconnect BlueZ helpers for R09 reconnect-bug workaround |
-| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)**; uses `ring_client.Client`; own `fetch_hr_history()` bypasses broken library HR parser; steps use `time_index` for per-hour timestamps |
-| `collector/collector-wrapper.py` | Tiny shim that sets `sys.path` and runs `sync_ring.main()` | Cron / poller entry point |
+| `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient` (upstream hangs without one); replaces `assert packet_type < 127` with `logger.debug` so async ring pushes don't kill the listener; includes forget/pair/disconnect BlueZ helpers for R09 reconnect-bug workaround; registers cmd 0x21 (goals) and 0x37 (stress) handlers |
+| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)**; uses `ring_client.Client`; own `fetch_hr_history()` bypasses broken library HR parser; steps use `time_index * 15` for per-15-min-slot timestamps; `fetch_stress_history()` + `fetch_goals()`; `_read_multi_packet()` generic helper |
+| `collector/collector-wrapper.py` | Tiny shim that sets `sys.path` and runs `sync_ring.main()` | Injects `--forget` into sys.argv for R09 reconnect-bug workaround |
 | `collector/first_contact.py` | Safe read-only diagnostics | Reads battery (`battery_level`), firmware, device info, sets clock — NO data sync |
 | `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
 | `collector/test_sync_readonly.py` | Verifies read-only vs read-and-clear behavior | Two scenarios: within-connection + across-disconnect; confirmed READ-ONLY on R09 3.10.21 |
 | `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | **RESTORED 2026-07-10** — watches `sync_requests` table every 30s, runs `collector-wrapper.py` for any pending row. Safe to run continuously: no BLE connection between syncs. Old `--interval 2` caused issues only because `sync_ring.py` was hanging (now fixed). |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
-| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; 4 admin endpoints (`ring-status`, `health`, `sync-log`, `sync`, `sync-requests`) |
-| `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed; polls every 5s for active sync status |
-| `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue |
-| ~~`setup.sh`~~ | Python-based setup + cron configuration | **DELETED** 2026-07-09(d). Cron entries silently add to crontab on each run; venv/pip/db steps are already done. See AGENTS.md for current setup instructions. |
-| `docker-compose.yml` | Legacy fallback (rootless Podman quadlets are the live deployment) | Binds to `localhost` only |
+| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; endpoints: `/api/raw/{heart-rate,steps,stress,temperature}`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/hrv-trends`, `/api/circadian-hr`, `/api/stress`, `/api/sync-log`, `/api/admin/{ring-status,health,sync-log,sync,sync-requests}` |
+| `dashboard/index.html` | Single-page Alpine.js + CSS bars UI, **two tabs: Dashboard + Admin** | No build step needed; 4 conic-gradient dials for Today's Activity; no chart.js (pure CSS); Sync Now in nav bar; raw data tables in Admin tab |
+| `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue; `raw_steps` now includes `calories` + `distance`; `raw_stress` + `ring_goals` tables added |
 
 ---
 
@@ -380,6 +378,70 @@ No cron. No poller. Manual only. Gadgetbridge works for phone-side quick checks.
 - `collector/collector-wrapper.py` — injects `--forget` if not present
 - `AGENTS.md` — this entry; updated Key Source Files (poller row now RESTORED), Future Work (poller restore ticked)
 
+### 2026-07-10 (b) — Dashboard Overhaul + HR Fixes + Stress/Goals/Calories
+
+**Task:** Make the dashboard show real data, fix HR sync bugs, add Gadgetbridge-style metrics, pull in stress + goals + calories from the ring.
+
+**Dashboard — major rework:**
+- Replaced Chart.js (was failing to render due to CDN/canvas issues) with pure HTML/CSS bar visualizations. Zero external chart library dependency. Recovery Trend, Sleep Quality, HRV Trends, and Circadian HR Pattern are all now CSS bars.
+- Added "Today's Activity" section with 4 conic-gradient dials: Steps, Heart Rate, Calories, Active Time. No JS chart library — pure CSS.
+- Active Time uses a movement threshold (150 steps/15min = ~10 steps/min, brisk walk). Based on Gadgetbridge's definition: Running >120 steps/min, Exercise >90 bpm + intensity >15. We don't have intensity data so use step count as proxy.
+- Steps ring fill uses the ring's actual goals (cmd 0x21): 5000 steps target.
+- Calories ring fill uses the ring's calorie goal (300 kcal).
+- Resting HR computed from raw data. Falls back to most recent day if no data today.
+- "Last synced" timestamp shows actual sync completion time, not browser refresh time.
+- Moved Sync Now button to nav bar (accessible on every tab). Removed duplicate button from Admin tab.
+- Moved raw HR/Steps Log tables from Dashboard tab to Admin tab.
+- Consolidated two sync history tables into single Sync Log on Admin tab.
+- Replaced "Refresh" button with "Sync Now" in nav bar.
+- Replaced empty RMSSD card with Stress card showing latest value + classification (Relaxed/Normal/Medium/High).
+
+**HR sync fixes:**
+- `fetch_hr_history()` was looping `range(7, 0, -1)` which excluded today. Fixed to `range(7, -1, -1)` to include day 0.
+- `fetch_hr_history(client, start, end)` call site referenced undefined `start`/`end` variables (removed in earlier refactor). Fixed to pass `None, None`.
+- Ring confirmed: 26 non-zero HR entries for today, 33 for yesterday, 14 for two days ago. Total 73 records in DB across 3 days.
+
+**Step timestamp fix — 15-minute slots:**
+- The ring's `SportDetail.time_index` is a **15-MINUTE SLOT from local midnight** (0–95 per day), NOT the hour of the day. Confirmed by querying ring directly: time_index values like 28, 32, 36, 68, 72, 76 are spaced 4 apart (1 hour × 4 slots/hour).
+- Previous code did `local_midnight + hours(time_index)` which created timestamps 20+ hours in the future.
+- Fixed to `timedelta(minutes=s.time_index * 15)` with local midnight base + `astimezone()` for UTC storage.
+- Also fixed step record deduplication: the ring sends 5 duplicate entries per hour with the same value.
+
+**Calories + distance now stored:**
+- The ring's `SportDetail` always included `calories` and `distance` alongside `steps` — we were only storing `steps`.
+- Added `calories` and `distance` INT columns to `raw_steps` table.
+- Dashboard: Calories dial replaces the old estimated Distance dial. Values divided by 1000 (ring stores in 0.001 kcal units). Steps Log table in Admin shows all 4 columns (Time | Steps | Cal | Dist).
+
+**Stress history (cmd 0x37) — NEW:**
+- Multi-packet protocol from Gadgetbridge `ColmiR0xPacketHandler.historicalStress`: packet 0 = header, packets 1–4 = data (12–13 values each at 30-min intervals). Each value 1–99.
+- New `raw_stress` table (ts UNIQUE, stress_value INT).
+- Generic `_read_multi_packet()` helper for multi-packet ring responses.
+- Synced 29 stress records (all in "normal" range 32–47).
+
+**Goals (cmd 0x21) — NEW:**
+- Single read response: steps goal (5000), calorie goal (300000 in ring units ≈ 300 kcal), distance goal (3000m), sport/sleep goals (unset).
+- New `ring_goals` table.
+- Dashboard dials now use ring's actual goals for percentage fill.
+- Steps: 5000 target. Calories: 300 kcal target.
+
+**Research docs updated:**
+- RESEARCH.md: resolved "Does syncing wipe data?" → confirmed read-only. Added BLE Quirks & Reconnect Bug section (6 documented behaviors). Updated protocol commands with Gadgetbridge-correct codes. Updated deployment topology with current services. Replaced real BT address and IP with placeholders.
+- AGENTS.md, README.md: same placeholder cleanup.
+
+**All changes collapsed into a `sed` command for clarity.**
+
+**Sync log milestones:** Requests 19–34 all completed. Data stable: 73 HR records, ~24 step records with calories/distance, 29 stress records, 1 goal record.
+
+**Files changed (this session):**
+- `dashboard/index.html` — major rework (Chart.js removed, CSS bars, 4 dials, stress card, goals integration, UX cleanup)
+- `collector/sync_ring.py` — `fetch_hr_history` fixes, step time_index fix (15-min slots), calories/distance extraction, `fetch_stress_history`, `fetch_goals`, `_read_multi_packet`, `upsert_stress`, `upsert_goals`
+- `collector/ring_client.py` — added 0x21 and 0x37 handlers, `_pass_through` utility
+- `api/main.py` — `/api/raw/stress`, `/api/goals` endpoints, updated `/api/raw/steps` with calories/distance
+- `db/init.sql` — `raw_steps` calories/distance columns, `raw_stress` table, `ring_goals` table
+- `collector/collector-wrapper.py` — injects `--forget` for R09 reconnect workaround
+- `RESEARCH.md` — major update with all confirmed findings
+- `AGENTS.md`, `README.md` — BT address/IP placeholder cleanup
+
 ## Environment & Secrets
 
 - **No secrets in repo.** All creds live in `.env` (gitignored).
@@ -426,9 +488,12 @@ python3 collector/sync_ring.py --forget
 | Question | Status (2026-07-09) | Test Plan / Notes |
 |----------|---------------------|---------------------|
 | Sync behavior: read-only or read-and-clear? | ✅ **CONFIRMED read-only** — second fetch after disconnect returns identical data | Both within-connection and across-disconnect scenarios verified via `test_sync_readonly.py` |
-| HRV data format: RR intervals vs composite score? | **TBD** — 0 records on fresh ring | Need to wear 24h+ for HRV log to populate |
+| HRV data format: RR intervals vs composite score? | **TBD** — cmd 57 returns 0 on R09 3.10.21; Gadgetbridge uses cmd 0x39 with per-day offset | Need to align with Gadgetbridge protocol to populate raw_hrv |
+| Stress data | ✅ **WORKING** — cmd 0x37, 29 records synced (all "normal" 32–47) | Multi-packet 30-min interval protocol; `raw_stress` table populated |
+| Ring goals | ✅ **WORKING** — cmd 0x21 returns steps=5000, cal=300kcal, dist=3km | `ring_goals` table; dashboard dials use actual goals |
 | Temperature sensor sampling rate | **Event-driven** — no push in 10s window | Confirm in longer window once data accumulates |
 | R09 firmware compatibility with tahnok client | **WORKS** — FW 3.10.21 + colmi_r02_client | UUIDs match exactly; admin UI works end-to-end |
+| Sleep data | **TBD** — cmd 68 returns 0; Gadgetbridge uses cmd 0xBC + type 0x27 | Need to align with Gadgetbridge protocol |
 
 ---
 
