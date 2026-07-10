@@ -199,67 +199,53 @@ async def connect_with_retry(
     )
 
 
-async def fetch_hrv_raw(client: Client) -> List[Dict[str, Any]]:
-    """Fetch stored HRV data using cmd 57 (multi-packet)."""
-    records = []
-    try:
-        index = 0
-        total_size = None
-        hrv_bytes = bytearray()
+async def fetch_hrv_history(client: Client) -> list[dict]:
+    """Fetch HRV history using cmd 0x39 (Gadgetbridge CMD_SYNC_HRV).
 
-        while True:
-            pkt = make_packet(57, struct.pack("<B", index))
-            responses = await client.raw(57, pkt[1:15], replies=1)
-            if not responses:
-                break
-
-            resp = responses[0]
-            resp_index = resp[1]
-
-            if resp_index == 0:
-                total_size = resp[2]
-                log.info(f"HRV: {total_size} records available")
-            elif resp_index == 1:
-                start_offset = resp[2]
-                hrv_bytes.extend(resp[3:13])
-            else:
-                hrv_bytes.extend(resp[2:15])
-
-            if total_size and resp_index >= total_size:
-                break
-
-            index += 1
-            if index > 100:
-                break
-
-        if hrv_bytes:
-            records = _parse_hrv_data(bytes(hrv_bytes))
-            log.info(f"HRV: parsed {len(records)} records")
-
-    except Exception as e:
-        log.warning(f"HRV fetch failed: {e}")
-
-    return records
-
-
-def _parse_hrv_data(data: bytes) -> List[Dict[str, Any]]:
-    """Parse raw HRV bytes.
-    Format appears to be: each record is 6 bytes (4-byte timestamp + 2-byte HRV value).
-    May vary by firmware version — test when ring arrives.
+    Protocol from Gadgetbridge YawellRingPacketHandler.historicalHRV:
+      - Request: {0x39, daysAgo (LE uint32)} per day, loop daysAgo 0..6
+      - Response: multi-packet, same layout as stress (cmd 0x37)
+        - Packet sub_type 0: header, byte[2]=expected packet count
+        - Packet sub_type 0xFF: empty (no data for this day)
+        - Packets 1..4: data bytes at 30-min intervals (12 in pkt 1, 13 in pkts 2-4)
+        - Each value is a single byte (0-255 ms). 0=no data.
     """
     records = []
-    record_size = 6
-    for i in range(0, len(data) - record_size + 1, record_size):
-        try:
-            ts, hrv_val = struct.unpack_from("<IH", data, i)
-            if ts > 0:
-                records.append({
-                    "ts": datetime.fromtimestamp(ts),
-                    "hrv_value": hrv_val,
-                    "hrv_type": "composite",
-                })
-        except struct.error:
-            break
+    local_now = datetime.now()
+    for days_ago in range(0, 7):
+        local_midnight = (local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+                          - timedelta(days=days_ago))
+        request = make_packet(0x39, struct.pack("<I", days_ago))
+        log.info(f"HRV fetch: daysAgo={days_ago}, target={local_midnight.date()}")
+        await client.send_packet(request)
+        packets = await _read_multi_packet(client, 0x39, timeout=10.0)
+        if not packets:
+            continue
+
+        thirty_min = timedelta(minutes=30)
+        minutes_in_previous = 0
+        day_records = 0
+
+        for pkt in packets:
+            sub_type = pkt[1]
+            if sub_type == 0 or sub_type == 0xFF:
+                continue
+            start = 3 if sub_type == 1 else 2
+            if sub_type > 1:
+                minutes_in_previous = 12 * 30
+                minutes_in_previous += (sub_type - 2) * 13 * 30
+            for i in range(start, min(len(pkt) - 1, 15)):
+                val = pkt[i] & 0xFF
+                if val == 0:
+                    continue
+                minute_of_day = minutes_in_previous + (i - start) * 30
+                ts = local_midnight + timedelta(minutes=minute_of_day)
+                records.append({"ts": ts, "hrv_value": val})
+                day_records += 1
+
+        if day_records:
+            log.info(f"  HRV {local_midnight.date()}: {day_records} records")
+
     return records
 
 
@@ -730,15 +716,14 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
         except Exception as e:
             log.error(f"Steps sync failed: {e}")
 
-        # 5. Sync HRV (raw protocol, cmd 57)
+        # 5. Sync HRV (cmd 0x39, Gadgetbridge CMD_SYNC_HRV)
         try:
-            hrv_records = await fetch_hrv_raw(client)
+            hrv_records = await fetch_hrv_history(client)
             count = upsert_hrv(hrv_records)
             total_records += count
-            if hrv_records:
-                log.info(f"✓ HRV data fetched ({count} records) — check format")
+            log.info(f"HRV: {count} new records")
         except Exception as e:
-            log.warning(f"HRV sync failed (may not be supported): {e}")
+            log.warning(f"HRV sync failed: {e}")
 
         # 6. Sync sleep (raw protocol, cmd 68)
         try:

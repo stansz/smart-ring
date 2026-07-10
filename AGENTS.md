@@ -509,8 +509,34 @@ python3 collector/sync_ring.py --forget
 - [x] Make Admin tab "Sync Now" button work end-to-end — done 2026-07-10: poller watches DB, runs `sync_ring.py --forget` (via `collector-wrapper.py` which now injects `--forget` for the R09 reconnect workaround)
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
-- [ ] Use Gadgetbridge sleep/HRV commands (0xBC sleep, 0x39 HRV) instead of wrong cmd 68/57
+- [x] Use Gadgetbridge sleep/HRV commands (0xBC sleep, 0x39 HRV) instead of wrong cmd 68/57 — HRV DONE (0x39), sleep still uses cmd 68
 - [ ] Investigate 0x80-bit async packets (probably sleep/HRV/temperature historical push)
+
+### 2026-07-10 (c) — HRV Protocol Alignment (cmd 0x39)
+
+**Task:** Replace the broken cmd-57 HRV path with the Gadgetbridge-correct cmd 0x39. Confirmed the protocol from the current Gadgetbridge source (refactored into `yawell/ring` namespace — `YawellRingPacketHandler.historicalHRV` + `YawellRingConstants.CMD_SYNC_HRV`).
+
+**Protocol (0x39):**
+- Request: `{0x39, daysAgo (LE uint32)}` per day, loop daysAgo 0..6
+- Transport: regular Nordic UART (same path as stress 0x37 — no new BLE characteristics needed)
+- Response: multi-packet, identical layout to stress (pkt 0=header, pkts 1-4=data at 30-min intervals, 12 values in pkt1 + 13 each in pkts2-4)
+- Each value: single byte (ms). 0=no data.
+
+**What was done:**
+- `collector/ring_client.py`: registered `COMMAND_HANDLERS[0x39] = _pass_through`
+- `collector/sync_ring.py`: replaced `fetch_hrv_raw` (cmd 57) + `_parse_hrv_data` (6-byte guess) with `fetch_hrv_history` (cmd 0x39 + per-day loop + `_read_multi_packet`). Reuses existing `upsert_hrv`.
+- No DB schema change needed — `raw_hrv.hrv_value` NUMERIC + `hrv_type='composite'` already fits.
+
+**Verified:**
+- Sync #29: 38 HRV records across 3 days (Jul 8-10), values 32-49 ms. Ring's HRV buffer is ~3 days.
+- Days 4-6 returned empty (ring doesn't store beyond its circular buffer window).
+
+**Known:** The ring stores a composite HRV value (single byte, ms), not true RR intervals. `analytics.py` RMSSD/pNN50 expect `rr_intervals[]` — not yet computed. Dashboard HRV Trends (`hrv_trends` table) also not yet populated since analytics doesn't process the composite values. These are follow-up items.
+
+**Files changed:**
+- `collector/ring_client.py` — added 0x39 handler
+- `collector/sync_ring.py` — replaced `fetch_hrv_raw` + `_parse_hrv_data` with `fetch_hrv_history`
+- `AGENTS.md` — this entry
 
 ---
 
