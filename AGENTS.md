@@ -68,7 +68,7 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 | `collector/first_contact.py` | Safe read-only diagnostics | Reads battery (`battery_level`), firmware, device info, sets clock — NO data sync |
 | `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
 | `collector/test_sync_readonly.py` | Verifies read-only vs read-and-clear behavior | Two scenarios: within-connection + across-disconnect; confirmed READ-ONLY on R09 3.10.21 |
-| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | **OBSOLETE** — retired 2026-07-09(d). Held BLE connection that blocked Gadgetbridge pairing; drained ring battery without pulling data. Kept in repo for reference. |
+| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | **RESTORED 2026-07-10** — watches `sync_requests` table every 30s, runs `collector-wrapper.py` for any pending row. Safe to run continuously: no BLE connection between syncs. Old `--interval 2` caused issues only because `sync_ring.py` was hanging (now fixed). |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
 | `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; 4 admin endpoints (`ring-status`, `health`, `sync-log`, `sync`, `sync-requests`) |
 | `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed; polls every 5s for active sync status |
@@ -343,6 +343,43 @@ No cron. No poller. Manual only. Gadgetbridge works for phone-side quick checks.
 - `.env` — removed extra quotes from `RING_ADDRESS` (cosmetic)
 - `AGENTS.md` — this entry
 
+### 2026-07-10 — Poller Restored + "Sync Now" End-to-End Working
+
+**Task:** User reported that clicking "Sync Now" in the Admin tab did nothing — the request sat in `pending` status forever. Investigated and confirmed: the poller service was deleted in 2026-07-09(d), so nothing consumed the DB queue. Re-enabled the poller (now safe after sync_ring.py bugs are fixed).
+
+**What was done:**
+- Diagnosed: `sync_requests` had a row stuck in `pending` (request #18). The poller service (`smart-ring-poller.service`) was removed in commit `8ed4421` (2026-07-09(d) work log).
+- Re-analyzed why the poller was "bad": the poller itself does NOT hold a BLE connection — it only polls DB every N seconds and runs `sync_ring.py` as a subprocess when there's work. The original issues were:
+  1. `sync_ring.py` was hanging during sync (library bugs: no timeout on BleakClient, 2s HR timeout, broken parser)
+  2. The poller ran every 2s, so overlapping sync attempts piled up
+  3. Each hanging sync held a BLE GATT connection
+- All three are now fixed (see 2026-07-09(e) work log). Poller is safe to run.
+- Fixed `collector/collector-wrapper.py` to inject `--forget` into `sys.argv` — the poller calls this wrapper, which calls `sync_ring.main()`. Without `--forget`, the R09 reconnect-bug workaround (forget_and_repair before connect, forget after disconnect) wouldn't run.
+- Cleaned up stale pending request #18: `DELETE FROM sync_requests WHERE status = 'pending'`.
+- Created `~/.config/systemd/user/smart-ring-poller.service`:
+  - `Type=simple`
+  - `ExecStart=.../sync_request_poller.py --loop --interval 30`
+  - `Restart=on-failure`, `RestartSec=10`
+  - `After=bluetooth.target network-online.target smart-ring-db.service`
+  - Enabled and started.
+
+**Verified end-to-end:**
+- `POST /api/admin/sync` → request #19 inserted with status=pending
+- Poller claimed request #19 in ~30s (interval)
+- `sync_ring.py --forget` ran for ~31s, completed with `sync_log_id=13`
+- Request marked `completed`, 13 records synced to DB
+- `systemctl --user status smart-ring-poller` → `active (running)`
+
+**No code changes to `sync_request_poller.py` needed** — the existing code worked fine; it just wasn't running. The 30s interval (was 2s) is much friendlier: it's a DB-only poll with zero BLE activity between syncs.
+
+**Design decision: "Sync Now" stays as ONE button, not split into pair + sync.**
+- The R09 reconnect bug couples pair + sync — every sync needs forget+pair anyway. Separating them would mean "Pair" then "Sync" then "Sync fails because bond went stale → click Pair again."
+- What the user actually needs to separate is sync vs release-for-phone. But sync already does `forget_ring()` at the end, so the ring is automatically free for the phone after each sync. No extra button needed for now.
+
+**Files changed:**
+- `collector/collector-wrapper.py` — injects `--forget` if not present
+- `AGENTS.md` — this entry; updated Key Source Files (poller row now RESTORED), Future Work (poller restore ticked)
+
 ## Environment & Secrets
 
 - **No secrets in repo.** All creds live in `.env` (gitignored).
@@ -402,8 +439,9 @@ python3 collector/sync_ring.py --forget
 - [x] Create `collector/ring_client.py` — robust BLE client wrapper with explicit timeout
 - [x] Add `BLE pairing once via bluetoothctl` instructions to AGENTS.md
 - [x] Add retry-on-sleep logic to `sync_ring.py` (R09 falls asleep fast) — done; new `connect_with_retry` helper in `sync_ring.py`, used by both `sync_ring` and `first_contact`
-- [x] Retire poller service (`smart-ring-poller`) — done; drained battery, blocked Gadgetbridge, held BLE connection without delivering data
+- [x] Retire poller service (`smart-ring-poller`) — REVERSED on 2026-07-10; the poller code itself was fine. Original retire was due to `sync_ring.py` hanging (library bugs, since fixed). Poller restored at 30s interval.
 - [x] Delete `setup.sh` — done; cron entries silently appended, venv/pip/db steps already done
+- [x] Make Admin tab "Sync Now" button work end-to-end — done 2026-07-10: poller watches DB, runs `sync_ring.py --forget` (via `collector-wrapper.py` which now injects `--forget` for the R09 reconnect workaround)
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
 - [ ] Use Gadgetbridge sleep/HRV commands (0xBC sleep, 0x39 HRV) instead of wrong cmd 68/57
