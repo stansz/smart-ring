@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import struct
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,11 @@ UART_TX_CHAR_UUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
 DEVICE_INFO_UUID = "0000180A-0000-1000-8000-00805F9B34FB"
 DEVICE_HW_UUID = "00002A27-0000-1000-8000-00805F9B34FB"
 DEVICE_FW_UUID = "00002A26-0000-1000-8000-00805F9B34FB"
+
+# V2 big-data service (sleep, SpO2, temperature — Gadgetbridge YawellRingConstants)
+BIG_DATA_SERVICE_UUID = "de5bf728-d711-4e47-af26-65e3012a5dc7"
+COMMAND_CHAR_UUID   = "de5bf72a-d711-4e47-af26-65e3012a5dc7"
+NOTIFY_V2_CHAR_UUID = "de5bf729-d711-4e47-af26-65e3012a5dc7"
 
 
 def _empty_parse(_packet: bytearray) -> None:
@@ -180,6 +186,13 @@ class Client:
         self.record_to = record_to
         self.rx_char = None
 
+        # V2 big-data service
+        self.big_data_queue: asyncio.Queue = asyncio.Queue()
+        self._bd_buf: Optional[bytearray] = None
+        self._bd_size: int = 0
+        self.cmd_char = None
+        self.has_v2: bool = False
+
     async def __aenter__(self) -> "Client":
         logger.info(f"Connecting to {self.address}")
         await self.connect()
@@ -202,6 +215,21 @@ class Client:
         self.rx_char = rx_char
 
         await self.bleak_client.start_notify(UART_TX_CHAR_UUID, self._handle_tx)
+
+        # Try to discover V2 big-data service (sleep, SpO2, temperature)
+        v2_service = self.bleak_client.services.get_service(BIG_DATA_SERVICE_UUID)
+        if v2_service:
+            self.cmd_char = v2_service.get_characteristic(COMMAND_CHAR_UUID)
+            if self.cmd_char:
+                await self.bleak_client.start_notify(
+                    NOTIFY_V2_CHAR_UUID, self._handle_big_data
+                )
+                self.has_v2 = True
+                logger.info("V2 big-data service available (sleep/SpO2/temp)")
+            else:
+                logger.debug("V2 service found but COMMAND char missing")
+        else:
+            logger.info("V2 big-data service not found — sleep/SpO2/temp unavailable")
 
     async def disconnect(self) -> None:
         try:
@@ -239,9 +267,39 @@ class Client:
                 f.write(packet)
                 f.write(b"\n")
 
+    def _handle_big_data(self, _, data: bytearray) -> None:
+        """Handle big-data responses from NOTIFY_V2 characteristic.
+
+        Big-data (sleep, SpO2, temperature) can span multiple BLE packets.
+        Header bytes [2:3] = uint16 total length.  Accumulate until complete.
+        """
+        logger.debug(f"Big-data chunk: {len(data)} bytes")
+        if self._bd_buf is not None:
+            self._bd_buf.extend(data)
+            data = self._bd_buf
+        if len(data) < 6:
+            return
+        packet_length = struct.unpack_from("<H", data, 2)[0]
+        if len(data) < packet_length + 6:
+            self._bd_buf = bytearray(data)
+            self._bd_size = packet_length
+            logger.debug(f"  awaiting more: {len(data)}/{packet_length + 6}")
+            return
+        self._bd_buf = None
+        self._bd_size = 0
+        logger.debug(f"  complete: {len(data)} bytes, data type 0x{data[1]:02x}")
+        self.big_data_queue.put_nowait(bytearray(data))
+
     async def send_packet(self, packet: bytearray) -> None:
         logger.debug(f"Sending packet: {packet}")
         await self.bleak_client.write_gatt_char(self.rx_char, packet, response=False)
+
+    async def send_command(self, packet: bytearray) -> None:
+        """Write raw bytes to the V2 COMMAND characteristic (no 16-byte framing)."""
+        if not self.cmd_char:
+            raise RuntimeError("V2 command characteristic not available")
+        logger.debug(f"Sending big-data command: {packet.hex()}")
+        await self.bleak_client.write_gatt_char(self.cmd_char, packet, response=False)
 
     async def get_battery(self) -> battery.BatteryInfo:
         await self.send_packet(battery.BATTERY_PACKET)

@@ -249,10 +249,185 @@ async def fetch_hrv_history(client: Client) -> list[dict]:
     return records
 
 
-async def fetch_sleep_data(client: Client) -> List[Dict[str, Any]]:
-    """Fetch stored sleep data using cmd 68."""
+# ----------------------------------------------------------------
+# Big-data protocol helpers (cmd 0xBC, V2 characteristic)
+#
+# Sleep (type 0x27), SpO2 (type 0x2A), and temperature (type 0x25)
+# are fetched via the CMD_BIG_DATA_V2 command on the V2 characteristic.
+# Responses arrive on NOTIFY_V2 and may span multiple BLE packets.
+# The ring_client.Client handles concatenation; we read complete payloads
+# from client.big_data_queue.
+# ----------------------------------------------------------------
+
+
+async def _big_data_request(client: Client, data_type: int) -> Optional[bytes]:
+    """Send a CMD_BIG_DATA_V2 request and wait for the complete response."""
+    if not client.has_v2:
+        log.info("V2 not available, skipping big-data request")
+        return None
+    request = bytearray([0xBC, data_type, 0x01, 0x00, 0xFF, 0x00, 0xFF])
+    await client.send_command(request)
+    try:
+        return bytes(await asyncio.wait_for(client.big_data_queue.get(), timeout=15.0))
+    except asyncio.TimeoutError:
+        log.warning(f"Big-data timeout for type 0x{data_type:02x}")
+        return None
+
+
+def _parse_sleep_data(data: bytes) -> list[dict]:
+    """Parse CMD_BIG_DATA_V2 sleep response (type 0x27).
+
+    Gadgetbridge YawellRingPacketHandler.historicalSleep:
+      - value[2:3] = uint16 LE packet length
+      - value[6]   = daysInPacket count
+      - Per day: daysAgo (1 byte), dayBytes (1 byte),
+                  sleepStart (uint16 LE, minutes after midnight),
+                  sleepEnd (uint16 LE, minutes after midnight),
+                  then (dayBytes-4)/2 stage entries:
+                    stageType (1 byte: 2=light,3=deep,4=rem,5=awake),
+                    durationMinutes (1 byte)
+      - If sleepStart > sleepEnd: start was previous day (before midnight).
+    """
+    stage_names: dict[int, str] = {2: "light", 3: "deep", 4: "rem", 5: "awake"}
+    packet_length = struct.unpack_from("<H", data, 2)[0]
+    if packet_length < 2:
+        return []
+    days_in_packet = data[6]
+    records: list[dict] = []
+    idx = 7
+    local_now = datetime.now()
+    for _ in range(days_in_packet):
+        days_ago = data[idx]; idx += 1
+        day_bytes = data[idx]; idx += 1
+        sleep_start_min = struct.unpack_from("<H", data, idx)[0]; idx += 2
+        sleep_end_min   = struct.unpack_from("<H", data, idx)[0]; idx += 2
+
+        target_date = (local_now - timedelta(days=days_ago)).date()
+        midnight = datetime.combine(target_date, datetime.min.time())
+        if sleep_start_min > sleep_end_min:
+            session_start = midnight + timedelta(minutes=sleep_start_min - 1440)
+        else:
+            session_start = midnight + timedelta(minutes=sleep_start_min)
+        session_end = midnight + timedelta(minutes=sleep_end_min)
+
+        stage_ts = session_start
+        for _j in range(4, day_bytes, 2):
+            stage_type = data[idx]
+            stage_minutes = data[idx + 1]
+            idx += 2
+            if stage_minutes == 0:
+                continue
+            stage_name = stage_names.get(stage_type, f"unknown_{stage_type}")
+            stage_end = stage_ts + timedelta(minutes=stage_minutes)
+            records.append({
+                "day": stage_ts.date(),
+                "stage": stage_name,
+                "start_ts": stage_ts,
+                "end_ts": stage_end,
+                "duration_minutes": stage_minutes,
+            })
+            stage_ts = stage_end
+
+        log.info(f"  Sleep {target_date}: {len([r for r in records if r['day'] == target_date])} stages")
+
+    return records
+
+
+def _parse_spo2_data(data: bytes) -> list[dict]:
+    """Parse CMD_BIG_DATA_V2 SpO2 response (type 0x2A).
+
+    Gadgetbridge: per-day blocks with daysAgo byte + 24 hours ×
+    (min_byte, max_byte) pairs. Averaged to a single SpO2% per hour.
+    Stops when daysAgo == 0.
+    """
+    length = struct.unpack_from("<H", data, 2)[0]
+    records: list[dict] = []
+    idx = 6
+    local_now = datetime.now()
+    while idx - 6 < length:
+        days_ago = data[idx]; idx += 1
+        if days_ago == 0:
+            break
+        target_date = (local_now - timedelta(days=days_ago)).date()
+        for hour in range(24):
+            spo2_min = data[idx]; idx += 1
+            spo2_max = data[idx]; idx += 1
+            if spo2_min > 0 and spo2_max > 0:
+                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour))
+                records.append({"ts": ts, "spo2_pct": round((spo2_min + spo2_max) / 2.0)})
+            if idx - 6 >= length:
+                break
+    return records
+
+
+def _parse_temperature_data(data: bytes) -> list[dict]:
+    """Parse CMD_BIG_DATA_V2 temperature response (type 0x25).
+
+    Gadgetbridge: per-day blocks with daysAgo byte + 0x1e skip byte +
+    48 bytes (temp_00, temp_30 pairs for 24 hours).
+    Each raw byte → °C = (raw / 10) + 20.
+    """
+    length = struct.unpack_from("<H", data, 2)[0]
+    if length < 50:
+        return []
+    records: list[dict] = []
+    idx = 6
+    local_now = datetime.now()
+    while idx - 6 < length:
+        days_ago = data[idx]; idx += 1
+        if days_ago == 0:
+            break
+        idx += 1  # skip extra byte (observed as 0x1e)
+        target_date = (local_now - timedelta(days=days_ago)).date()
+        for hour in range(24):
+            t00 = data[idx] & 0xFF; idx += 1
+            t30 = data[idx] & 0xFF; idx += 1
+            if t00 > 0:
+                temp_c = (t00 / 10.0) + 20
+                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=0))
+                records.append({"ts": ts, "temp_c": round(temp_c, 1)})
+            if t30 > 0:
+                temp_c = (t30 / 10.0) + 20
+                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=30))
+                records.append({"ts": ts, "temp_c": round(temp_c, 1)})
+            if idx - 6 >= length:
+                break
+    return records
+
+
+async def fetch_sleep_history(client: Client) -> list[dict]:
+    """Fetch sleep data via CMD_BIG_DATA_V2 (type 0x27)."""
+    data = await _big_data_request(client, 0x27)
+    if data is None:
+        return []
+    return _parse_sleep_data(data)
+
+
+async def fetch_spo2_history(client: Client) -> list[dict]:
+    """Fetch SpO2 data via CMD_BIG_DATA_V2 (type 0x2A)."""
+    data = await _big_data_request(client, 0x2A)
+    if data is None:
+        return []
+    return _parse_spo2_data(data)
+
+
+async def fetch_temperature_history(client: Client) -> list[dict]:
+    """Fetch temperature data via CMD_BIG_DATA_V2 (type 0x25)."""
+    data = await _big_data_request(client, 0x25)
+    if data is None:
+        return []
+    return _parse_temperature_data(data)
+
+
+# ----------------------------------------------------------------
+# Legacy sleep path (cmd 68) — kept for reference; superseded by
+# fetch_sleep_history above when V2 service is available.
+# ----------------------------------------------------------------
+
+async def fetch_sleep_data_legacy(client: Client) -> List[Dict[str, Any]]:
+    """Fetch stored sleep data using cmd 68 (old path, superseded)."""
     records = []
-    for day_offset in range(0, 7):  # Last 7 days
+    for day_offset in range(0, 7):
         try:
             subdata = struct.pack("<BBBB7x", day_offset, 15, 0, 95)
             pkt = make_packet(68, subdata)
@@ -277,7 +452,7 @@ async def fetch_sleep_data(client: Client) -> List[Dict[str, Any]]:
             log.debug(f"Sleep day {day_offset} failed: {e}")
             continue
 
-    log.info(f"Sleep: {len(records)} stage records")
+    log.info(f"Sleep (legacy): {len(records)} stage records")
     return records
 
 
@@ -299,15 +474,18 @@ def _decode_sleep_qualities(byte_val: int) -> List[str]:
     return stages if stages else ["unknown"]
 
 
-async def fetch_spo2_data(client: Client) -> List[Dict[str, Any]]:
-    """Fetch SpO2 data using Data Request (cmd 105, type=3)."""
+# ----------------------------------------------------------------
+# Legacy SpO2 & temperature fetch — superseded by big-data above
+# ----------------------------------------------------------------
+
+
+async def fetch_spo2_data_legacy(client: Client) -> List[Dict[str, Any]]:
+    """Fetch SpO2 data using Data Request (cmd 105, type=3) — legacy."""
     records = []
     try:
-        # Start SpO2 measurement
-        subdata = struct.pack("<BB", 3, 1)  # DataType=3 (BloodOxygen), Action=1 (Start)
+        subdata = struct.pack("<BB", 3, 1)
         pkt = make_packet(105, subdata)
         responses = await client.raw(105, pkt[1:15], replies=1)
-
         if responses:
             resp = responses[0]
             if len(resp) >= 4:
@@ -317,33 +495,26 @@ async def fetch_spo2_data(client: Client) -> List[Dict[str, Any]]:
                         "ts": datetime.now(tz=timezone.utc),
                         "spo2_pct": spo2,
                     })
-                    log.info(f"SpO2: {spo2}%")
+                    log.info(f"SpO2 (legacy): {spo2}%")
     except Exception as e:
-        log.debug(f"SpO2 fetch failed: {e}")
-
+        log.debug(f"SpO2 legacy fetch failed: {e}")
     return records
 
 
-async def listen_temperature(client: Client, timeout: float = 5.0) -> Optional[float]:
-    """Listen for temperature notify (cmd 115, NotifyType=5).
-    The ring pushes temperature periodically — we listen for a short window.
-    """
-    # Temperature is pushed by the ring via cmd 115 NotifyType=5.
-    # We can't pull it — just listen briefly.
+async def listen_temperature_legacy(client: Client, timeout: float = 5.0) -> Optional[float]:
+    """Listen for temperature notify (cmd 115) — legacy, superseded by big-data."""
     try:
-        # Try reading any pending notifications
         responses = await client.raw(115, b"\x00" * 14, replies=1)
         if responses:
             resp = responses[0]
-            if resp[1] == 5:  # Temperature notify type
+            if resp[1] == 5:
                 temp_raw = struct.unpack_from("<H", resp, 2)[0]
                 temp_c = temp_raw / 100.0 if temp_raw > 0 else None
                 if temp_c and 30 < temp_c < 45:
-                    log.info(f"Temperature: {temp_c:.1f}°C")
+                    log.info(f"Temperature (legacy): {temp_c:.1f}°C")
                     return temp_c
     except Exception as e:
-        log.debug(f"Temperature listen failed: {e}")
-
+        log.debug(f"Temperature legacy listen failed: {e}")
     return None
 
 
@@ -390,10 +561,13 @@ def upsert_sleep(records: List[Dict]) -> int:
         with conn.cursor() as cur:
             for r in records:
                 cur.execute("""
-                    INSERT INTO raw_sleep (day, stage, source)
-                    VALUES (%s, %s, 'ring')
-                    ON CONFLICT (day, stage, source) DO NOTHING
-                """, (r["day"], r["stage"]))
+                    INSERT INTO raw_sleep (day, stage, start_ts, end_ts, duration_minutes, source)
+                    VALUES (%s, %s, %s, %s, %s, 'ring')
+                    ON CONFLICT (start_ts, stage, source) DO UPDATE SET
+                        end_ts = EXCLUDED.end_ts,
+                        duration_minutes = EXCLUDED.duration_minutes
+                """, (r["day"], r["stage"], r.get("start_ts"), r.get("end_ts"),
+                      r.get("duration_minutes")))
                 count += cur.rowcount
     return count
 
@@ -433,7 +607,24 @@ def upsert_spo2(records: List[Dict]) -> int:
     return count
 
 
-def upsert_temperature(temp_c: float, ts: Optional[datetime] = None) -> int:
+def upsert_temperature_list(records: list[dict]) -> int:
+    if not records:
+        return 0
+    count = 0
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            for r in records:
+                cur.execute("""
+                    INSERT INTO raw_temperature (ts, temp_c, source)
+                    VALUES (%s, %s, 'ring')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """, (r["ts"], r["temp_c"]))
+                count += cur.rowcount
+    return count
+
+
+def upsert_temperature_single(temp_c: float, ts: Optional[datetime] = None) -> int:
+    """Legacy single-record temperature upsert (kept for reference)."""
     if not temp_c:
         return 0
     ts = ts or datetime.now(tz=timezone.utc)
@@ -725,34 +916,32 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
         except Exception as e:
             log.warning(f"HRV sync failed: {e}")
 
-        # 6. Sync sleep (raw protocol, cmd 68)
+        # 6. Sync sleep (cmd 0xBC + type 0x27, Gadgetbridge big-data)
         try:
-            sleep_records = await fetch_sleep_data(client)
+            sleep_records = await fetch_sleep_history(client)
             count = upsert_sleep(sleep_records)
             total_records += count
             log.info(f"Sleep: {count} stage records")
         except Exception as e:
-            log.warning(f"Sleep sync failed (may not be supported): {e}")
+            log.warning(f"Sleep sync failed: {e}")
 
-        # 7. SpO2 (raw protocol)
+        # 7. SpO2 (cmd 0xBC + type 0x2A, Gadgetbridge big-data)
         try:
-            spo2_records = await fetch_spo2_data(client)
+            spo2_records = await fetch_spo2_history(client)
             count = upsert_spo2(spo2_records)
             total_records += count
+            log.info(f"SpO2: {count} records")
         except Exception as e:
-            log.debug(f"SpO2 failed: {e}")
+            log.warning(f"SpO2 sync failed: {e}")
 
-        # 8. Temperature (listen for notify)
+        # 8. Temperature (cmd 0xBC + type 0x25, Gadgetbridge big-data)
         try:
-            temp_c = await listen_temperature(client, timeout=5.0)
-            if temp_c:
-                count = upsert_temperature(temp_c)
-                total_records += count
-                log.info(f"✓ Temperature: {temp_c:.1f}°C")
-            else:
-                log.info("No temperature data (ring may not have pushed it)")
+            temp_records = await fetch_temperature_history(client)
+            count = upsert_temperature_list(temp_records)
+            total_records += count
+            log.info(f"Temperature: {count} records")
         except Exception as e:
-            log.debug(f"Temperature listen failed: {e}")
+            log.warning(f"Temperature sync failed: {e}")
 
         # 9. Stress history (cmd 0x37, multi-packet, 30-min intervals)
         try:
