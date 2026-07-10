@@ -206,6 +206,7 @@ class HRVMetrics(BaseAnalytics):
                     None,
                     None
                 ))
+        self.conn.commit()
 
         for metric in rolling_metrics:
             with self.conn.cursor() as cur:
@@ -223,6 +224,7 @@ class HRVMetrics(BaseAnalytics):
                     metric['rmssd_28d'],
                     metric['pnn50_7d']
                 ))
+        self.conn.commit()
 
 
 class SleepMetrics(BaseAnalytics):
@@ -425,6 +427,7 @@ class SleepMetrics(BaseAnalytics):
                     row['max_hr'],
                     row['sample_count']
                 ))
+        self.conn.commit()
 
     def store_sleep_metrics(self, score: Dict, detailed: Dict):
         """Store sleep quality metrics."""
@@ -452,6 +455,7 @@ class SleepMetrics(BaseAnalytics):
                 score['temp_drop_c'],
                 score['total_sleep_minutes']
             ))
+        self.conn.commit()
 
     def compute_resting_hr(self) -> Dict:
         """Compute resting heart rate from overnight samples."""
@@ -535,7 +539,14 @@ class SleepMetrics(BaseAnalytics):
         """Compute stress classification based on tri-daily HRV pattern."""
         hrv_data = self.get_hrv_data(30)
         if not hrv_data:
-            return {'day': date.today(), 'stress_class': 'unknown'}
+            # No HRV data yet — return a stub that the caller can detect.
+            return {
+                'day': date.today(),
+                'morning_rmssd': None,
+                'noon_rmssd': None,
+                'evening_rmssd': None,
+                'classification': 'unknown',
+            }
 
         # Collect morning, noon, and evening HRV for each day
         daily_samples = {}
@@ -559,12 +570,25 @@ class SleepMetrics(BaseAnalytics):
 
         # Analyze most recent complete day
         if not daily_samples:
-            return {'day': date.today(), 'stress_class': 'no_data'}
+            return {
+                'day': date.today(),
+                'morning_rmssd': None,
+                'noon_rmssd': None,
+                'evening_rmssd': None,
+                'classification': 'no_data',
+            }
 
+        latest_day = max(daily_samples.keys())
         samples = daily_samples[latest_day]
 
         if not all(samples.values()):
-            return {'day': latest_day, 'stress_class': 'partial'}
+            return {
+                'day': latest_day,
+                'morning_rmssd': None,
+                'noon_rmssd': None,
+                'evening_rmssd': None,
+                'classification': 'partial',
+            }
 
         morning, noon, evening = samples['morning'], samples['noon'], samples['evening']
 
@@ -619,6 +643,7 @@ class SleepMetrics(BaseAnalytics):
                 rmssd = EXCLUDED.rmssd
                 WHERE daily_recovery.day = %s
             """, (resting_hr['day'], resting_hr['resting_hr'], None, None, None, resting_hr['day']))
+        self.conn.commit()
 
         log.info("Computing recovery score...")
         recovery_score = self.compute_recovery_score(hrv_metrics, resting_hr)
@@ -636,26 +661,31 @@ class SleepMetrics(BaseAnalytics):
                     recovery_score['readiness_text'],
                     recovery_score['day']
                 ))
+            self.conn.commit()
 
         log.info("Computing stress classification...")
         stress = self.compute_stress_classification()
-        with self.conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO stress_classification (day, morning_rmssd, noon_rmssd, evening_rmssd, classification)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (day) DO UPDATE SET
-                morning_rmssd = EXCLUDED.morning_rmssd,
-                noon_rmssd = EXCLUDED.noon_rmssd,
-                evening_rmssd = EXCLUDED.evening_rmssd,
-                classification = EXCLUDED.classification,
-                computed_at = NOW()
-            """, (
-                stress['day'],
-                stress['morning_rmssd'],
-                stress['noon_rmssd'],
-                stress['evening_rmssd'],
-                stress['classification']
-            ))
+        # Only insert if compute_stress_classification returned a complete dict
+        # (i.e. all expected keys present). Without HRV data it returns a stub.
+        if stress.get('morning_rmssd') is not None:
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO stress_classification (day, morning_rmssd, noon_rmssd, evening_rmssd, classification)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (day) DO UPDATE SET
+                    morning_rmssd = EXCLUDED.morning_rmssd,
+                    noon_rmssd = EXCLUDED.noon_rmssd,
+                    evening_rmssd = EXCLUDED.evening_rmssd,
+                    classification = EXCLUDED.classification,
+                    computed_at = NOW()
+                """, (
+                    stress['day'],
+                    stress['morning_rmssd'],
+                    stress['noon_rmssd'],
+                    stress['evening_rmssd'],
+                    stress['classification']
+                ))
+            self.conn.commit()
 
         log.info("Analytics completed successfully")
 

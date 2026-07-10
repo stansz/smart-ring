@@ -91,6 +91,19 @@ def run_collector(python_path: Path, script: Path):
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def run_analytics(python_path: Path):
+    """Run analytics to recompute daily/weekly metrics from raw_* tables."""
+    log.info("Running analytics (compute metrics)...")
+    proc = subprocess.run(
+        [str(python_path), str(PROJECT_ROOT / "collector" / "analytics.py")],
+        capture_output=True,
+        text=True,
+        cwd=str(PROJECT_ROOT),
+        timeout=300,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
 def find_latest_sync_log_id(conn):
     """The collector writes a row to sync_log on start; grab its id."""
     with conn.cursor() as cur:
@@ -147,6 +160,15 @@ def process_one(conn):
             tail = (stdout or "").strip().splitlines()[-1] if (stdout or "").strip() else "completed"
             mark_completed(conn, req_id, sync_log_id, f"rc=0 ({tail})")
             log.info(f"Request {req_id} completed (sync_log_id={sync_log_id})")
+            # Recompute derived metrics so the dashboard shows fresh data.
+            try:
+                arc, _, _ = run_analytics(python_path)
+                if arc == 0:
+                    log.info(f"Request {req_id} analytics done")
+                else:
+                    log.warning(f"Request {req_id} analytics failed (rc={arc}) — sync still OK")
+            except Exception as e:
+                log.warning(f"Request {req_id} analytics raised (non-fatal): {e}")
         else:
             err = (stderr or stdout or f"exit {rc}").strip()
             mark_failed(conn, req_id, err)
