@@ -72,7 +72,14 @@
 
         <!-- Today's Activity (Gadgetbridge-style dials) -->
         <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-8">
-            <h2 class="text-lg font-semibold text-gray-900 mb-4">Today's Activity</h2>
+            <div class="flex justify-between items-baseline mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">Today's Activity
+                    <span class="text-sm font-normal text-gray-400 ml-2"
+                          x-text="new Date().toLocaleDateString()"></span>
+                </h2>
+                <span class="text-xs text-gray-400"
+                      x-text="dialsLastRefresh ? 'Last refreshed ' + dialsLastRefresh : ''"></span>
+            </div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <!-- Steps Dial -->
                 <div class="text-center">
@@ -101,7 +108,7 @@
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 mt-2">Heart Rate</p>
-                    <p class="text-xs text-gray-400" x-text="hrMinMax"></p>
+                    <p class="text-xs text-gray-400" x-text="hrMinMax + (hrDateLabel !== 'today' ? ' (' + hrDateLabel + ')' : '')"></p>
                 </div>
 
                 <!-- Active Minutes Dial -->
@@ -385,9 +392,11 @@
                 hrAvg: null,
                 hrMinMax: '',
                 hrPct: 0,
+                hrDateLabel: 'today',
                 activeMinutes: 0,
                 activePct: 0,
                 distanceKm: '—',
+                dialsLastRefresh: null,
 
                 // Admin state
                 ringStatus: {},
@@ -581,6 +590,12 @@
                         const t = new Date(s.ts);
                         return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
                     });
+                    // Each step entry represents a 15-MINUTE SLOT (the ring
+                    // stores one value per 15-min slot). So active minutes
+                    // = number of slots with data × 15, NOT × 60.
+                    this.activeMinutes = todaysSteps.length * 15;
+                    this.activePct = Math.min(100, Math.round(this.activeMinutes / 60 * 100)).toString();
+
                     // Dedupe by hour: ring sends 5 copies per hour with the
                     // same value. Take the max per hour (all 5 are equal
                     // so it doesn't matter which we pick), then sum.
@@ -595,13 +610,28 @@
                     this.stepsToday = stepsTotal;
                     this.stepsPct = Math.min(100, Math.round(stepsTotal / 100)).toString();
 
-                    // HR stats for "today" (same local date)
+                    // HR stats: prefer today, fall back to most recent day
+                    // with data (user may not be wearing the ring today).
                     const todaysHr = hrData.filter(h => {
                         const t = new Date(h.ts);
                         return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
                     });
-                    if (todaysHr.length > 0) {
-                        const bpms = todaysHr.map(h => h.bpm);
+                    let hrForStats = todaysHr;
+                    let hrDateLabel = 'today';
+                    if (todaysHr.length === 0 && hrData.length > 0) {
+                        // Find most recent date with data
+                        const sorted = [...hrData].sort((a, b) => new Date(b.ts) - new Date(a.ts));
+                        const lastDate = new Date(sorted[0].ts);
+                        const lastDateKey = `${lastDate.getFullYear()}-${lastDate.getMonth()}-${lastDate.getDate()}`;
+                        hrForStats = hrData.filter(h => {
+                            const t = new Date(h.ts);
+                            return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === lastDateKey;
+                        });
+                        hrDateLabel = lastDate.toLocaleDateString();
+                    }
+                    this.hrDateLabel = hrDateLabel;
+                    if (hrForStats.length > 0) {
+                        const bpms = hrForStats.map(h => h.bpm);
                         const avg = Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length);
                         const min = Math.min(...bpms);
                         const max = Math.max(...bpms);
@@ -615,19 +645,15 @@
                         this.hrPct = '0';
                     }
 
-                    // Active hours today (unique hours with step data)
-                    const activeHours = new Set(
-                        todaysSteps.map(s => new Date(s.ts).getHours())
-                    ).size;
-                    this.activeMinutes = activeHours * 60;
-                    this.activePct = Math.min(100, Math.round(activeHours / 60 * 100)).toString();
-
                     // Distance: rough estimate, 0.0008 km per step
                     if (stepsTotal > 0) {
                         this.distanceKm = (stepsTotal * 0.0008).toFixed(2);
                     } else {
                         this.distanceKm = '0.00';
                     }
+
+                    // Timestamp of last compute
+                    this.dialsLastRefresh = new Date().toLocaleTimeString();
                 },
 
                 renderRawTable(tbodyId, rows, valueKey) {
