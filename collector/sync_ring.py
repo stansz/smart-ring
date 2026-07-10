@@ -474,6 +474,7 @@ async def fetch_hr_history(
         local_midnight = (local_now.replace(hour=0, minute=0, second=0, microsecond=0)
                           - timedelta(days=days_ago))
         hr_request = make_packet(21, struct.pack("<L", int(local_midnight.timestamp())))
+        log.info(f"HR fetch: days_ago={days_ago}, target={local_midnight.date()}, ts={int(local_midnight.timestamp())}")
         await client.send_packet(hr_request)
 
         # Read from the notification queue. The HR handler puts a
@@ -485,19 +486,23 @@ async def fetch_hr_history(
                 timeout=10.0,
             )
         except asyncio.TimeoutError:
-            log.debug(f"HR timeout for {d.date()}")
+            log.warning(f"HR timeout for {local_midnight.date()}")
             # Drain stale items that may arrive late
             while True:
                 try:
-                    client.queues[21].get_nowait()
+                    stale = client.queues[21].get_nowait()
+                    log.debug(f"  drained stale queue item: {type(stale).__name__}")
                 except asyncio.QueueEmpty:
                     break
             continue
 
+        log.info(f"HR got: {type(result).__name__} for {local_midnight.date()}")
         if isinstance(result, hr_mod.NoData):
             continue
 
         if isinstance(result, hr_mod.HeartRateLog):
+            non_zero = sum(1 for h in result.heart_rates if h > 0)
+            log.info(f"  HeartRateLog: {non_zero} non-zero entries out of {len(result.heart_rates)}")
             # The heartbeat_rates list has 288 elements (one per 5-min interval).
             # Each element is the BPM value or 0/-1 for no data.
             # Use local midnight as the base since the ring stores times in local time.
@@ -547,7 +552,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
         # protocol ourselves, following Gadgetbridge's ColmiR0xDeviceSupport.
         log.info("Syncing heart rate history...")
         try:
-            hr_records = await fetch_hr_history(client, start, end)
+            hr_records = await fetch_hr_history(client, None, None)
             count = upsert_heart_rate(hr_records)
             total_records += count
             log.info(f"Heart rate: {count} new records ({len(hr_records)} total)")
