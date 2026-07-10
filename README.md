@@ -34,10 +34,10 @@ Build a private, self-hosted health tracking system that:
 Home Network
 └─ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
    ├─ smart-ring-db.service      (rootless Podman quadlet, Postgres 16)
-   │   └─ port 127.0.0.1:5432, volume smart-ring-pgdata, health check
+   │   └─ port localhost:5432, volume smart-ring-pgdata, health check
    ├─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
    │   ├─ Requires=smart-ring-db.service
-   │   └─ port 127.0.0.1:8000, serves dashboard
+   │   └─ port localhost:8000, serves dashboard
    └─ Manual collector           (bare metal Python venv — needs BlueZ/DBus for BLE)
        └─ python3 collector/sync_ring.py  (run manually, no cron)
 ```
@@ -49,7 +49,7 @@ Dashboard tabs: **Dashboard** (recovery / sleep / HRV trends) and **Admin** (rin
 ```bash
 # One-time setup (already done for this ring)
 #   - venv created, deps installed
-#   - ring paired via bluetoothctl (address: 30:35:42:37:21:03)
+#   - ring paired via bluetoothctl (address: <ring_ble_address>)
 #   - Gadgetbridge installed on phone (Android)
 
 # Pair the ring (one-time, via bluetoothctl — already done)
@@ -78,4 +78,4 @@ Topics covered:
 
 ## Status
 
-🟢 **Working end-to-end.** R09 ring paired and validated (BLE `30:35:42:37:21:03`, FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls HR + steps to Postgres, dashboard operational, Gadgetbridge paired on phone. Sync behavior confirmed read-only (safe to sync from multiple devices). Sleep/HRV commands need Gadgetbridge alignment.
+🟢 **Working end-to-end.** R09 ring paired and validated (BLE `<ring_ble_address>`, FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls HR + steps to Postgres, dashboard operational, Gadgetbridge paired on phone. Sync behavior confirmed read-only (safe to sync from multiple devices). Sleep/HRV commands need Gadgetbridge alignment.

@@ -6,7 +6,7 @@
 ## Hardware Target: Colmi R09 ✅ ARRIVED & VALIDATED
 
 - **Status:** ✅ Arrived July 9, 2026 — working end-to-end
-- **BLE address:** `30:35:42:37:21:03` (R09_2103)
+- **BLE address:** `<ring_ble_address>` (R09_2103)
 - **Firmware:** RT09_3.10.21_251107
 - **Hardware:** RT09_V3.1
 - **Cost:** ~$45 CAD from Colmi official store (AliExpress), size 11
@@ -68,14 +68,14 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 
 ### Phase 2: PC Collector (primary pipeline) ✅ DONE
 1. `pip install colmi-r02-client` ✅
-2. `colmi_r02_util scan` → get BLE address ✅ (30:35:42:37:21:03)
+2. `colmi_r02_util scan` → get BLE address ✅ (<ring_ble_address>)
 3. `colmi_r02_client --address=XX:XX set-time` → sync clock ✅
 4. `colmi_r02_client --address=XX:XX set-heart-rate-log-settings` → set sampling interval ✅
 5. Build collector wrapper → sync → parse → push to Postgres ✅ (see `collector/sync_ring.py`)
 
 ### Phase 3: Full pipeline ✅ IN PROGRESS
 - Postgres schema (raw HR, steps, HRV, sleep, SpO2, temperature, computed metrics) ✅
-- Web dashboard (Alpine.js + CSS bars, no external chart library) ✅ — served at `http://127.0.0.1:8000`
+- Web dashboard (Alpine.js + CSS bars, no external chart library) ✅ — served at `http://localhost:8000`
 - Admin UI with Sync Now button, ring status, system health, sync log, raw data tables ✅
 - On-demand sync via web UI → DB queue → host-side poller → BLE sync ✅
 - Analytics (circadian HR, resting HR, recovery score, stress classification) ✅
@@ -308,8 +308,8 @@ Research shows periodic sampling throughout the day is scientifically valid and 
 ### Deployment Topology — BARE METAL + CONTAINERS
 - **Collector:** Python wrapping `colmi_r02_client` + `bleak` (bare metal venv — needs BlueZ/DBus)
 - **Polling:** `smart-ring-poller.service` (systemd user unit, bare metal) — watches `sync_requests` table every 30s, runs `sync_ring.py --forget` as subprocess for any pending row. Does NOT hold a BLE connection between syncs.
-- **DB:** Postgres 16 (rootless Podman quadlet, `smart-ring-db.service`, port `127.0.0.1:5432`)
-- **API:** FastAPI + Dashboard (rootless Podman quadlet, `smart-ring-api.service`, port `127.0.0.1:8000`) — mounts `dashboard/` directory for live HTML reload
+- **DB:** Postgres 16 (rootless Podman quadlet, `smart-ring-db.service`, port `localhost:5432`)
+- **API:** FastAPI + Dashboard (rootless Podman quadlet, `smart-ring-api.service`, port `localhost:8000`) — mounts `dashboard/` directory for live HTML reload
 - **Analytics:** Runs on host via poller after each successful sync (not cron) — computes derived tables from raw data
 
 ---
@@ -328,9 +328,9 @@ Home Network
 │   ├─ collector/sync_ring.py     (bare metal venv — needs BlueZ/DBus for BLE)
 │   │   └─ triggered by poller or run manually
 │   ├─ smart-ring-db.service      (rootless Podman quadlet, Postgres 16)
-│   │   └─ port 127.0.0.1:5432
+│   │   └─ port localhost:5432
 │   └─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
-│       └─ port 127.0.0.1:8000, serves dashboard
+│       └─ port localhost:8000, serves dashboard
 │
 └─ Phone (on the go — planned)
     └─ Gadgetbridge → HTTPS (Tailscale) → FastAPI

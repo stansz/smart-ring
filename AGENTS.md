@@ -42,9 +42,9 @@ Ring ──BLE──> Linux Daemon        Ring ──BLE──> Phone (Gadgetbri
 ```
 Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 ├─ smart-ring-db.service      (rootless Podman quadlet, Postgres 16)
-│   └─ port 127.0.0.1:5432
+│   └─ port localhost:5432
 ├─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
-│   └─ port 127.0.0.1:8000, serves dashboard
+│   └─ port localhost:8000, serves dashboard
 └─ Manual collector           (bare metal Python venv — needs BlueZ/DBus for BLE)
     └─ python3 collector/sync_ring.py  (run manually, no cron yet)
 ```
@@ -74,7 +74,7 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 | `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed; polls every 5s for active sync status |
 | `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue |
 | ~~`setup.sh`~~ | Python-based setup + cron configuration | **DELETED** 2026-07-09(d). Cron entries silently add to crontab on each run; venv/pip/db steps are already done. See AGENTS.md for current setup instructions. |
-| `docker-compose.yml` | Legacy fallback (rootless Podman quadlets are the live deployment) | Binds to `127.0.0.1` only |
+| `docker-compose.yml` | Legacy fallback (rootless Podman quadlets are the live deployment) | Binds to `localhost` only |
 
 ---
 
@@ -106,7 +106,7 @@ Use this section to append notes about what the agent has done, decisions made, 
 **Deployment model updated (local-first):**
 - README.md and RESEARCH.md updated to reflect local-first approach
 - Removed old 3-option comparison (All-Local vs OVH Hybrid vs Read-Only Mirror)
-- `docker-compose.yml` now binds Postgres/API to `127.0.0.1` (localhost only)
+- `docker-compose.yml` now binds Postgres/API to `localhost` (localhost only)
 - Topology diagram added to both docs
 
 **Verified sources via web:**
@@ -127,14 +127,14 @@ Use this section to append notes about what the agent has done, decisions made, 
 
 **Quadlet files created** in `~/.config/containers/systemd/` (host-specific, NOT in repo):
 - `smart-ring.network` — internal container network
-- `smart-ring-db.container` — Postgres 16 alpine, named volume `smart-ring-pgdata`, mounts `db/init.sql`, port `127.0.0.1:5432`, healthcheck
-- `smart-ring-api.container` — built image `localhost/smart-ring-api:latest`, `Requires=smart-ring-db.service`, mounts `api/` + `dashboard/` for live reload, port `127.0.0.1:8000`
+- `smart-ring-db.container` — Postgres 16 alpine, named volume `smart-ring-pgdata`, mounts `db/init.sql`, port `localhost:5432`, healthcheck
+- `smart-ring-api.container` — built image `localhost/smart-ring-api:latest`, `Requires=smart-ring-db.service`, mounts `api/` + `dashboard/` for live reload, port `localhost:8000`
 
 **Verified end-to-end:**
 - Both services `active (running)` under `systemctl --user`
 - Postgres: 13 tables created from `init.sql`, healthcheck passing
 - API `/health` returns `{"status":"ok","db":"connected"}`
-- Dashboard HTML served at `http://127.0.0.1:8000/`
+- Dashboard HTML served at `http://localhost:8000/`
 
 **Operational commands (for future agents):**
 ```bash
@@ -185,7 +185,7 @@ The API lives in a container without BLE access. The collector must run on the h
 ### 2026-07-09 — Ring Arrived: First Contact + Open-Question Tests
 
 **Hardware confirmed working:**
-- BLE address: `30:35:42:37:21:03` (R09_2103)
+- BLE address: `<ring_ble_address>` (R09_2103)
 - Firmware: **RT09_3.10.21_251107**
 - Hardware: **RT09_V3.1**
 - Nordic UART service UUID matches `colmi_r02_client` (6E40FFF0-…)
@@ -271,7 +271,7 @@ The API lives in a container without BLE access. The collector must run on the h
 2. `systemctl --user stop smart-ring-api` (stops the Podman container that mounts the API source).
 3. Edits applied.
 4. `systemctl --user start smart-ring-api smart-ring-poller` (restart picks up the changes — Podman quadlet recreates the container, poller re-execs Python).
-5. Smoke test: `curl -X POST http://127.0.0.1:8000/api/admin/first-contact` → `{"detail":"Not Found"}` (404), `/api/admin/sync` → 200 + row id. `curl http://127.0.0.1:8000/` → 0 occurrences of `First Contact|queueFirstContact|test_open_questions` in served HTML.
+5. Smoke test: `curl -X POST http://localhost:8000/api/admin/first-contact` → `{"detail":"Not Found"}` (404), `/api/admin/sync` → 200 + row id. `curl http://localhost:8000/` → 0 occurrences of `First Contact|queueFirstContact|test_open_questions` in served HTML.
 
 **Files changed:**
 - `dashboard/index.html` — removed Ring Setup block, queueFirstContact method, Hardware Tests pre block
@@ -396,9 +396,9 @@ Both the Admin tab buttons and direct scripts work end-to-end. The three Known U
 1. **Pair the ring** (one-time, via bluetoothctl only):
    ```bash
    bluetoothctl scan on                         # wait for R09_2103 to appear
-   bluetoothctl pair 30:35:42:37:21:03          # "Pairing successful"
-   bluetoothctl trust 30:35:42:37:21:03         # optional: auto-allow reconnects
-   bluetoothctl disconnect 30:35:42:37:21:03    # let bleak own the connection
+   bluetoothctl pair <ring_ble_address>          # "Pairing successful"
+   bluetoothctl trust <ring_ble_address>         # optional: auto-allow reconnects
+   bluetoothctl disconnect <ring_ble_address>    # let bleak own the connection
    ```
    ⚠️ **Never** use `bluetoothctl connect` after pairing — it takes exclusive GATT ownership and breaks the Python collector.
 
