@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from bleak import BleakClient
+from bleak import BleakClient, BleakScanner
 from colmi_r02_client import (
     battery,
     blink_twice,
@@ -51,6 +52,79 @@ def _empty_parse(_packet: bytearray) -> None:
 
 
 COMMAND_HANDLERS: dict[int, Callable[[bytearray], Any]] = dict(_BASE_COMMAND_HANDLERS)
+
+
+# ---------------------------------------------------------------------------
+# R09 BLE state management utilities
+#
+# The R09 firmware (3.10.21) has a known bug: after a BLE disconnect, it
+# often refuses new connections. BlueZ holds stale GATT/service cache that
+# prevents bleak from reconnecting. The workaround (confirmed by the
+# patmorli/colmi-r09-smart-ring fork) is to `bluetoothctl remove` the
+# device (clearing all cached state) and re-pair before each new connection.
+# ---------------------------------------------------------------------------
+
+def forget_ring(address: str) -> None:
+    """Remove the ring from BlueZ's known-device cache.
+
+    This clears ALL cached state: GATT services, pairing/bonding, connection
+    history. It's the nuclear option but it's what the R09 requires after a
+    disconnect to accept a new connection reliably.
+    """
+    try:
+        subprocess.run(
+            ["bluetoothctl", "remove", address],
+            capture_output=True, timeout=10,
+        )
+        logger.info(f"Forgot ring {address} from BlueZ")
+    except Exception as e:
+        logger.warning(f"forget_ring failed (non-fatal): {e}")
+
+
+def pair_ring(address: str, timeout: float = 30.0) -> bool:
+    """Pair the ring via bluetoothctl. Ring MUST be advertising.
+
+    Returns True on success, False on any failure.
+    """
+    try:
+        result = subprocess.run(
+            ["bluetoothctl", "pair", address],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        success = "Pairing successful" in (result.stdout or "")
+        if success:
+            logger.info(f"Paired ring {address}")
+        else:
+            logger.warning(f"Pairing failed: {result.stdout} {result.stderr}")
+        return success
+    except subprocess.TimeoutExpired:
+        logger.warning(f"Pairing timed out after {timeout}s")
+        return False
+    except Exception as e:
+        logger.warning(f"pair_ring failed: {e}")
+        return False
+
+
+async def scan_for_address(address: str, timeout: float = 15.0) -> bool:
+    """Quick scan to verify the ring is advertising. Returns True if found."""
+    logger.info(f"Scanning {timeout}s for {address}...")
+    devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
+    found = address.lower() in (a.lower() for a in devices)
+    if found:
+        logger.info(f"Ring {address} is advertising")
+    else:
+        logger.warning(f"Ring {address} not found in scan")
+    return found
+
+
+def forget_and_repair(address: str, timeout: float = 30.0) -> bool:
+    """Forget the ring from BlueZ, then re-pair it.
+
+    This is the full R09 reconnect-bug workaround. Ring must be advertising
+    for the pair step to succeed. Returns True if pairing succeeded.
+    """
+    forget_ring(address)
+    return pair_ring(address, timeout=timeout)
 
 
 class Client:
