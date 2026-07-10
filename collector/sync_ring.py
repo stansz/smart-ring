@@ -420,10 +420,13 @@ def upsert_steps(records: List[Dict]) -> int:
         with conn.cursor() as cur:
             for r in records:
                 cur.execute("""
-                    INSERT INTO raw_steps (ts, steps, source)
-                    VALUES (%s, %s, 'ring')
+                    INSERT INTO raw_steps (ts, steps, calories, distance, source)
+                    VALUES (%s, %s, %s, %s, 'ring')
                     ON CONFLICT (ts, source) DO NOTHING
-                """, (r.get("ts", datetime.now(tz=timezone.utc)), r.get("steps", 0)))
+                """, (r.get("ts", datetime.now(tz=timezone.utc)),
+                      r.get("steps", 0),
+                      r.get("calories"),
+                      r.get("distance")))
                 count += cur.rowcount
     return count
 
@@ -578,11 +581,18 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
                     for s in steps_data:
                         local_ts = local_target + timedelta(minutes=s.time_index * 15)
                         ts = local_ts.astimezone()
-                        step_records.append({"ts": ts, "steps": s.steps})
+                        step_records.append({
+                            "ts": ts, "steps": s.steps,
+                            "calories": s.calories, "distance": s.distance,
+                        })
                 elif isinstance(steps_data, steps_mod.SportDetail):
                     local_ts = local_target + timedelta(minutes=steps_data.time_index * 15)
                     ts = local_ts.astimezone()
-                    step_records.append({"ts": ts, "steps": steps_data.steps})
+                    step_records.append({
+                        "ts": ts, "steps": steps_data.steps,
+                        "calories": steps_data.calories,
+                        "distance": steps_data.distance,
+                    })
             count = upsert_steps(step_records)
             total_records += count
             log.info(f"Steps: {count} new records")

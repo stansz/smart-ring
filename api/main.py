@@ -134,7 +134,7 @@ def get_raw_hr(hours: int = 48, limit: int = 1000):
 def get_raw_steps(hours: int = 168, limit: int = 1000):
     with SessionLocal() as db:
         rows = db.execute(text("""
-            SELECT ts, steps FROM raw_steps
+            SELECT ts, steps, calories, distance FROM raw_steps
             WHERE ts >= NOW() - INTERVAL ':hours hours'
             ORDER BY ts DESC LIMIT :limit
         """), {"hours": hours, "limit": limit}).mappings().all()

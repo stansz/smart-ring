@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS raw_steps (
     id BIGSERIAL PRIMARY KEY,
     ts TIMESTAMPTZ NOT NULL,
     steps INT NOT NULL,
+    calories INT,
+    distance INT,
     source TEXT DEFAULT 'ring',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE (ts, source)

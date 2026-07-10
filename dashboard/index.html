@@ -130,19 +130,19 @@
                        x-text="`${activeSlotCount} slots ≥ ${activeThreshold} steps`"></p>
                 </div>
 
-                <!-- Distance Dial -->
+                <!-- Calories Dial -->
                 <div class="text-center">
                     <div class="relative inline-block w-32 h-32">
                         <div class="absolute inset-0 rounded-full"
-                             style="background: conic-gradient(#f59e0b 0%, #e5e7eb 0%);">
+                             :style="`background: conic-gradient(#f59e0b ${caloriesPct}%, #e5e7eb ${caloriesPct}%);`">
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900" x-text="distanceKm || '—'"></span>
-                            <span class="text-xs text-gray-500">km</span>
+                            <span class="text-2xl font-bold text-gray-900" x-text="caloriesToday || '—'"></span>
+                            <span class="text-xs text-gray-500">kcal</span>
                         </div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 mt-2">Distance</p>
-                    <p class="text-xs text-gray-400" x-text="`est. from ${stepsToday || 0} steps`"></p>
+                    <p class="text-sm font-medium text-gray-700 mt-2">Calories</p>
+                    <p class="text-xs text-gray-400" x-text="`${caloriesPct}% of 2,000 kcal`"></p>
                 </div>
             </div>
         </div>
@@ -312,6 +312,8 @@
                             <tr class="text-left text-gray-500 border-b border-gray-200">
                                 <th class="pb-2 pr-4">Time (local)</th>
                                 <th class="pb-2 pr-4">Steps</th>
+                                <th class="pb-2 pr-4">Cal</th>
+                                <th class="pb-2 pr-4">Dist</th>
                             </tr>
                         </thead>
                         <tbody id="stepsTable" class="text-gray-700"></tbody>
@@ -349,6 +351,8 @@
                 activeSlotCount: 0,
                 activeThreshold: 150,
                 distanceKm: '—',
+                caloriesToday: 0,
+                caloriesPct: '0',
 
                 // Admin state
                 ringStatus: {},
@@ -522,7 +526,6 @@
                 },
 
                 async loadRawTables() {
-                    // Fetch raw HR + steps and render as HTML tables (Admin tab).
                     try {
                         const [hrRes, stepsRes] = await Promise.all([
                             fetch('/api/raw/heart-rate?hours=168&limit=500'),
@@ -533,8 +536,26 @@
                         this.rawHrCount = hrData.length;
                         this.rawStepsCount = stepsData.length;
                         this.renderRawTable('hrTable', hrData, 'bpm');
-                        this.renderRawTable('stepsTable', stepsData, 'steps');
+                        this.renderStepsTable(stepsData);
                     } catch (e) { console.error('loadRawTables', e); }
+                },
+
+                renderStepsTable(rows) {
+                    const tbody = document.getElementById('stepsTable');
+                    if (!tbody) return;
+                    if (!rows || !rows.length) {
+                        tbody.innerHTML = '<tr><td colspan="4" class="py-3 text-gray-400">No data yet</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = rows.map(d => {
+                        const cal = d.calories != null ? Math.round(d.calories / 1000) : null;
+                        return `<tr class="border-b border-gray-100">
+                            <td class="py-1.5 pr-4">${new Date(d.ts).toLocaleString()}</td>
+                            <td class="py-1.5 pr-4 font-mono">${d.steps}</td>
+                            <td class="py-1.5 pr-4 font-mono">${cal != null ? cal : '—'}</td>
+                            <td class="py-1.5 pr-4 font-mono">${d.distance != null ? d.distance : '—'}</td>
+                        </tr>`;
+                    }).join('');
                 },
 
                 computeDials(hrData, stepsData) {
@@ -614,12 +635,31 @@
                         this.hrPct = '0';
                     }
 
-                    // Distance: rough estimate, 0.0008 km per step
-                    if (stepsTotal > 0) {
-                        this.distanceKm = (stepsTotal * 0.0008).toFixed(2);
-                    } else {
-                        this.distanceKm = '0.00';
+                    // Calories: sum from ring's SportDetail.calories field
+                    // for today's slots. The ring reports calories burned per
+                    // 15-min slot. Use max per hour (dedupe 5 copies per hour).
+                    let caloriesTotal = 0;
+                    const calorieByHour = new Map();
+                    for (const s of todaysSteps) {
+                        const h = new Date(s.ts).getHours();
+                        const prev = calorieByHour.get(h) || 0;
+                        calorieByHour.set(h, Math.max(prev, s.calories || 0));
                     }
+                    for (const v of calorieByHour.values()) caloriesTotal += v;
+                    // Ring reports calories in 0.001 kcal units — convert to kcal.
+                    this.caloriesToday = Math.round(caloriesTotal / 1000);
+                    this.caloriesPct = Math.min(100, Math.round(this.caloriesToday / 20)).toString();
+
+                    // Distance: from ring's actual data (or estimate as fallback)
+                    let distTotal = 0;
+                    const distByHour = new Map();
+                    for (const s of todaysSteps) {
+                        const h = new Date(s.ts).getHours();
+                        const prev = distByHour.get(h) || 0;
+                        distByHour.set(h, Math.max(prev, s.distance || 0));
+                    }
+                    for (const v of distByHour.values()) distTotal += v;
+                    this.distanceKm = distTotal > 0 ? distTotal.toFixed(0) : '—';
 
                 },
 
