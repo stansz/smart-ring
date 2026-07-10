@@ -553,31 +553,27 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.error(f"Heart rate sync failed: {e}")
 
         # 4. Sync steps
-        # The ring stores time_index as HOUR-OF-DAY in LOCAL time (we set the
-        # ring's clock with datetime.now() which is naive local). So we must
-        # build the timestamp from local midnight, not UTC midnight. Storing
-        # in UTC (with the correct offset) keeps the DB consistent and
-        # avoids the "future timestamp" bug where target+time_index lands
-        # beyond now.
+        # The ring's SportDetail.time_index is a 15-MINUTE SLOT from local
+        # midnight (NOT the hour of the day). So time_index=28 = 7:00 AM,
+        # time_index=68 = 5:00 PM, etc. Each day has slots 0..95.
+        # The ring stores time in local time (we set it with datetime.now()
+        # which is naive local). Build timestamps from local midnight +
+        # time_index * 15 minutes, then convert to UTC.
         try:
             step_records = []
             local_now = datetime.now()
             for d_offset in range(7):
-                # Local midnight of the target day, in local TZ
                 local_target = local_now.replace(
                     hour=0, minute=0, second=0, microsecond=0
                 ) - timedelta(days=d_offset)
                 steps_data = await client.get_steps(local_target)
                 if isinstance(steps_data, list):
                     for s in steps_data:
-                        # Build a local datetime from the day's date + the
-                        # ring's hour-of-day (time_index). Then attach the
-                        # local timezone offset so it converts to UTC cleanly.
-                        local_ts = local_target + timedelta(hours=s.time_index)
+                        local_ts = local_target + timedelta(minutes=s.time_index * 15)
                         ts = local_ts.astimezone()
                         step_records.append({"ts": ts, "steps": s.steps})
                 elif isinstance(steps_data, steps_mod.SportDetail):
-                    local_ts = local_target + timedelta(hours=steps_data.time_index)
+                    local_ts = local_target + timedelta(minutes=steps_data.time_index * 15)
                     ts = local_ts.astimezone()
                     step_records.append({"ts": ts, "steps": steps_data.steps})
             count = upsert_steps(step_records)
