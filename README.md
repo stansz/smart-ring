@@ -38,10 +38,8 @@ Home Network
    ├─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
    │   ├─ Requires=smart-ring-db.service
    │   └─ port 127.0.0.1:8000, serves dashboard
-   ├─ smart-ring-poller.service  (systemd user unit, python sync_request_poller.py --loop --interval 2)
-   │   └─ picks up admin tab "Sync Now" requests from `sync_requests` table
-   └─ Collector cron (every 2h)  (python collector-wrapper.py → sync_ring.py)
-       └─ needs BlueZ/DBus access for BLE, runs on host not in container
+   └─ Manual collector           (bare metal Python venv — needs BlueZ/DBus for BLE)
+       └─ python3 collector/sync_ring.py  (run manually, no cron)
 ```
 
 Dashboard tabs: **Dashboard** (recovery / sleep / HRV trends) and **Admin** (ring status, manual sync controls, sync log, system health). Both tabs served by FastAPI single-page (Alpine.js + Chart.js, no build step).
@@ -49,12 +47,12 @@ Dashboard tabs: **Dashboard** (recovery / sleep / HRV trends) and **Admin** (rin
 ## Usage
 
 ```bash
-# First time setup
-cd ~/code/smart-ring
-python3 setup.sh          # creates venv, installs deps, writes .env
-nano .env                 # set RING_ADDRESS, POSTGRES_PASSWORD
+# One-time setup (already done for this ring)
+#   - venv created, deps installed
+#   - ring paired via bluetoothctl (address: 30:35:42:37:21:03)
+#   - Gadgetbridge installed on phone (Android)
 
-# Pair the ring (one-time, via bluetoothctl)
+# Pair the ring (one-time, via bluetoothctl — already done)
 bluetoothctl scan on
 bluetoothctl pair <ring_address>      # wait for "Pairing successful"
 bluetoothctl disconnect <ring_address>
@@ -62,8 +60,7 @@ bluetoothctl disconnect <ring_address>
 # Daily operations
 python3 collector/first_contact.py     # read-only diagnostic (battery, fw, clock)
 python3 collector/sync_ring.py         # full sync to Postgres
-
-# Or use the dashboard (Admin tab → "First Contact" / "Sync Now" buttons)
+# Or use Gadgetbridge on your phone for quick checks
 ```
 
 ## Research
@@ -81,4 +78,4 @@ Topics covered:
 
 ## Status
 
-🟢 **Working end-to-end.** R09 ring paired and validated (BLE address `30:35:42:37:21:03`, FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls step records to Postgres, dashboard shows battery/firmware/status. Remaining work is hardening around the ring's aggressive sleep behavior (it stops advertising ~30 sec after disconnect) and confirming sync behavior is read-only.
+🟢 **Working end-to-end.** R09 ring paired and validated (BLE `30:35:42:37:21:03`, FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls data, dashboard operational, Gadgetbridge paired on phone.
