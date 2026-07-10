@@ -2,18 +2,18 @@
 """
 Test whether syncing data from the ring clears its buffer.
 
-Uses a SINGLE BLE connection (avoids the R09 reconnect bug) and fetches
-the same data twice within that connection, comparing results.
+Runs TWO scenarios:
+  1. WITHIN-CONNECTION:  fetch twice within same BLE link (disconnect = ack?)
+  2. ACROSS-DISCONNECT:  fetch, disconnect, reconnect, fetch again
 
-R09 firmware 3.10.21 has a known reconnect bug: after disconnect, it won't
-accept new connections. This script works around it by:
-  1. Forgetting the ring from BlueZ (bluetoothctl remove)
-  2. Re-pairing (bluetoothctl pair)
-  3. Connecting once and doing all work within that connection
-  4. Forgetting again at the end (prep for next run)
+If Scenario 1 is read-only but Scenario 2 returns zero => data clears on
+DISconnect, not on fetch. That means the ring buffers are wiped when the
+BLE link is torn down.
+
+If BOTH scenarios are read-only => data persists regardless.
 
 Usage:
-    python3 collector/test_sync_readonly.py
+    python3 collector/test_sync_readonly.py   [--skip-within]
 """
 import asyncio
 import os
@@ -24,7 +24,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from collector.ring_client import (
-    Client,
     forget_ring,
     pair_ring,
     scan_for_address,
@@ -33,14 +32,11 @@ from collector.sync_ring import connect_with_retry
 
 
 def print_steps(label: str, steps_data) -> None:
-    """Pretty-print step data from the ring."""
     if not steps_data:
         print(f"  {label}: 0 entries (empty)")
         return
-
     if not isinstance(steps_data, list):
         steps_data = [steps_data]
-
     total_steps = 0
     print(f"  {label}: {len(steps_data)} entries")
     for s in steps_data:
@@ -50,54 +46,66 @@ def print_steps(label: str, steps_data) -> None:
     print(f"  Total steps: {total_steps}")
 
 
-def compare_and_print(steps_a, steps_b) -> None:
-    """Compare two step fetches and print the read-only vs wipe verdict."""
-    if not isinstance(steps_a, list):
-        steps_a = [steps_a] if steps_a else []
-    if not isinstance(steps_b, list):
-        steps_b = [steps_b] if steps_b else []
+def compact(steps_data):
+    if not steps_data:
+        return []
+    if not isinstance(steps_data, list):
+        steps_data = [steps_data]
+    return [(s.time_index, s.steps) for s in steps_data]
 
-    if not steps_a and not steps_b:
-        print("? INCONCLUSIVE — both fetches returned 0 entries")
-        print("  Wear the ring longer to accumulate step data, then retry.")
+
+def verdict(a_compact, b_compact, context: str):
+    if not a_compact and not b_compact:
+        print("  ? INCONCLUSIVE — both empty")
         return
-
-    a_compact = [(s.time_index, s.steps) for s in steps_a]
-    b_compact = [(s.time_index, s.steps) for s in steps_b]
-
     if a_compact == b_compact:
-        print("=" * 50)
-        print(" VERDICT: READ-ONLY")
-        print("=" * 50)
-        print("Data persists on the ring after being fetched.")
-        print("Safe to sync from multiple devices (phone + collector).")
-        print("Cron-driven syncs won't lose data.")
-    elif len(steps_b) == 0:
-        print("=" * 50)
-        print(" VERDICT: READ-AND-CLEAR")
-        print("=" * 50)
-        print("Ring buffer was WIPED after the first fetch!")
-        print("NEVER sync from phone AND collector simultaneously.")
-        print("Cron must be the sole sync source.")
-    elif len(steps_b) < len(steps_a):
-        print("=" * 50)
-        print(f" VERDICT: LIKELY READ-AND-CLEAR ({len(steps_a)} -> {len(steps_b)} entries)")
-        print("=" * 50)
-        print("Some data was cleared after the first fetch.")
-        print("Treat as read-and-clear: don't sync from multiple devices.")
+        print(f"  READ-ONLY — {context}")
+    elif len(b_compact) == 0:
+        print(f"  READ-AND-CLEAR — {context}")
+    elif len(b_compact) < len(a_compact):
+        print(f"  LIKELY READ-AND-CLEAR ({len(a_compact)}→{len(b_compact)}) — {context}")
     else:
-        print("=" * 50)
-        print(f" VERDICT: UNCLEAR ({len(steps_a)} vs {len(steps_b)} entries)")
-        print("=" * 50)
-        print("Ring may have accumulated new data between fetches.")
-        print("Compare the time_index lists above manually.")
-        # Check if all of A's entries also appear in B
-        a_ids = set(a_compact)
-        b_ids = set(b_compact)
-        if a_ids.issubset(b_ids):
-            missing = b_ids - a_ids
-            print(f"B contains all of A's entries plus {len(missing)} new ones.")
-            print("This suggests READ-ONLY (data persists + new data added).")
+        a_set = set(a_compact)
+        b_set = set(b_compact)
+        if a_set.issubset(b_set):
+            new = b_set - a_set
+            print(f"  READ-ONLY (all old + {len(new)} new) — {context}")
+        else:
+            print(f"  UNCLEAR ({len(a_compact)}→{len(b_compact)}) — {context}")
+
+
+async def connect_and_forget(address: str):
+    """Forget, scan, pair, connect. Returns connected client."""
+    print("  Forgetting...")
+    forget_ring(address)
+    await asyncio.sleep(1)
+
+    print("  Scanning...")
+    found = await scan_for_address(address, timeout=15.0)
+    if not found:
+        raise RuntimeError("Ring not advertising")
+
+    print("  Pairing...")
+    pair_ring(address, timeout=30.0)
+
+    print("  Connecting...")
+    client = await connect_with_retry(
+        address, attempts=5, connect_timeout=15.0,
+        wake_ping=False, forget_repair=False,
+    )
+    await asyncio.sleep(2)
+    return client
+
+
+async def disconnect_clean(client, address: str):
+    try:
+        await asyncio.wait_for(
+            client.__aexit__(None, None, None),
+            timeout=10.0,
+        )
+    except (asyncio.TimeoutError, Exception):
+        print("  (disconnect timeout — non-fatal)")
+    forget_ring(address)
 
 
 async def main() -> int:
@@ -106,91 +114,91 @@ async def main() -> int:
         print("No RING_ADDRESS set in .env")
         return 1
 
-    print("=" * 50, flush=True)
-    print(" Sync Behavior Test (read-only vs read-and-clear)", flush=True)
-    print("=" * 50, flush=True)
+    today = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
 
-    # ── Phase 1: Forget ring (clear stale BlueZ state) ──
-    print("\nPhase 1: Forgetting ring from BlueZ...")
-    forget_ring(address)
-    await asyncio.sleep(1)
+    skip_within = "--skip-within" in sys.argv
 
-    # ── Phase 2: Scan to verify ring is advertising ──
-    print("Phase 2: Scanning for ring (15s)...")
-    found = await scan_for_address(address, timeout=15.0)
-    if not found:
-        print("\nRing not found. Wear/tap/charge the ring to wake it, then retry.")
-        print("Run: python3 collector/test_sync_readonly.py")
-        forget_ring(address)
-        return 1
+    # ================================================================
+    # SCENARIO 1: Two fetches within the SAME connection
+    # ================================================================
+    if not skip_within:
+        print("=" * 60, flush=True)
+        print(" SCENARIO 1: WITHIN-CONNECTION (2 fetches, no disconnect)", flush=True)
+        print("=" * 60, flush=True)
 
-    # ── Phase 3: Pair ──
-    print("Phase 3: Pairing ring...")
-    paired = pair_ring(address, timeout=30.0)
-    if paired:
-        print("  Pairing successful")
-    else:
-        print("  WARNING: Pairing failed — trying to connect anyway...")
-
-    # ── Phase 4: Connect + test ──
-    print("Phase 4: Connecting (5 attempts, 15s timeout each)...")
-    try:
-        client = await connect_with_retry(
-            address, attempts=5, connect_timeout=15.0,
-            wake_ping=False, forget_repair=False,
-        )
-    except RuntimeError as e:
-        print(f"\nFailed to connect: {e}")
-        forget_ring(address)
-        return 1
-
-    try:
-        print("  Connected! Settling 2s...")
-        await asyncio.sleep(2)
-
-        today = datetime.now(timezone.utc).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-
-        # ── Fetch #1 ──
-        print("\n--- Fetch #1 ---")
         try:
+            client = await connect_and_forget(address)
+        except RuntimeError as e:
+            print(f"Failed: {e}")
+            return 1
+
+        try:
+            print("\n--- Fetch #1 ---")
             steps_a = await client.get_steps(today)
-            print_steps("Fetch #1", steps_a)
-        except Exception as e:
-            print(f"  Fetch #1 failed: {e}")
-            steps_a = []
+            print_steps("A", steps_a)
+            await asyncio.sleep(2)
 
-        await asyncio.sleep(3)
-
-        # ── Fetch #2 ──
-        print("\n--- Fetch #2 ---")
-        try:
+            print("\n--- Fetch #2 ---")
             steps_b = await client.get_steps(today)
-            print_steps("Fetch #2", steps_b)
-        except Exception as e:
-            print(f"  Fetch #2 failed: {e}")
-            steps_b = []
+            print_steps("B", steps_b)
 
-        # ── Verdict ──
-        print()
-        compare_and_print(steps_a, steps_b)
+            print()
+            verdict(compact(steps_a), compact(steps_b),
+                    "data persists within same connection")
+        finally:
+            print("\nDisconnecting...")
+            await disconnect_clean(client, address)
+            await asyncio.sleep(3)
 
+    # ================================================================
+    # SCENARIO 2: Fetch, disconnect, reconnect, fetch again
+    # ================================================================
+    print("=" * 60, flush=True)
+    print(" SCENARIO 2: ACROSS-DISCONNECT (fetch, disconnect, reconnect, fetch)", flush=True)
+    print("=" * 60, flush=True)
+
+    try:
+        client = await connect_and_forget(address)
+    except RuntimeError as e:
+        print(f"Failed to connect for Scenario 2: {e}")
+        return 1
+
+    try:
+        print("\n--- Fetch #1 (before disconnect) ---")
+        steps_a = await client.get_steps(today)
+        print_steps("A", steps_a)
     finally:
-        print("\nDisconnecting...", flush=True)
-        try:
-            await asyncio.wait_for(
-                client.__aexit__(None, None, None),
-                timeout=10.0,
-            )
-        except (asyncio.TimeoutError, Exception):
-            print("  (disconnect timed out — non-fatal)", flush=True)
+        print("\nDisconnecting...")
+        await disconnect_clean(client, address)
 
-    # ── Phase 5: Forget ring (prep for next run) ──
-    print("Phase 5: Forgetting ring (prep for next run)...")
-    forget_ring(address)
-    print("\nDone. The ring is now in a clean BLE state.")
+    # Wait for ring to settle after disconnect
+    print("\nWaiting 10s for ring to settle after disconnect...")
+    await asyncio.sleep(10)
 
+    try:
+        client = await connect_and_forget(address)
+    except RuntimeError as e:
+        print(f"Failed to reconnect: {e}")
+        # Still show what we know
+        verdict(compact(steps_a), [],
+                "second fetch failed — inconclusive across disconnect")
+        return 1
+
+    try:
+        print("\n--- Fetch #2 (after disconnect + reconnect) ---")
+        steps_b = await client.get_steps(today)
+        print_steps("B", steps_b)
+
+        print()
+        verdict(compact(steps_a), compact(steps_b),
+                "across disconnect")
+    finally:
+        print("\nDisconnecting...")
+        await disconnect_clean(client, address)
+
+    print("\nDone.")
     return 0
 
 

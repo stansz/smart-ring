@@ -62,11 +62,12 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 
 | File | Purpose | Notes |
 |------|---------|-------|
-| `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient` (upstream hangs without one); replaces `assert packet_type < 127` with `logger.debug` so async ring pushes don't kill the listener |
-| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)**; uses `ring_client.Client` |
+| `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient` (upstream hangs without one); replaces `assert packet_type < 127` with `logger.debug` so async ring pushes don't kill the listener; includes forget/pair/disconnect BlueZ helpers for R09 reconnect-bug workaround |
+| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)**; uses `ring_client.Client`; own `fetch_hr_history()` bypasses broken library HR parser; steps use `time_index` for per-hour timestamps |
 | `collector/collector-wrapper.py` | Tiny shim that sets `sys.path` and runs `sync_ring.main()` | Cron / poller entry point |
 | `collector/first_contact.py` | Safe read-only diagnostics | Reads battery (`battery_level`), firmware, device info, sets clock — NO data sync |
 | `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
+| `collector/test_sync_readonly.py` | Verifies read-only vs read-and-clear behavior | Two scenarios: within-connection + across-disconnect; confirmed READ-ONLY on R09 3.10.21 |
 | `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | **OBSOLETE** — retired 2026-07-09(d). Held BLE connection that blocked Gadgetbridge pairing; drained ring battery without pulling data. Kept in repo for reference. |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
 | `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; 4 admin endpoints (`ring-status`, `health`, `sync-log`, `sync`, `sync-requests`) |
@@ -216,7 +217,7 @@ The API lives in a container without BLE access. The collector must run on the h
 - `collector/test_open_questions.py` — rewritten to use a single connection, isolate each test in try/except
 
 **Known open items:**
-- [ ] Run collector once more after waking ring → confirm 0 new step records → confirm sync is read-only
+- [x] Run collector once more after waking ring → confirm 0 new step records → confirm sync is read-only — done; see 2026-07-09(e) below
 - [x] Add retry-on-sleep to `sync_ring.py` (try N attempts before failing) — done; see 2026-07-09b below
 - [ ] Add automatic wake gesture (heavy BLE activity) before sync attempts
 - [ ] Collect enough HRV data to determine format (RR vs composite): wear for 24h+
@@ -311,7 +312,36 @@ python3 collector/test_sync_readonly.py  # test read-only vs read-and-clear (sin
 ```
 No cron. No poller. Manual only. Gadgetbridge works for phone-side quick checks.
 
----
+### 2026-07-09 (e) — Sync Behavior Confirmed + HR Data Working + BLE Fixes
+
+**Task:** Verify sync behavior (read-only vs read-and-clear), get overnight HR data into dashboard, fix critical BLE bugs.
+
+**Sync behavior confirmed: READ-ONLY across disconnects.**
+- Tested via `test_sync_readonly.py` — two fetches across full disconnect/reconnect returned identical data (9 entries, 731 steps). Data is not cleared on read or disconnect.
+- The `forget+repair` flow was buggy: after `bluetoothctl remove`, BlueZ needs a scan to re-discover the device before `pair` can succeed. Fixed `forget_and_repair` to scan between forget and pair, and made it async.
+- `forget_ring()` now calls `bluetoothctl disconnect` before `remove` to fully release GATT state.
+- `pair_ring()` now auto-disconnects after pairing — bluetoothctl must release the GATT link before bleak can own it.
+- Added `disconnect_ring()` helper.
+- Wake-ping scan moved to BEFORE `forget+repair` so the ring is already awake when pairing starts.
+
+**Heart rate history: 49 records synced to Postgres.**
+- The `colmi_r02_client` library's `HeartRateLogParser` only completes for "today's" data (`is_today()` check). Historical days accumulate but never yield. The 2s timeout in `get_heart_rate_log()` also cuts off multi-packet HR responses.
+- **Fix:** New `fetch_hr_history()` reads directly from the notification queue with 10s timeout. Uses local midnight timestamps (ring clock = local time, not UTC).
+- HR data: 49 records across Mon-Wed (July 8-10), 30-min intervals, avg BPM 77-84, range 53-105.
+
+**Step timestamps fixed.** Previously all steps for a day got the same midnight timestamp. Now uses `time_index` for per-hour timestamps.
+
+**Remaining gaps (will fix in later sessions):**
+- **Sleep data:** Our code uses cmd 68; Gadgetbridge uses `CMD_BIG_DATA_V2` (0xBC) + `BIG_DATA_TYPE_SLEEP` (0x27).
+- **HRV data:** Our code uses cmd 57; Gadgetbridge uses `CMD_SYNC_HRV` (0x39) with per-day offset.
+- **SpO2 / temperature:** Also likely protocol mismatch vs Gadgetbridge.
+
+**Files changed:**
+- `collector/ring_client.py` — `forget_ring` disconnect-before-remove; `pair_ring` auto-disconnect; `forget_and_repair` async + scan; added `disconnect_ring`
+- `collector/sync_ring.py` — new `fetch_hr_history()` replaces broken HR path; step timestamps fixed; wake-ping moved; `await` on async `forget_and_repair`
+- `collector/test_sync_readonly.py` — rewritten: two scenarios (within-connection + across-disconnect); `--skip-within` flag
+- `.env` — removed extra quotes from `RING_ADDRESS` (cosmetic)
+- `AGENTS.md` — this entry
 
 ## Environment & Secrets
 
@@ -343,7 +373,7 @@ source venv/bin/activate
 python3 collector/first_contact.py
 
 # Full sync to Postgres (HR, steps, HRV, sleep, SpO2, temperature)
-python3 collector/sync_ring.py
+python3 collector/sync_ring.py --forget
 ```
 
 ### Observability
@@ -358,7 +388,7 @@ python3 collector/sync_ring.py
 
 | Question | Status (2026-07-09) | Test Plan / Notes |
 |----------|---------------------|---------------------|
-| Sync behavior: read-only or read-and-clear? | **Tentatively read-only** — first sync pulled 2 records to DB | Run sync twice, compare DB counts; needs ring to stay awake long enough |
+| Sync behavior: read-only or read-and-clear? | ✅ **CONFIRMED read-only** — second fetch after disconnect returns identical data | Both within-connection and across-disconnect scenarios verified via `test_sync_readonly.py` |
 | HRV data format: RR intervals vs composite score? | **TBD** — 0 records on fresh ring | Need to wear 24h+ for HRV log to populate |
 | Temperature sensor sampling rate | **Event-driven** — no push in 10s window | Confirm in longer window once data accumulates |
 | R09 firmware compatibility with tahnok client | **WORKS** — FW 3.10.21 + colmi_r02_client | UUIDs match exactly; admin UI works end-to-end |
@@ -376,7 +406,7 @@ python3 collector/sync_ring.py
 - [x] Delete `setup.sh` — done; cron entries silently appended, venv/pip/db steps already done
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
-- [ ] Evaluate custom firmware (atc1441) for enhanced features
+- [ ] Use Gadgetbridge sleep/HRV commands (0xBC sleep, 0x39 HRV) instead of wrong cmd 68/57
 - [ ] Investigate 0x80-bit async packets (probably sleep/HRV/temperature historical push)
 
 ---
