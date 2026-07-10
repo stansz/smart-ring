@@ -16,19 +16,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from collector.ring_client import Client
 from collector.sync_ring import (
     scan_ring,
-    fetch_hrv_raw,
-    fetch_sleep_data,
-    listen_temperature,
+    fetch_hrv_history,
+    fetch_sleep_data_legacy,
+    listen_temperature_legacy,
     upsert_hrv,
     upsert_sleep,
-    upsert_temperature,
+    upsert_temperature_single,
 )
 
 
 async def test_hrv_format(client):
     """RR intervals or composite score?"""
     print("\n=== TEST 2: HRV data format ===")
-    records = await fetch_hrv_raw(client)
+    records = await fetch_hrv_history(client)
     # Persist whatever the ring returns so we can inspect later
     count = upsert_hrv(records)
     print(f"Parsed {len(records)} HRV records ({count} new in DB)")
@@ -50,7 +50,7 @@ async def test_hrv_format(client):
 async def test_sleep_data(client):
     """What does cmd 68 return?"""
     print("\n=== TEST 2b: Sleep data format (cmd 68) ===")
-    records = await fetch_sleep_data(client)
+    records = await fetch_sleep_data_legacy(client)
     count = upsert_sleep(records)
     print(f"Parsed {len(records)} sleep stage entries ({count} new in DB)")
     by_day = {}
@@ -63,10 +63,10 @@ async def test_sleep_data(client):
 async def test_temperature_sampling(client):
     """How often does temp data arrive?"""
     print("\n=== TEST 3: Temperature sampling ===")
-    temp_c = await listen_temperature(client, timeout=10.0)
+    temp_c = await listen_temperature_legacy(client, timeout=10.0)
     if temp_c:
         print(f"  Temperature: {temp_c:.1f}°C")
-        upsert_temperature(temp_c)
+        upsert_temperature_single(temp_c)
         print("  Sampling is frequent — ring pushed within 10s.")
     else:
         print("  No temperature push in 10s.")

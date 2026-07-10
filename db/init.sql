@@ -27,10 +27,11 @@ CREATE TABLE IF NOT EXISTS raw_sleep (
     stage TEXT NOT NULL,
     start_ts TIMESTAMPTZ,
     end_ts TIMESTAMPTZ,
+    duration_minutes INT,
     source TEXT DEFAULT 'ring',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (day, stage, source)
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_raw_sleep_start_stage ON raw_sleep(start_ts, stage, source);
 CREATE INDEX IF NOT EXISTS idx_raw_sleep_day ON raw_sleep(day DESC);
 
 CREATE TABLE IF NOT EXISTS raw_steps (
