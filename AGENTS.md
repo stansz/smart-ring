@@ -20,28 +20,40 @@ Private, self-hosted health tracking system built around the **Colmi R09** smart
 
 ## Architecture (Local-First, Quadlet-Managed)
 
-```
-Home Network
-├─ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
-   ├─ Collector (bare metal Python venv — needs BlueZ/DBus for BLE)
-   │  └─ Cron: every 2 hours
-   ├─ Postgres (rootless Podman, managed by systemd quadlet)
-   │   ├─ smart-ring-db.service (user systemd unit)
-   │   └─ port 127.0.0.1:5432, volume smart-ring-pgdata
-   ├─ FastAPI (rootless Podman, managed by systemd quadlet)
-   │   ├─ smart-ring-api.service (user systemd unit, Requires=db)
-   │   └─ port 127.0.0.1:8000
-   └─ Dashboard (served by FastAPI, single-page Alpine.js + Chart.js)
-      └─ Analytics cron: 2 min after collector
+The ring talks to **one BLE host at a time** — the R09 only supports a single connection.
 
-   Windows 10 VM (VMware): Untouched, ~16GB reserved
+**At home:** Linux box runs a persistent BLE daemon (TBD — currently manual `python3 collector/sync_ring.py`). Data flows ring → daemon → Postgres → dashboard.
+
+**On the go:** Phone (Android + Gadgetbridge) connects to the ring, then pushes data via HTTPS (Tailscale) to FastAPI → Postgres. Gadgetbridge fork for ring-only sync is planned (see Future Work).
+
+```
+At Home:                          On the Go (planned):
+Ring ──BLE──> Linux Daemon        Ring ──BLE──> Phone (Gadgetbridge fork)
+                 │                                 │
+                 ▼                                 ▼ HTTPS (Tailscale)
+            Postgres ◄────────── FastAPI ──────────┘
+                 │
+                 ▼
+            Dashboard (Alpine.js + Chart.js)
+```
+
+**Current services on the Linux box:**
+
+```
+Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
+├─ smart-ring-db.service      (rootless Podman quadlet, Postgres 16)
+│   └─ port 127.0.0.1:5432
+├─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
+│   └─ port 127.0.0.1:8000, serves dashboard
+└─ Manual collector           (bare metal Python venv — needs BlueZ/DBus for BLE)
+    └─ python3 collector/sync_ring.py  (run manually, no cron yet)
 ```
 
 - **Container runtime:** Podman 4.9.3, rootless, user systemd units
 - **Collector** is **bare metal only** — needs direct BlueZ/DBus access for BLE.
 - **Quadlets** live in `~/.config/containers/systemd/` (not the repo) — they're host-specific.
 - **Lingering enabled** (`loginctl enable-linger sz`) so services start at boot, not on login.
-- **Docker fully removed** (July 2026) in favor of rootless Podman + quadlets.
+- **No cron jobs installed.** The old poller service (`smart-ring-poller`) was retired on 2026-07-09(d) — it held a BLE connection that blocked Gadgetbridge pairing and drained the ring battery without actually pulling data.
 - `docker-compose.yml` in repo kept as fallback documentation but **not used** for local deployment.
 
 ---
@@ -55,12 +67,12 @@ Home Network
 | `collector/collector-wrapper.py` | Tiny shim that sets `sys.path` and runs `sync_ring.main()` | Cron / poller entry point |
 | `collector/first_contact.py` | Safe read-only diagnostics | Reads battery (`battery_level`), firmware, device info, sets clock — NO data sync |
 | `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
-| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Runs on host (not container); claims rows from `sync_requests` via `FOR UPDATE SKIP LOCKED`, dispatches based on `requested_by` |
+| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | **OBSOLETE** — retired 2026-07-09(d). Held BLE connection that blocked Gadgetbridge pairing; drained ring battery without pulling data. Kept in repo for reference. |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
 | `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; 4 admin endpoints (`ring-status`, `health`, `sync-log`, `sync`, `sync-requests`) |
 | `dashboard/index.html` | Single-page Alpine.js + Chart.js UI, **two tabs: Dashboard + Admin** | No build step needed; polls every 5s for active sync status |
 | `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue |
-| `setup.sh` | Python-based setup + cron configuration | Does NOT overwrite existing files anymore |
+| ~~`setup.sh`~~ | Python-based setup + cron configuration | **DELETED** 2026-07-09(d). Cron entries silently add to crontab on each run; venv/pip/db steps are already done. See AGENTS.md for current setup instructions. |
 | `docker-compose.yml` | Legacy fallback (rootless Podman quadlets are the live deployment) | Binds to `127.0.0.1` only |
 
 ---
@@ -209,6 +221,7 @@ The API lives in a container without BLE access. The collector must run on the h
 - [ ] Add automatic wake gesture (heavy BLE activity) before sync attempts
 - [ ] Collect enough HRV data to determine format (RR vs composite): wear for 24h+
 - [ ] Investigate the `0x80`-bit packets (probably sleep or temperature reported asynchronously)
+- [x] Retire poller — done; see 2026-07-09(d) below
 
 ### 2026-07-09 (b) — Retry-on-Sleep Helper
 
@@ -265,6 +278,39 @@ The API lives in a container without BLE access. The collector must run on the h
 - `collector/sync_request_poller.py` — removed `FIRST_CONTACT_SCRIPT` and `DISPATCH['first-contact']` entry
 - `AGENTS.md` — this entry; also updated `api/main.py` row in Key Source Files (5 → 4 endpoints) and added "*(First Contact button later removed — see 2026-07-09(c))*" annotation to two earlier work-log lines that mentioned the button
 
+### 2026-07-09 (d) — Retire Poller Service + Delete setup.sh + Docs Refresh
+
+**Task:** The sync request poller (`smart-ring-poller.service`), built in 2026-07-08, held a persistent BLE GATT connection to the ring. On the R09 (firmware 3.10.21), this was actively harmful:
+
+1. **Battery drain:** The poller's 2-second poll loop + reconnect attempts drained the ring battery to zero over ~6 hours of testing (ring went from 69% → 100% → bricked until charged).
+2. **Blocked Gadgetbridge pairing:** The R09 only supports one BLE connection at a time. The poller held that connection, preventing Gadgetbridge (or anything else) from pairing with the ring.
+3. **No data sync:** The poller only *held* the connection — it didn't pull historical data (no notification-driven fetch chain like Gadgetbridge). Dashboard showed stale data.
+
+**What was done:**
+- `systemctl --user stop smart-ring-poller && systemctl --user disable smart-ring-poller`
+- Deleted `~/.config/systemd/user/smart-ring-poller.service` and `smart-ring-poller.timer`
+- Deleted `setup.sh` from the repo — it had only venv/pip/cron steps, all of which are already done or harmful (cron silently appends entries on each run)
+- Verified the ring works: after stopping the poller + disconnecting BlueZ, `first_contact.py` returned 100% battery, RT09_3.10.21_251107, clock synced. Ring advertising at RSSI -68.
+- Gadgetbridge paired successfully on the Android phone.
+
+**Architecture impact:**
+- The DB-as-job-queue model (`sync_requests` table) still exists in schema; the "Sync Now" Admin tab button inserts rows but nobody consumes them. This is harmless but technically stale — the button is a no-op.
+- Future architecture (planned): Linux daemon (Path A) as the home BLE collector, Gadgetbridge fork (Path B) as the mobile BLE collector. Both push to FastAPI `/api/sync`. Neither uses the old poller dispatch model.
+- `collector/sync_request_poller.py` kept in repo for reference but marked OBSOLETE in Key Source Files.
+
+**Files changed:**
+- `setup.sh` — DELETED from repo
+- `AGENTS.md` — this entry; updated Architecture diagram (added phone path, removed cron, noted poller retired); updated Key Source Files table; updated Testing the Ring section
+- `README.md` — minor updates to reflect poller retirement
+
+**Current usable collector surface:**
+```bash
+python3 collector/first_contact.py       # read-only diagnostic (battery, fw, clock)
+python3 collector/sync_ring.py           # full sync to Postgres
+python3 collector/test_sync_readonly.py  # test read-only vs read-and-clear (single connection)
+```
+No cron. No poller. Manual only. Gadgetbridge works for phone-side quick checks.
+
 ---
 
 ## Environment & Secrets
@@ -298,17 +344,11 @@ python3 collector/first_contact.py
 
 # Full sync to Postgres (HR, steps, HRV, sleep, SpO2, temperature)
 python3 collector/sync_ring.py
-
-# Or use the Admin tab "First Contact" / "Sync Now" buttons
-# → POST /api/admin/first-contact, /api/admin/sync
-# → sync_request_poller.py picks up the row within ~2s
 ```
 
 ### Observability
 - `collector/collector.log` — sync errors
 - `collector/first_contact.log` — first-contact diagnostics
-- `collector/sync_request_poller.log` — poller activity
-- `journalctl --user -u smart-ring-poller -f` — poller service logs
 - `podman logs smart-ring-api` — FastAPI logs
 - `journalctl --user -u smart-ring-db` — Postgres logs
 
@@ -332,6 +372,8 @@ python3 collector/sync_ring.py
 - [x] Create `collector/ring_client.py` — robust BLE client wrapper with explicit timeout
 - [x] Add `BLE pairing once via bluetoothctl` instructions to AGENTS.md
 - [x] Add retry-on-sleep logic to `sync_ring.py` (R09 falls asleep fast) — done; new `connect_with_retry` helper in `sync_ring.py`, used by both `sync_ring` and `first_contact`
+- [x] Retire poller service (`smart-ring-poller`) — done; drained battery, blocked Gadgetbridge, held BLE connection without delivering data
+- [x] Delete `setup.sh` — done; cron entries silently appended, venv/pip/db steps already done
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
 - [ ] Evaluate custom firmware (atc1441) for enhanced features
