@@ -70,6 +70,72 @@
             </div>
         </div>
 
+        <!-- Today's Activity (Gadgetbridge-style dials) -->
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-8">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Today's Activity</h2>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+                <!-- Steps Dial -->
+                <div class="text-center">
+                    <div class="relative inline-block w-32 h-32">
+                        <div class="absolute inset-0 rounded-full"
+                             :style="`background: conic-gradient(#3b82f6 ${stepsPct}%, #e5e7eb ${stepsPct}%);`">
+                        </div>
+                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                            <span class="text-2xl font-bold text-gray-900" x-text="stepsToday || 0"></span>
+                            <span class="text-xs text-gray-500">steps</span>
+                        </div>
+                    </div>
+                    <p class="text-sm font-medium text-gray-700 mt-2">Steps</p>
+                    <p class="text-xs text-gray-400" x-text="`${stepsPct}% of 10,000`"></p>
+                </div>
+
+                <!-- HR Avg Dial -->
+                <div class="text-center">
+                    <div class="relative inline-block w-32 h-32">
+                        <div class="absolute inset-0 rounded-full"
+                             :style="`background: conic-gradient(#ef4444 ${hrPct}%, #e5e7eb ${hrPct}%);`">
+                        </div>
+                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                            <span class="text-2xl font-bold text-gray-900" x-text="hrAvg || '—'"></span>
+                            <span class="text-xs text-gray-500">bpm avg</span>
+                        </div>
+                    </div>
+                    <p class="text-sm font-medium text-gray-700 mt-2">Heart Rate</p>
+                    <p class="text-xs text-gray-400" x-text="hrMinMax"></p>
+                </div>
+
+                <!-- Active Minutes Dial -->
+                <div class="text-center">
+                    <div class="relative inline-block w-32 h-32">
+                        <div class="absolute inset-0 rounded-full"
+                             :style="`background: conic-gradient(#10b981 ${activePct}%, #e5e7eb ${activePct}%);`">
+                        </div>
+                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                            <span class="text-2xl font-bold text-gray-900" x-text="activeMinutes || 0"></span>
+                            <span class="text-xs text-gray-500">min</span>
+                        </div>
+                    </div>
+                    <p class="text-sm font-medium text-gray-700 mt-2">Active Time</p>
+                    <p class="text-xs text-gray-400" x-text="`${activePct}% of 60 min`"></p>
+                </div>
+
+                <!-- Distance Dial -->
+                <div class="text-center">
+                    <div class="relative inline-block w-32 h-32">
+                        <div class="absolute inset-0 rounded-full"
+                             style="background: conic-gradient(#f59e0b 0%, #e5e7eb 0%);">
+                        </div>
+                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                            <span class="text-2xl font-bold text-gray-900" x-text="distanceKm || '—'"></span>
+                            <span class="text-xs text-gray-500">km</span>
+                        </div>
+                    </div>
+                    <p class="text-sm font-medium text-gray-700 mt-2">Distance</p>
+                    <p class="text-xs text-gray-400" x-text="`est. from ${stepsToday || 0} steps`"></p>
+                </div>
+            </div>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4">Recovery Trend</h2>
@@ -313,6 +379,15 @@
                 restingHr: null,
                 rawHrCount: 0,
                 rawStepsCount: 0,
+                // Today's activity dials
+                stepsToday: 0,
+                stepsPct: 0,
+                hrAvg: null,
+                hrMinMax: '',
+                hrPct: 0,
+                activeMinutes: 0,
+                activePct: 0,
+                distanceKm: '—',
 
                 // Admin state
                 ringStatus: {},
@@ -377,18 +452,23 @@
                     try {
                         const res = await fetch('/api/recovery?days=30');
                         const data = await res.json();
-                        if (!data.length) return;
-                        const latest = data[0];
-                        this.recoveryScore = latest.z_score != null
-                            ? Math.round(50 + latest.z_score * 10) : null;
-                        this.recoveryLabel = latest.readiness_text || '';
-                        // Use rmssd as the chart value when z_score is null — gives
-                        // the user something to see before we have 7+ days of baseline.
-                        const values = data.map(d => d.z_score != null ? d.z_score : (d.rmssd != null ? d.rmssd : null));
-                        this.renderRecoveryBars(
-                            [...data].map(d => d.day).reverse(),
-                            values.reverse()
-                        );
+                        if (data.length) {
+                            const latest = data[0];
+                            this.recoveryScore = latest.z_score != null
+                                ? Math.round(50 + latest.z_score * 10) : null;
+                            this.recoveryLabel = latest.readiness_text || '';
+                            // Use rmssd as the chart value when z_score is null — gives
+                            // the user something to see before we have 7+ days of baseline.
+                            const values = data.map(d => d.z_score != null ? d.z_score : (d.rmssd != null ? d.rmssd : null));
+                            this.renderRecoveryBars(
+                                [...data].map(d => d.day).reverse(),
+                                values.reverse()
+                            );
+                        } else {
+                            this.recoveryScore = null;
+                            this.recoveryLabel = '';
+                            this.renderRecoveryBars([], []);
+                        }
                     } catch (e) { console.error('loadRecovery', e); }
                 },
 
@@ -396,10 +476,11 @@
                     try {
                         const res = await fetch('/api/sleep?days=30');
                         const data = await res.json();
-                        if (!data.length) return;
-                        this.sleepScore = Math.round(data[0].score || 0);
-                        this.sleepLabel = `${data[0].total_sleep_minutes || 0} min total`;
-                        this.renderSleepBars([...data].reverse());
+                        if (data.length) {
+                            this.sleepScore = Math.round(data[0].score || 0);
+                            this.sleepLabel = `${data[0].total_sleep_minutes || 0} min total`;
+                        }
+                        this.renderSleepBars(data.length ? [...data].reverse() : []);
                     } catch (e) { console.error('loadSleep', e); }
                 },
 
@@ -409,8 +490,10 @@
                         const data = await res.json();
                         if (data.length > 0) {
                             this.hrv7d = data[0].rmssd_7d ? Math.round(data[0].rmssd_7d) : null;
-                            this.renderHRVBars([...data].reverse());
+                        } else {
+                            this.hrv7d = null;
                         }
+                        this.renderHRVBars(data.length ? [...data].reverse() : []);
                         // Resting HR from raw data
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
                         const hrData = await hrRes.json();
@@ -428,7 +511,10 @@
                     try {
                         const res = await fetch('/api/circadian-hr');
                         const data = await res.json();
-                        if (!data.length) return;
+                        if (!data.length) {
+                            this.renderCircadianBars([], []);
+                            return;
+                        }
                         // Aggregate by hour-of-day across all days (so chart is
                         // 24 points, not 26 with overlapping labels).
                         const byHour = {};
@@ -468,11 +554,11 @@
 
                 async loadRawData() {
                     // Fetch raw HR + steps and render as simple HTML tables.
-                    // No chart.js dependency — guaranteed to show data.
+                    // Also compute today's-activity dials (steps, HR, active min, distance).
                     try {
                         const [hrRes, stepsRes] = await Promise.all([
-                            fetch('/api/raw/heart-rate?hours=168&limit=200'),
-                            fetch('/api/raw/steps?hours=168&limit=200')
+                            fetch('/api/raw/heart-rate?hours=168&limit=500'),
+                            fetch('/api/raw/steps?hours=168&limit=500')
                         ]);
                         const hrData = await hrRes.json();
                         const stepsData = await stepsRes.json();
@@ -480,7 +566,64 @@
                         this.rawStepsCount = stepsData.length;
                         this.renderRawTable('hrTable', hrData, 'bpm');
                         this.renderRawTable('stepsTable', stepsData, 'steps');
+                        this.computeDials(hrData, stepsData);
                     } catch (e) { console.error('loadRawData', e); }
+                },
+
+                computeDials(hrData, stepsData) {
+                    // "Today" = local-time entries within the last 18h (covers
+                    // a full day plus some padding). Simpler than computing
+                    // midnight in the user's timezone.
+                    const now = Date.now();
+                    const eighteenHours = 18 * 60 * 60 * 1000;
+                    const todaysSteps = stepsData.filter(s => {
+                        return (now - new Date(s.ts).getTime()) <= eighteenHours;
+                    });
+                    // Deduplicate by time_index: ring sends 5 duplicate step
+                    // records per hour (each with the same step count). Take
+                    // max steps per hour to get the true count.
+                    const byHour = {};
+                    let stepsTotal = 0;
+                    for (const s of todaysSteps) {
+                        const t = new Date(s.ts);
+                        const hk = `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}-${t.getHours()}`;
+                        if (!byHour[hk] || s.steps > byHour[hk]) byHour[hk] = s.steps;
+                    }
+                    stepsTotal = Object.values(byHour).reduce((a, b) => a + b, 0);
+                    this.stepsToday = stepsTotal;
+                    this.stepsPct = Math.min(100, Math.round(stepsTotal / 100)).toString();
+
+                    // HR stats for "today" (last 18h)
+                    const todaysHr = hrData.filter(h => {
+                        return (now - new Date(h.ts).getTime()) <= eighteenHours;
+                    });
+                    if (todaysHr.length > 0) {
+                        const bpms = todaysHr.map(h => h.bpm);
+                        const avg = Math.round(bpms.reduce((a, b) => a + b, 0) / bpms.length);
+                        const min = Math.min(...bpms);
+                        const max = Math.max(...bpms);
+                        this.hrAvg = avg;
+                        this.hrMinMax = `${min}–${max} bpm`;
+                        // Map 40-160 bpm to 0-100% for the dial
+                        this.hrPct = Math.min(100, Math.max(0, Math.round((avg - 40) / 1.2))).toString();
+                    } else {
+                        this.hrAvg = null;
+                        this.hrMinMax = 'no data';
+                        this.hrPct = '0';
+                    }
+
+                    // Active minutes: hours with any step entry today
+                    const activeHours = Object.keys(byHour).length;
+                    this.activeMinutes = activeHours * 60;
+                    this.activePct = Math.min(100, Math.round(activeHours / 60 * 100)).toString();
+
+                    // Distance: rough estimate, 0.0008 km per step
+                    // (avg adult stride ~0.762m = 0.000762 km/step, round up)
+                    if (stepsTotal > 0) {
+                        this.distanceKm = (stepsTotal * 0.0008).toFixed(2);
+                    } else {
+                        this.distanceKm = '0.00';
+                    }
                 },
 
                 renderRawTable(tbodyId, rows, valueKey) {
