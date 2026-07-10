@@ -347,7 +347,7 @@
                 activeMinutes: 0,
                 activePct: 0,
                 activeSlotCount: 0,
-                activeThreshold: 50,
+                activeThreshold: 150,
                 distanceKm: '—',
 
                 // Admin state
@@ -554,9 +554,11 @@
                     // and "Exercise" at HR>90 + intensity>15. Our ring's
                     // 15-min slot with 30+ steps is a reasonable proxy for
                     // "you were actually moving around".
-                    // Threshold: 50 steps/15min ≈ 3.3 steps/min (light walk).
-                    // Below that = barely moving, not "active".
-                    const ACTIVE_STEP_THRESHOLD = 50;
+                    // Gadgetbridge uses: Running > 120 steps/min (1800/15min),
+                    // Exercise: HR>90 + intensity>15. We don't have intensity
+                    // data from the ring, so use step count as a proxy.
+                    // 150 steps/15min ≈ 10 steps/min (brisk walk pace).
+                    const ACTIVE_STEP_THRESHOLD = 150;
                     const activeSlots = todaysSteps.filter(s => s.steps >= ACTIVE_STEP_THRESHOLD);
                     this.activeMinutes = activeSlots.length * 15;
                     this.activePct = Math.min(100, Math.round(this.activeMinutes / 60 * 100)).toString();
