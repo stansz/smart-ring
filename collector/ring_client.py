@@ -62,6 +62,7 @@ COMMAND_HANDLERS: dict[int, Callable[[bytearray], Any]] = dict(_BASE_COMMAND_HAN
 # but that the R09 firmware supports (documented in Gadgetbridge).
 COMMAND_HANDLERS[0x21] = _pass_through   # CMD_GOALS
 COMMAND_HANDLERS[0x37] = _pass_through   # CMD_SYNC_STRESS
+COMMAND_HANDLERS[0x39] = _pass_through   # CMD_SYNC_HRV
 
 
 # ---------------------------------------------------------------------------
