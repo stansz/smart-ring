@@ -1,11 +1,15 @@
 # Smart Ring Research Summary
 
-*Compiled 2026-07-01 — Updated 2026-07-01*
+*Compiled 2026-07-01 — Updated 2026-07-10*
+*Ring arrived and fully validated July 9, 2026. Firmware RT09_3.10.21_251107, HW RT09_V3.1.*
 
-## Hardware Target: Colmi R09 (ORDERED)
+## Hardware Target: Colmi R09 ✅ ARRIVED & VALIDATED
 
-- **Status:** ✅ Ordered from Colmi official store (AliExpress), $45 CAD, size 11
-- **Est. delivery:** ~2-4 weeks from China
+- **Status:** ✅ Arrived July 9, 2026 — working end-to-end
+- **BLE address:** `30:35:42:37:21:03` (R09_2103)
+- **Firmware:** RT09_3.10.21_251107
+- **Hardware:** RT09_V3.1
+- **Cost:** ~$45 CAD from Colmi official store (AliExpress), size 11
 - **SoC:** BlueX RF03 ARM Cortex-M0 (200KB RAM, 512KB Flash) — same across entire R0x family
 - **Sensors:** accelerometer (steps, sleep, gestures), heart rate (PPG), SpO2, **skin temperature** (R09 exclusive — R02/R06/R10 lack this)
 - **Weight:** ~3.8g (20% lighter than R02 due to concave inner design)
@@ -55,38 +59,122 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 
 ## Setup Plan
 
-### Phase 1: Gadgetbridge (interim — phone only)
-1. Install Gadgetbridge from F-Droid
-2. Charge ring, pair via BLE
-3. Set clock, configure logging intervals
-4. Verify sensors work — HR, SpO2, temperature, steps
-5. Use for visual validation only — **don't rely on it for data pipeline**
+### Phase 1: Gadgetbridge (interim — phone only) ✅ DONE
+1. Install Gadgetbridge from F-Droid ✅
+2. Charge ring, pair via BLE ✅
+3. Set clock, configure logging intervals ✅
+4. Verify sensors work — HR, SpO2, temperature, steps ✅
+5. Use for visual validation only — don't rely on it for data pipeline ✅
 
-### Phase 2: PC Collector (primary pipeline)
-1. `pip install colmi-r02-client`
-2. `colmi_r02_util scan` → get BLE address
-3. `colmi_r02_client --address=XX:XX set-time` → sync clock
-4. `colmi_r02_client --address=XX:XX set-heart-rate-log-settings` → set sampling interval
-5. Build collector wrapper → sync → parse → push to Postgres on Hetzner
+### Phase 2: PC Collector (primary pipeline) ✅ DONE
+1. `pip install colmi-r02-client` ✅
+2. `colmi_r02_util scan` → get BLE address ✅ (30:35:42:37:21:03)
+3. `colmi_r02_client --address=XX:XX set-time` → sync clock ✅
+4. `colmi_r02_client --address=XX:XX set-heart-rate-log-settings` → set sampling interval ✅
+5. Build collector wrapper → sync → parse → push to Postgres ✅ (see `collector/sync_ring.py`)
 
-### Phase 3: Full pipeline
-- Postgres schema (raw PPG, HR intervals, accelerometer, temperature, computed metrics)
-- PWA dashboard with custom metrics
-- Optional CFW for enhanced behavior
+### Phase 3: Full pipeline ✅ IN PROGRESS
+- Postgres schema (raw HR, steps, HRV, sleep, SpO2, temperature, computed metrics) ✅
+- Web dashboard (Alpine.js + CSS bars, no external chart library) ✅ — served at `http://127.0.0.1:8000`
+- Admin UI with Sync Now button, ring status, system health, sync log, raw data tables ✅
+- On-demand sync via web UI → DB queue → host-side poller → BLE sync ✅
+- Analytics (circadian HR, resting HR, recovery score, stress classification) ✅
+- ~~Optional CFW for enhanced behavior~~ (evaluating, not a priority)
+- Sleep/HRV/SpO2 protocol alignment with Gadgetbridge — IN PROGRESS (known gap)
+- Phone sync path (Gadgetbridge → FastAPI via Tailscale) — PLANNED
 
-## Open Questions (test when ring arrives)
+## Open Questions
 
-### Does syncing wipe data from the ring?
-**Unknown.** Two possibilities:
-1. Read-only sync — ring keeps data until circular buffer overwrites. Multiple devices can pull the same data.
-2. Read-and-clear sync — sync marks data as read, next sync only gets new data.
+### Does syncing wipe data from the ring? ✅ RESOLVED — READ-ONLY
 
-**Test:** Sync with Python client, immediately sync again, check if same data is returned.
-**Impact:** If Gadgetbridge clears on sync, using it on the go would prevent PC collector from getting that data.
-**Safe approach until tested:** Only use Gadgetbridge for live HR viewing, don't hit sync. Let PC collector pull everything.
+**Confirmed read-only on firmware RT09_3.10.21.** Syncing reads data from the ring without clearing it. Two scenarios were tested via `collector/test_sync_readonly.py`:
 
-### Gadgetbridge raw data access?
-Gadgetbridge stores processed metrics (HR values, step counts, sleep periods) but may not expose raw inter-beat intervals needed for HRV computation. The Python client is required for raw PPG data.
+1. **Within-connection:** Two fetches within the same BLE link returned identical data (9 entries, 731 steps each).
+2. **Across-disconnect:** Fetch → disconnect → reconnect → fetch. Reconnect required the `forget+repair` workaround (see BLE Quirks below). Both fetches returned identical data.
+
+**Data persists on the ring regardless of read or disconnect.** The ring's storage is an age-based circular buffer (~7 days). Data is only lost when it ages out of the buffer window. This means:
+- Multiple devices (phone/Gadgetbridge + Linux collector) can both sync independently without data loss.
+- Timer-driven or manual syncs are safe — no risk of missed data.
+- The ring can be synced by Gadgetbridge in the morning on the go, then synced again by the Linux box in the afternoon — both get the same data.
+
+### What is the HRV data format? STILL UNKNOWN
+
+The command we tried (cmd 57) does not return data on this firmware. Gadgetbridge uses `CMD_SYNC_HRV` (0x39) with a per-day offset parameter. This is a known protocol gap — needs alignment with Gadgetbridge.
+
+### What commands does the R09 actually use? PARTIALLY RESOLVED
+
+| Data Type | Our Code (wrong) | Gadgetbridge (correct) |
+|-----------|------------------|----------------------|
+| Sleep | cmd 68 | `CMD_BIG_DATA_V2` (0xBC) + `BIG_DATA_TYPE_SLEEP` (0x27) |
+| HRV | cmd 57 | `CMD_SYNC_HRV` (0x39) with per-day offset |
+| SpO2 | cmd 105 | `CMD_BIG_DATA_V2` (0xBC) + `BIG_DATA_TYPE_SPO2` (0x2A) |
+| Heart Rate | cmd 21 (0x15) ✓ | Same |
+| Steps | cmd 67 (0x43) ✓ | Same |
+| Battery | cmd 3 ✓ | Same |
+| Device Info | GATT 0x180A ✓ | Same |
+
+**Heart rate data format:** The ring's SportDetail returns `time_index` as a **15-minute slot** from local midnight (slots 0–95 per day), NOT the hour of the day. Each 15-min slot represents steps/calories/distance for that window.
+
+**Ring time:** The ring's clock is set via `client.set_time(datetime.now())` which is naive local time. All stored data uses the ring's local time as the reference for time_index values. When building timestamps, you must use local midnight (not UTC midnight) as the base, then convert to UTC via `.astimezone()`. See `collector/sync_ring.py` for the current implementation.
+
+---
+
+## BLE Quirks & Reconnect Bug (R09 Firmware 3.10.21)
+
+The R09 firmware has several BLE behaviors that required workarounds in the collector code. These are documented in `collector/ring_client.py` as utility functions (`forget_ring`, `pair_ring`, `disconnect_ring`, `forget_and_repair`).
+
+### 1. Aggressive Sleep
+The ring **stops advertising ~30 seconds** after losing a BLE connection. RSSI drops from -68 to -127 within seconds. The ring will not be discoverable again until:
+- You wear/tap the ring (movement wakes the accelerometer)
+- You connect it briefly to a charger
+- A BLE scan "nudges" the radio awake (used as a wake-ping in `connect_with_retry`)
+
+### 2. Reconnect Bug (Linux/BlueZ Specific)
+After a BLE disconnect, **BlueZ holds stale GATT state** that prevents new connections. The symptom on Linux is:
+- `BleakDeviceNotFoundError`: "Device was not found" (ring is advertising but BlueZ can't see it)
+- `BleakError`: "failed to discover services, device disconnected"
+- `EOFError` on `start_notify` (BlueZ has GATT cache from previous session)
+
+**This does NOT happen on Android** — Android's BLE stack properly maintains the bond and clears stale GATT state on reconnect. The R09 bug only manifests on Linux BlueZ.
+
+### 3. The Forget+Repair Workaround
+The reliable workaround on Linux is a **full forget+re-pair** before every connection:
+
+```
+bluetoothctl disconnect <addr>    # Release any lingering GATT link
+bluetoothctl remove <addr>        # Clear ALL cached state (bond, GATT services, connection history)
+    → SCAN (BlueZ must re-discover the device before pairing)
+bluetoothctl pair <addr>          # Establish a fresh bond
+bluetoothctl disconnect <addr>    # Release the GATT link so bleak can own it
+    → bleak connects and owns the notification stream
+```
+
+After the sync completes, the ring is forgotten again (`bluetoothctl remove`) to leave it in a clean state for the next sync (or for phone pairing).
+
+This workaround is automated in `collector/ring_client.py`:
+- `forget_ring(addr)` — disconnect + remove
+- `pair_ring(addr)` — pair + auto-disconnect (releases GATT for bleak)
+- `forget_and_repair(addr)` — forget → scan → pair (async, includes scan between forget and pair so BlueZ re-discovers the device)
+
+### 4. Single BLE Connection
+The R09 only supports **one BLE connection at a time**. If the Linux box is connected, the phone (Gadgetbridge) cannot connect — and vice versa. This is a hardware limitation of the BlueX RF03 SoC.
+
+Our design works around this by:
+- Connecting only during sync (no persistent BLE link)
+- Doing `forget_ring()` at the end of each sync → ring is immediately free for phone pairing
+- The poller (`smart-ring-poller.service`) polls the DB every 30s and only initiates a BLE connection when there's a pending sync request
+
+### 5. bluetoothctl vs bleak Ownership Conflict
+**bluetoothctl and bleak cannot share a connection.** If `bluetoothctl pair` establishes a GATT link, it must be disconnected (`bluetoothctl disconnect`) before bleak can `connect()`. The `pair_ring()` function now auto-disconnects after pairing to prevent this conflict.
+
+### 6. Retry-on-Sleep with Exponential Backoff
+`connect_with_retry()` in `sync_ring.py` handles the ring's sleep behavior:
+- Attempts: 5 (configurable via `--attempts N` CLI flag)
+- Backoff: 2s, 4s, 8s, 16s, 32s
+- Wake-ping: a 5-10s BLE scan before the first attempt and before the last attempt
+- Catches: `BleakError`, `OSError`, `TimeoutError`, `EOFError`, `ConnectionError`
+
+---
 
 ## Security Posture
 
@@ -128,13 +216,13 @@ Both options share the same components — they differ in WHERE things run.
 
 ## Data Availability — What the Ring Stores vs Streams
 
-### Stored on ring (syncable historically, 2-3 day buffer)
-- **Heart Rate** (cmd 21) — processed BPM at intervals, requested by timestamp
-- **HRV** (cmd 57) — pre-computed HRV data, requested by index/day offset
-- **Sleep Data** (cmd 68) — sleep summaries, requested by day offset
-- **Sports/Steps** (cmd 67, 72) — step counts, calories, distance
-- **SpO2** — blood oxygen readings
-- **Temperature** (R09 only) — skin temperature
+### Stored on ring (syncable historically, ~7 day buffer)
+- **Heart Rate** (cmd 21 / 0x15) ✓ — processed BPM at 5-minute intervals, multi-packet response per day (packet 0=header with count, packets 1..N=hourly data). The `colmi_r02_client` library's `HeartRateLogParser` has a bug where it only completes for "today's" data — bypassed in `fetch_hr_history()`.
+- **Steps/Activity** (cmd 67 / 0x43) ✓ — `SportDetail` objects with `time_index` as **15-minute slots** from local midnight (0–95), each containing `steps`, `calories`, `distance`.
+- **HRV** (cmd 0x39 `CMD_SYNC_HRV`) — Gadgetbridge uses this with a per-day offset parameter. Our code still has cmd 57 which is wrong — known gap.
+- **Sleep** (cmd 0xBC `CMD_BIG_DATA_V2` + type 0x27 `BIG_DATA_TYPE_SLEEP`) — Gadgetbridge uses this multi-packet big-data protocol. Our code still has cmd 68 which returns no data — known gap.
+- **SpO2** (cmd 0xBC `CMD_BIG_DATA_V2` + type 0x2A `BIG_DATA_TYPE_SPO2`) — same big-data protocol as sleep — known gap.
+- **Temperature** (R09 only) — event-driven push via cmd 115 NotifyType=5, not polled. The ring pushes temperature notifications; we listen briefly during sync but the window may not have data if the ring hasn't pushed recently.
 
 ### Real-time only (live stream, on-demand — NOT stored)
 - **Raw PPG** — the actual light sensor waveform
@@ -143,10 +231,10 @@ Both options share the same components — they differ in WHERE things run.
 - **Live HR** — current BPM reading
 
 ### Critical constraint
-The ring does NOT store raw PPG waveforms. It processes them internally into BPM/HRV metrics, stores those results, and discards the raw signal. The 512KB flash can't hold continuous waveform data. For raw PPG you must be actively connected and streaming — which drains the 15mAh battery in ~4-6 hours of continuous use.
+The ring does NOT store raw PPG waveforms. It processes them internally into BPM metrics, stores those results in a ~7-day circular buffer, and discards the raw signal. The 512KB flash can't hold continuous waveform data. For raw PPG you must be actively connected and streaming — which drains the 15mAh battery in ~4-6 hours of continuous use.
 
-### Open question: What's inside the stored HRV data (cmd 57)?
-If the ring stores **RR intervals** (time between heartbeats), RMSSD/pNN50 can be computed retrospectively from historical syncs. If it only stores a composite "HRV score," we're limited to whatever the firmware computed. **Test this first when ring arrives.**
+### Open question: What's inside the stored HRV data?
+Gadgetbridge uses `CMD_SYNC_HRV` (0x39) with a per-day offset parameter — we haven't implemented this yet. Our current code uses cmd 57 which returns no data on RT09_3.10.21. If the ring stores **RR intervals** (time between heartbeats), RMSSD/pNN50 can be computed retrospectively from historical syncs. If it only stores a composite "HRV score," we're limited to whatever the firmware computed. **Need to align with Gadgetbridge protocol to resolve.**
 
 Source: Full BLE protocol docs at https://colmi.puxtril.com/commands/
 
@@ -218,12 +306,11 @@ Research shows periodic sampling throughout the day is scientifically valid and 
 - BT confirmed working
 
 ### Deployment Topology — BARE METAL + CONTAINERS
-- **Collector:** Runs on bare metal host (Python venv) — needs direct BlueZ/DBus access for BLE
-- **Postgres, FastAPI, Dashboard:** Isolated in Podman containers
-- **Analytics:** Runs on host via cron (2 min after collector, shares collector's venv)
-- **Windows 10 VM:** Unchanged, untouched
-- **Why not VM with BT passthrough?** The BT chip is a combo WiFi+BT on motherboard PCIe. Passing it through to a VM would lose host connectivity (mouse dies). Bare metal avoids the mess entirely.
-- **Collector on host vs container:** Host is simpler — collector is a thin script that needs DBus/BlueZ. Can containerize later by mounting `/var/run/dbus` if isolation is ever needed.
+- **Collector:** Python wrapping `colmi_r02_client` + `bleak` (bare metal venv — needs BlueZ/DBus)
+- **Polling:** `smart-ring-poller.service` (systemd user unit, bare metal) — watches `sync_requests` table every 30s, runs `sync_ring.py --forget` as subprocess for any pending row. Does NOT hold a BLE connection between syncs.
+- **DB:** Postgres 16 (rootless Podman quadlet, `smart-ring-db.service`, port `127.0.0.1:5432`)
+- **API:** FastAPI + Dashboard (rootless Podman quadlet, `smart-ring-api.service`, port `127.0.0.1:8000`) — mounts `dashboard/` directory for live HTML reload
+- **Analytics:** Runs on host via poller after each successful sync (not cron) — computes derived tables from raw data
 
 ---
 
@@ -235,10 +322,18 @@ Current topology (Linux Mint HTPC):
 ```
 Home Network
 ├─ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
-   ├─ Collector (Python venv, bare metal — needs BlueZ/DBus for BLE)
-   ├─ Postgres (Podman/Docker container)
-   ├─ FastAPI (container)
-   └─ Dashboard (served by FastAPI from container)
+│   ├─ smart-ring-poller.service  (systemd user unit, bare metal)
+│   │   └─ watches sync_requests table every 30s
+│   │   └─ runs sync_ring.py --forget for pending requests
+│   ├─ collector/sync_ring.py     (bare metal venv — needs BlueZ/DBus for BLE)
+│   │   └─ triggered by poller or run manually
+│   ├─ smart-ring-db.service      (rootless Podman quadlet, Postgres 16)
+│   │   └─ port 127.0.0.1:5432
+│   └─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
+│       └─ port 127.0.0.1:8000, serves dashboard
+│
+└─ Phone (on the go — planned)
+    └─ Gadgetbridge → HTTPS (Tailscale) → FastAPI
 ```
 
 **Why local-first?**
