@@ -111,6 +111,42 @@
                 </table>
             </div>
         </div>
+
+        <!-- Raw Data Tables (no chart.js dependency — just HTML) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Heart Rate Log
+                    <span class="text-sm font-normal text-gray-400" x-text="rawHrCount + ' records'"></span>
+                </h2>
+                <div class="overflow-y-auto" style="max-height: 300px;">
+                    <table class="w-full text-sm">
+                        <thead class="sticky top-0 bg-white">
+                            <tr class="text-left text-gray-500 border-b border-gray-200">
+                                <th class="pb-2 pr-4">Time (local)</th>
+                                <th class="pb-2 pr-4">BPM</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hrTable" class="text-gray-700"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Steps Log
+                    <span class="text-sm font-normal text-gray-400" x-text="rawStepsCount + ' records'"></span>
+                </h2>
+                <div class="overflow-y-auto" style="max-height: 300px;">
+                    <table class="w-full text-sm">
+                        <thead class="sticky top-0 bg-white">
+                            <tr class="text-left text-gray-500 border-b border-gray-200">
+                                <th class="pb-2 pr-4">Time (local)</th>
+                                <th class="pb-2 pr-4">Steps</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stepsTable" class="text-gray-700"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </main>
 
     <!-- ============= ADMIN TAB ============= -->
@@ -277,6 +313,8 @@
                 sleepLabel: '',
                 hrv7d: null,
                 restingHr: null,
+                rawHrCount: 0,
+                rawStepsCount: 0,
                 recoveryChart: null,
                 sleepChart: null,
                 hrvChart: null,
@@ -325,7 +363,8 @@
                         this.loadSleep(),
                         this.loadHRV(),
                         this.loadCircadian(),
-                        this.loadSyncLog()
+                        this.loadSyncLog(),
+                        this.loadRawData()
                     ]);
                     this.loading = false;
                 },
@@ -431,6 +470,38 @@
                             this.renderSyncTable(data);
                         }
                     } catch (e) { console.error('loadSyncLog', e); }
+                },
+
+                async loadRawData() {
+                    // Fetch raw HR + steps and render as simple HTML tables.
+                    // No chart.js dependency — guaranteed to show data.
+                    try {
+                        const [hrRes, stepsRes] = await Promise.all([
+                            fetch('/api/raw/heart-rate?hours=168&limit=200'),
+                            fetch('/api/raw/steps?hours=168&limit=200')
+                        ]);
+                        const hrData = await hrRes.json();
+                        const stepsData = await stepsRes.json();
+                        this.rawHrCount = hrData.length;
+                        this.rawStepsCount = stepsData.length;
+                        this.renderRawTable('hrTable', hrData, 'bpm');
+                        this.renderRawTable('stepsTable', stepsData, 'steps');
+                    } catch (e) { console.error('loadRawData', e); }
+                },
+
+                renderRawTable(tbodyId, rows, valueKey) {
+                    const tbody = document.getElementById(tbodyId);
+                    if (!tbody) return;
+                    if (!rows || !rows.length) {
+                        tbody.innerHTML = '<tr><td colspan="2" class="py-3 text-gray-400">No data yet</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = rows.map(d => `
+                        <tr class="border-b border-gray-100">
+                            <td class="py-1.5 pr-4">${new Date(d.ts).toLocaleString()}</td>
+                            <td class="py-1.5 pr-4 font-mono">${d[valueKey]}</td>
+                        </tr>
+                    `).join('');
                 },
 
                 renderRecoveryChart(labels, values) {
