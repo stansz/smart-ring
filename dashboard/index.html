@@ -37,8 +37,11 @@
                 </div>
                 <div class="flex items-center space-x-4">
                     <span class="text-sm text-gray-500" x-text="lastSync"></span>
-                    <button @click="refreshActiveTab()" class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700" :class="{ loading: loading }">
-                        Refresh
+                    <button @click="queueSync()"
+                            :disabled="syncQueueBusy"
+                            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                        <span x-show="!syncQueueBusy">Sync Now</span>
+                        <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
                     </button>
                 </div>
             </div>
@@ -181,42 +184,6 @@
                     </thead>
                     <tbody id="syncTable" class="text-gray-700"></tbody>
                 </table>
-            </div>
-        </div>
-
-        <!-- Raw Data Tables (no chart.js dependency — just HTML) -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Heart Rate Log
-                    <span class="text-sm font-normal text-gray-400" x-text="rawHrCount + ' records'"></span>
-                </h2>
-                <div class="overflow-y-auto" style="max-height: 300px;">
-                    <table class="w-full text-sm">
-                        <thead class="sticky top-0 bg-white">
-                            <tr class="text-left text-gray-500 border-b border-gray-200">
-                                <th class="pb-2 pr-4">Time (local)</th>
-                                <th class="pb-2 pr-4">BPM</th>
-                            </tr>
-                        </thead>
-                        <tbody id="hrTable" class="text-gray-700"></tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Steps Log
-                    <span class="text-sm font-normal text-gray-400" x-text="rawStepsCount + ' records'"></span>
-                </h2>
-                <div class="overflow-y-auto" style="max-height: 300px;">
-                    <table class="w-full text-sm">
-                        <thead class="sticky top-0 bg-white">
-                            <tr class="text-left text-gray-500 border-b border-gray-200">
-                                <th class="pb-2 pr-4">Time (local)</th>
-                                <th class="pb-2 pr-4">Steps</th>
-                            </tr>
-                        </thead>
-                        <tbody id="stepsTable" class="text-gray-700"></tbody>
-                    </table>
-                </div>
             </div>
         </div>
     </main>
@@ -369,6 +336,42 @@
                 </table>
             </div>
         </div>
+
+        <!-- Raw Data Tables -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Heart Rate Log
+                    <span class="text-sm font-normal text-gray-400" x-text="rawHrCount + ' records'"></span>
+                </h2>
+                <div class="overflow-y-auto" style="max-height: 300px;">
+                    <table class="w-full text-sm">
+                        <thead class="sticky top-0 bg-white">
+                            <tr class="text-left text-gray-500 border-b border-gray-200">
+                                <th class="pb-2 pr-4">Time (local)</th>
+                                <th class="pb-2 pr-4">BPM</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hrTable" class="text-gray-700"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Steps Log
+                    <span class="text-sm font-normal text-gray-400" x-text="rawStepsCount + ' records'"></span>
+                </h2>
+                <div class="overflow-y-auto" style="max-height: 300px;">
+                    <table class="w-full text-sm">
+                        <thead class="sticky top-0 bg-white">
+                            <tr class="text-left text-gray-500 border-b border-gray-200">
+                                <th class="pb-2 pr-4">Time (local)</th>
+                                <th class="pb-2 pr-4">Steps</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stepsTable" class="text-gray-700"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </main>
 
     <script>
@@ -428,24 +431,18 @@
                 },
 
                 refreshActiveTab() {
-                    if (this.tab === 'admin') this.loadAdmin();
-                    else this.$nextTick(() => this.loadDashboard());
-                    this.loadHealth();
-                    this.loadRingStatus();
+                    // Kept for potential reuse; nav bar Sync Now replaces manual refresh.
                 },
 
                 async loadDashboard() {
                     this.loading = true;
-                    // Use allSettled so one failing endpoint doesn't break the rest.
-                    // Old code used Promise.all which rejected on first error and
-                    // prevented the loading state from clearing, blocking the UI.
                     await Promise.allSettled([
                         this.loadRecovery(),
                         this.loadSleep(),
                         this.loadHRV(),
                         this.loadCircadian(),
                         this.loadSyncLog(),
-                        this.loadRawData()
+                        this.loadDialsData()
                     ]);
                     this.loading = false;
                 },
@@ -455,7 +452,8 @@
                         this.loadRingStatus(),
                         this.loadHealth(),
                         this.loadAdminSyncLog(),
-                        this.loadSyncRequests()
+                        this.loadSyncRequests(),
+                        this.loadRawTables()
                     ]);
                     this.startPolling();
                 },
@@ -564,9 +562,21 @@
                     } catch (e) { console.error('loadSyncLog', e); }
                 },
 
-                async loadRawData() {
-                    // Fetch raw HR + steps and render as simple HTML tables.
-                    // Also compute today's-activity dials (steps, HR, active min, distance).
+                async loadDialsData() {
+                    // Fetch raw HR + steps for Today's Activity dials.
+                    try {
+                        const [hrRes, stepsRes] = await Promise.all([
+                            fetch('/api/raw/heart-rate?hours=168&limit=500'),
+                            fetch('/api/raw/steps?hours=168&limit=500')
+                        ]);
+                        const hrData = await hrRes.json();
+                        const stepsData = await stepsRes.json();
+                        this.computeDials(hrData, stepsData);
+                    } catch (e) { console.error('loadDialsData', e); }
+                },
+
+                async loadRawTables() {
+                    // Fetch raw HR + steps and render as HTML tables (Admin tab).
                     try {
                         const [hrRes, stepsRes] = await Promise.all([
                             fetch('/api/raw/heart-rate?hours=168&limit=500'),
@@ -578,8 +588,7 @@
                         this.rawStepsCount = stepsData.length;
                         this.renderRawTable('hrTable', hrData, 'bpm');
                         this.renderRawTable('stepsTable', stepsData, 'steps');
-                        this.computeDials(hrData, stepsData);
-                    } catch (e) { console.error('loadRawData', e); }
+                    } catch (e) { console.error('loadRawTables', e); }
                 },
 
                 computeDials(hrData, stepsData) {
