@@ -214,7 +214,7 @@ async def fetch_hrv_history(client: Client) -> list[dict]:
     local_now = datetime.now()
     for days_ago in range(0, 7):
         local_midnight = (local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-                          - timedelta(days=days_ago))
+                          - timedelta(days=days_ago)).astimezone()
         request = make_packet(0x39, struct.pack("<I", days_ago))
         log.info(f"HRV fetch: daysAgo={days_ago}, target={local_midnight.date()}")
         await client.send_packet(request)
@@ -303,7 +303,7 @@ def _parse_sleep_data(data: bytes) -> list[dict]:
         sleep_end_min   = struct.unpack_from("<H", data, idx)[0]; idx += 2
 
         target_date = (local_now - timedelta(days=days_ago)).date()
-        midnight = datetime.combine(target_date, datetime.min.time())
+        midnight = datetime.combine(target_date, datetime.min.time()).astimezone()
         if sleep_start_min > sleep_end_min:
             session_start = midnight + timedelta(minutes=sleep_start_min - 1440)
         else:
@@ -353,7 +353,7 @@ def _parse_spo2_data(data: bytes) -> list[dict]:
             spo2_min = data[idx]; idx += 1
             spo2_max = data[idx]; idx += 1
             if spo2_min > 0 and spo2_max > 0:
-                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour))
+                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour)).astimezone()
                 records.append({"ts": ts, "spo2_pct": round((spo2_min + spo2_max) / 2.0)})
             if idx - 6 >= length:
                 break
@@ -384,11 +384,11 @@ def _parse_temperature_data(data: bytes) -> list[dict]:
             t30 = data[idx] & 0xFF; idx += 1
             if t00 > 0:
                 temp_c = (t00 / 10.0) + 20
-                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=0))
+                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=0)).astimezone()
                 records.append({"ts": ts, "temp_c": round(temp_c, 1)})
             if t30 > 0:
                 temp_c = (t30 / 10.0) + 20
-                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=30))
+                ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=30)).astimezone()
                 records.append({"ts": ts, "temp_c": round(temp_c, 1)})
             if idx - 6 >= length:
                 break
@@ -740,7 +740,7 @@ async def fetch_stress_history(client: Client) -> list[dict]:
 
     records = []
     local_now = datetime.now()
-    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone()
     thirty_min = timedelta(minutes=30)
     minutes_in_previous = 0
 
