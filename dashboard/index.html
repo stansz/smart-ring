@@ -4,9 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Ring Dashboard</title>
-    <script>tailwind={config:{darkMode:'class'}}</script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>tailwind.config={darkMode:'class'}</script>
     <style>
         .chart-container { position: relative; height: 300px; width: 100%; }
         .chart-container canvas { display: block; }
@@ -94,7 +94,7 @@
                         <div class="absolute inset-0 rounded-full"
                              :style="`background: conic-gradient(#3b82f6 ${stepsPct}%, #e5e7eb ${stepsPct}%);`">
                         </div>
-                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="stepsToday || 0"></span>
                             <span class="text-xs text-gray-500 dark:text-gray-400">steps</span>
                         </div>
@@ -110,7 +110,7 @@
                         <div class="absolute inset-0 rounded-full"
                              :style="`background: conic-gradient(#ef4444 ${hrPct}%, #e5e7eb ${hrPct}%);`">
                         </div>
-                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="hrAvg || '—'"></span>
                             <span class="text-xs text-gray-500 dark:text-gray-400">bpm avg</span>
                         </div>
@@ -125,7 +125,7 @@
                         <div class="absolute inset-0 rounded-full"
                              :style="`background: conic-gradient(#10b981 ${activePct}%, #e5e7eb ${activePct}%);`">
                         </div>
-                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="activeMinutes || 0"></span>
                             <span class="text-xs text-gray-500 dark:text-gray-400">min</span>
                         </div>
@@ -141,7 +141,7 @@
                         <div class="absolute inset-0 rounded-full"
                              :style="`background: conic-gradient(#f59e0b ${caloriesPct}%, #e5e7eb ${caloriesPct}%);`">
                         </div>
-                        <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
+                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="caloriesToday || '—'"></span>
                             <span class="text-xs text-gray-500 dark:text-gray-400">kcal</span>
                         </div>
