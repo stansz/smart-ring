@@ -61,12 +61,19 @@ def health():
 
 @app.get("/api/recovery")
 def get_recovery(days: int = 30):
+    """Daily HRV averages from raw composite data (proxy for recovery trend)."""
     with SessionLocal() as db:
         rows = db.execute(text("""
-            SELECT day, rmssd, baseline_rmssd, z_score, readiness_text
-            FROM daily_recovery
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
-            ORDER BY day DESC
+            SELECT DATE(ts) as day,
+                   ROUND(AVG(hrv_value)::numeric, 1) as avg_hrv,
+                   MIN(hrv_value) as min_hrv,
+                   MAX(hrv_value) as max_hrv,
+                   COUNT(*) as samples
+            FROM raw_hrv
+            WHERE hrv_value > 0
+              AND ts >= NOW() - INTERVAL ':days days'
+            GROUP BY DATE(ts)
+            ORDER BY day ASC
         """), {"days": days}).mappings().all()
     return [dict(r) for r in rows]
 
