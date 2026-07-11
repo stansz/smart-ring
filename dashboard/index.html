@@ -149,21 +149,58 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Recovery Trend</h2>
-                <div id="recoveryBars" class="text-sm text-gray-700"></div>
+        <!-- Last Night's Sleep Stages (from big-data) -->
+        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-8">
+            <div class="flex justify-between items-baseline mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">Last Night's Sleep
+                    <span class="text-sm font-normal text-gray-400 ml-2"
+                          x-text="sleepSummary.date ? '(' + new Date(sleepSummary.date + 'T00:00').toLocaleDateString() + ')' : ''"></span>
+                </h2>
+                <div class="flex space-x-6 text-sm" x-show="sleepSummary.totalMinutes">
+                    <span class="text-gray-600">Total <strong class="text-gray-900" x-text="sleepSummary.totalMinutes + 'm'"></strong></span>
+                    <span class="text-indigo-600">Deep <strong class="text-indigo-700" x-text="sleepSummary.deepPct + '%'"></strong></span>
+                    <span class="text-purple-600">REM <strong class="text-purple-700" x-text="sleepSummary.remPct + '%'"></strong></span>
+                    <span class="text-blue-500">Light <strong class="text-blue-600" x-text="sleepSummary.lightPct + '%'"></strong></span>
+                    <span class="text-orange-500">Awake <strong class="text-orange-600" x-text="sleepSummary.awakePct + '%'"></strong></span>
+                </div>
             </div>
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Sleep Quality</h2>
-                <div id="sleepBars" class="text-sm text-gray-700"></div>
+            <div id="sleepTimeline" class="relative" style="min-height:60px">
+                <p class="text-sm text-gray-400">No sleep data yet — sync the ring to pull sleep history</p>
+            </div>
+        </div>
+
+        <!-- Health Metrics: SpO2, Skin Temp, HRV -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            <!-- SpO2 -->
+            <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
+                <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Blood Oxygen</p>
+                <p class="text-3xl font-bold text-red-600 mt-1">
+                    <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
+                </p>
+                <div id="spo2Trend" class="mt-2 flex items-end space-x-0.5" style="height:36px"></div>
+            </div>
+            <!-- Skin Temperature -->
+            <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
+                <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Skin Temperature</p>
+                <p class="text-3xl font-bold text-amber-600 mt-1">
+                    <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
+                </p>
+                <div id="tempTrend" class="mt-2 flex items-end space-x-0.5" style="height:36px"></div>
+            </div>
+            <!-- HRV -->
+            <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
+                <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">HRV (composite ms)</p>
+                <p class="text-3xl font-bold text-green-600 mt-1">
+                    <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
+                </p>
+                <div id="hrvTrend" class="mt-2 flex items-end space-x-0.5" style="height:36px"></div>
             </div>
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">HRV Trends (7d / 28d)</h2>
-                <div id="hrvBars" class="text-sm text-gray-700"></div>
+                <h2 class="text-lg font-semibold text-gray-900 mb-4">Recovery Trend</h2>
+                <div id="recoveryBars" class="text-sm text-gray-700"></div>
             </div>
             <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
                 <h2 class="text-lg font-semibold text-gray-900 mb-4">Circadian HR Pattern</h2>
@@ -337,7 +374,10 @@
                 recoveryLabel: '',
                 sleepScore: null,
                 sleepLabel: '',
-                hrv7d: null,
+                sleepSummary: {},
+                spo2Latest: null,
+                tempLatest: null,
+                hrvLatest: null,
                 restingHr: null,
                 stressLevel: null,
                 stressLabel: '',
@@ -393,8 +433,8 @@
                     this.loading = true;
                     await Promise.allSettled([
                         this.loadRecovery(),
-                        this.loadSleep(),
-                        this.loadHRV(),
+                        this.loadSleepStages(),
+                        this.loadHealthMetrics(),
                         this.loadCircadian(),
                         this.loadSyncLog(),
                         this.loadDialsData(),
@@ -438,29 +478,77 @@
                     } catch (e) { console.error('loadRecovery', e); }
                 },
 
-                async loadSleep() {
+                async loadSleepStages() {
                     try {
-                        const res = await fetch('/api/sleep?days=30');
+                        const res = await fetch('/api/raw/sleep?hours=72&limit=200');
                         const data = await res.json();
-                        if (data.length) {
-                            this.sleepScore = Math.round(data[0].score || 0);
-                            this.sleepLabel = `${data[0].total_sleep_minutes || 0} min total`;
+                        if (!data.length) {
+                            document.getElementById('sleepTimeline').innerHTML =
+                                '<p class="text-sm text-gray-400">No sleep data yet — sync the ring to pull sleep history</p>';
+                            return;
                         }
-                        this.renderSleepBars(data.length ? [...data].reverse() : []);
-                    } catch (e) { console.error('loadSleep', e); }
+                        // Find last night: pick the most recent day that has deep/rem stages
+                        // (skip today — sleep data is from overnight)
+                        const stagesByDay = {};
+                        for (const s of data) {
+                            if (!stagesByDay[s.day]) stagesByDay[s.day] = [];
+                            stagesByDay[s.day].push(s);
+                        }
+                        const days = Object.keys(stagesByDay).sort().reverse();
+                        let lastNight = null;
+                        for (const day of days) {
+                            const stages = stagesByDay[day];
+                            if (stages.some(s => s.stage === 'deep' || s.stage === 'rem')) {
+                                lastNight = { day, stages: stages.sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts)) };
+                                break;
+                            }
+                        }
+                        if (!lastNight) {
+                            document.getElementById('sleepTimeline').innerHTML =
+                                '<p class="text-sm text-gray-400">No complete sleep cycles found — keep wearing the ring overnight</p>';
+                            return;
+                        }
+                        this.renderSleepTimeline(lastNight);
+                        // Fill legacy stat card
+                        const totalMin = lastNight.stages.reduce((s, r) => s + (r.duration_minutes || 0), 0);
+                        this.sleepScore = Math.round(totalMin / 60 * 10); // crude score from total hours
+                        this.sleepLabel = `${totalMin} min total`;
+                    } catch (e) { console.error('loadSleepStages', e); }
                 },
 
-                async loadHRV() {
+                async loadHealthMetrics() {
                     try {
-                        const res = await fetch('/api/hrv-trends?days=60');
-                        const data = await res.json();
-                        if (data.length > 0) {
-                            this.hrv7d = data[0].rmssd_7d ? Math.round(data[0].rmssd_7d) : null;
-                        } else {
-                            this.hrv7d = null;
+                        const [spo2, temp, hrv] = await Promise.allSettled([
+                            fetch('/api/raw/spo2?hours=168&limit=200'),
+                            fetch('/api/raw/temperature?hours=168&limit=100'),
+                            fetch('/api/raw/hrv?hours=168&limit=200')
+                        ]);
+                        const spo2Data = spo2.status === 'fulfilled' ? await spo2.value.json() : [];
+                        const tempData = temp.status === 'fulfilled' ? await temp.value.json() : [];
+                        const hrvData = hrv.status === 'fulfilled' ? await hrv.value.json() : [];
+
+                        if (spo2Data.length) {
+                            this.spo2Latest = spo2Data[0].spo2_pct;
+                            this.renderMiniTrend('spo2Trend', spo2Data, 'spo2_pct', 85, 100);
                         }
-                        this.renderHRVBars(data.length ? [...data].reverse() : []);
-                        // Resting HR: use local hours 1-5 AM (deep sleep window)
+                        if (tempData.length) {
+                            const t = tempData[0].temp_c;
+                            this.tempLatest = Number(t).toFixed(1);
+                            this.renderMiniTrend('tempTrend', tempData, 'temp_c', 30, 38);
+                        }
+                        if (hrvData.length) {
+                            this.hrvLatest = hrvData[0].hrv_value;
+                            this.renderMiniTrend('hrvTrend', hrvData, 'hrv_value', 10, 80);
+                            // Night HRV avg for resting HR
+                            const nightHRV = hrvData.filter(d => {
+                                const h = new Date(d.ts).getHours();
+                                return h >= 0 && h <= 5;
+                            });
+                            if (this.restingHr == null && nightHRV.length > 0) {
+                                // Already computed in loadHRV via raw HR, skip HRV-based
+                            }
+                        }
+                        // Still compute resting HR from raw heart rate
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
                         const hrData = await hrRes.json();
                         const nightHR = hrData.filter(d => {
@@ -470,7 +558,7 @@
                         if (nightHR.length > 0) {
                             this.restingHr = Math.round(nightHR.reduce((a, b) => a + b.bpm, 0) / nightHR.length);
                         }
-                    } catch (e) { console.error('loadHRV', e); }
+                    } catch (e) { console.error('loadHealthMetrics', e); }
                 },
 
                 async loadCircadian() {
@@ -736,61 +824,64 @@
                     }).join('');
                 },
 
-                renderSleepBars(data) {
-                    const el = document.getElementById('sleepBars');
-                    if (!el) return;
-                    if (!data || !data.length) {
-                        el.innerHTML = '<p class="text-gray-400">No sleep data yet (protocol gap — needs cmd 0xBC)</p>';
-                        return;
+                renderSleepTimeline(lastNight) {
+                    const container = document.getElementById('sleepTimeline');
+                    if (!container) return;
+                    const stages = lastNight.stages;
+                    const stageColors = { light: '#60a5fa', deep: '#4338ca', rem: '#a855f7', awake: '#fb923c' };
+                    // Compute time range
+                    const first = new Date(stages[0].start_ts);
+                    const last = new Date(stages[stages.length - 1].end_ts);
+                    const totalMin = (last - first) / 60000;
+                    if (totalMin <= 0) { container.innerHTML = '<p class="text-sm text-gray-400">Invalid sleep data</p>'; return; }
+                    // Build summary
+                    const byType = {};
+                    for (const s of stages) {
+                        byType[s.stage] = (byType[s.stage] || 0) + (s.duration_minutes || 0);
                     }
-                    el.innerHTML = data.map(d => {
-                        const date = new Date(d.day).toLocaleDateString();
-                        return `<div class="mb-3">
-                            <div class="text-xs text-gray-500 mb-1">${date}</div>
-                            <div class="flex h-6 rounded overflow-hidden">
-                                <div class="bg-blue-800" style="width: ${d.deep_pct || 0}%" title="Deep ${(d.deep_pct || 0).toFixed(0)}%"></div>
-                                <div class="bg-purple-500" style="width: ${d.rem_pct || 0}%" title="REM ${(d.rem_pct || 0).toFixed(0)}%"></div>
-                                <div class="bg-sky-500" style="width: ${d.light_pct || 0}%" title="Light ${(d.light_pct || 0).toFixed(0)}%"></div>
-                                <div class="bg-gray-500" style="width: ${d.wake_pct || 0}%" title="Wake ${(d.wake_pct || 0).toFixed(0)}%"></div>
-                            </div>
-                        </div>`;
-                    }).join('') + `<div class="text-xs text-gray-400 mt-2 flex gap-3">
-                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-blue-800 inline-block"></span>Deep</span>
-                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-purple-500 inline-block"></span>REM</span>
-                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-sky-500 inline-block"></span>Light</span>
-                        <span class="flex items-center gap-1"><span class="w-2 h-2 bg-gray-500 inline-block"></span>Wake</span>
+                    const total = Object.values(byType).reduce((a, b) => a + b, 0) || 1;
+                    this.sleepSummary = {
+                        date: lastNight.day,
+                        totalMinutes: Math.round(total),
+                        deepPct: Math.round((byType['deep'] || 0) / total * 100),
+                        remPct: Math.round((byType['rem'] || 0) / total * 100),
+                        lightPct: Math.round((byType['light'] || 0) / total * 100),
+                        awakePct: Math.round((byType['awake'] || 0) / total * 100),
+                    };
+                    // Render timeline bars
+                    const barMaxPct = 100; // container pct width
+                    const timeScale = barMaxPct / totalMin;
+                    const bars = stages.map(s => {
+                        const startMin = (new Date(s.start_ts) - first) / 60000;
+                        const width = Math.max(0.5, (s.duration_minutes || 0) * timeScale);
+                        const color = stageColors[s.stage] || '#9ca3af';
+                        return `<div class="absolute h-full rounded-sm" style="left:${startMin * timeScale}%;width:${width}%;background:${color}"
+                                     title="${s.stage}: ${s.duration_minutes}m (${new Date(s.start_ts).toLocaleTimeString()})"></div>`;
+                    }).join('');
+
+                    const timeLabels = [];
+                    for (let m = 0; m <= Math.ceil(totalMin); m += 60) {
+                        const t = new Date(first.getTime() + m * 60000);
+                        timeLabels.push(`<div class="absolute text-xs text-gray-400" style="left:${(m/totalMin)*100}%;top:100%;transform:translateX(-50%);margin-top:4px">${t.getHours()}:00</div>`);
+                    }
+
+                    container.innerHTML = `<div class="relative" style="height:40px;margin-bottom:24px">
+                        <div class="absolute inset-0 bg-gray-100 rounded">${bars}</div>
+                        <div class="absolute inset-0 bg-gray-100 rounded opacity-30" style="clip-path:rect(0,0,0,0)"></div>
+                        ${timeLabels.join('')}
                     </div>`;
                 },
 
-                renderHRVBars(data) {
-                    const el = document.getElementById('hrvBars');
+                renderMiniTrend(elemId, data, key, minVal, maxVal) {
+                    const el = document.getElementById(elemId);
                     if (!el) return;
-                    if (!data || !data.length) {
-                        el.innerHTML = '<p class="text-gray-400">No HRV data yet (protocol gap — needs cmd 0x39)</p>';
-                        return;
-                    }
-                    const max = Math.max(...data.map(d => d.rmssd_7d || d.rmssd_28d || 0));
-                    el.innerHTML = data.map(d => {
-                        const date = new Date(d.day).toLocaleDateString();
-                        const w7 = d.rmssd_7d ? Math.max(2, (d.rmssd_7d / max) * 90) : 0;
-                        const w28 = d.rmssd_28d ? Math.max(2, (d.rmssd_28d / max) * 90) : 0;
-                        return `<div class="mb-2">
-                            <div class="text-xs text-gray-500 mb-1">${date}</div>
-                            <div class="flex items-center gap-2 text-xs">
-                                <span class="w-12 text-green-700">7d</span>
-                                <div class="flex-1 bg-gray-100 rounded h-4">
-                                    <div class="bg-green-500 h-4 rounded" style="width: ${w7}%"></div>
-                                </div>
-                                <span class="w-12 text-right font-mono">${d.rmssd_7d ? d.rmssd_7d.toFixed(0) : '—'}</span>
-                            </div>
-                            <div class="flex items-center gap-2 text-xs mt-0.5">
-                                <span class="w-12 text-blue-700">28d</span>
-                                <div class="flex-1 bg-gray-100 rounded h-4">
-                                    <div class="bg-blue-500 h-4 rounded border-dashed" style="width: ${w28}%; border: 1px dashed; border-color: transparent;"></div>
-                                </div>
-                                <span class="w-12 text-right font-mono">${d.rmssd_28d ? d.rmssd_28d.toFixed(0) : '—'}</span>
-                            </div>
-                        </div>`;
+                    // Show last 48 data points, reversed so newest is on the right
+                    const points = [...data].slice(0, 48).reverse();
+                    const range = maxVal - minVal || 1;
+                    el.innerHTML = points.map(d => {
+                        const pct = Math.max(0, Math.min(100, ((d[key] || minVal) - minVal) / range * 100));
+                        const color = d[key] != null ? (pct > 70 ? '#10b981' : pct > 30 ? '#f59e0b' : '#ef4444') : '#e5e7eb';
+                        return `<div class="flex-1 rounded-t" style="height:${Math.max(4, pct)}%;background:${color};min-width:2px"></div>`;
                     }).join('');
                 },
 
