@@ -231,7 +231,7 @@
                             <span class="text-gray-500 dark:text-gray-400">🌙 Evening</span>
                             <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressEvening || '—'"></span>
                         </div>
-                        <div class="pt-2 mt-2 border-t border-gray-100 dark:border-gray-700 grid grid-cols-3 gap-2 text-xs">
+                        <div class="pt-2 mt-2 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-2 text-xs">
                             <div class="text-center">
                                 <p class="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
                                 <p class="font-bold text-sm mt-0.5"
@@ -243,12 +243,6 @@
                                 <p class="font-bold text-sm mt-0.5"
                                    :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'"
                                    x-text="tempLatest != null ? tempLatest + '°C' : '—'"></p>
-                            </div>
-                            <div class="text-center">
-                                <p class="text-gray-400 dark:text-gray-500">🫀 HR</p>
-                                <p class="font-bold text-sm mt-0.5"
-                                   :class="restingHr <= 60 ? 'text-green-600' : restingHr <= 70 ? 'text-amber-600' : 'text-red-600'"
-                                   x-text="restingHr || '—'"></p>
                             </div>
                         </div>
                     </div>
