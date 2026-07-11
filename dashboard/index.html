@@ -56,9 +56,9 @@
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Recovery Score</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="recoveryScore || '—'"></p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="recoveryLabel || ''"></p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">HRV (avg ms)</p>
+                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="hrvScore || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="hrvLabel || ''"></p>
             </div>
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
                 <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Sleep Score</p>
@@ -166,7 +166,7 @@
             </div>
             <!-- Recovery Trend -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recovery Trend</h2>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">HRV Trend (composite ms)</h2>
                 <div id="recoveryBars" class="text-sm text-gray-700 dark:text-gray-300"></div>
             </div>
         </div>
@@ -390,6 +390,8 @@
                 lastSync: '—',
                 recoveryScore: null,
                 recoveryLabel: '',
+                hrvScore: null,
+                hrvLabel: '',
                 sleepScore: null,
                 sleepLabel: '',
                 sleepSummary: {},
@@ -490,20 +492,15 @@
                         const res = await fetch('/api/recovery?days=30');
                         const data = await res.json();
                         if (data.length) {
-                            const latest = data[0];
-                            this.recoveryScore = latest.z_score != null
-                                ? Math.round(50 + latest.z_score * 10) : null;
-                            this.recoveryLabel = latest.readiness_text || '';
-                            // Use rmssd as the chart value when z_score is null — gives
-                            // the user something to see before we have 7+ days of baseline.
-                            const values = data.map(d => d.z_score != null ? d.z_score : (d.rmssd != null ? d.rmssd : null));
-                            this.renderRecoveryBars(
-                                [...data].map(d => d.day).reverse(),
-                                values.reverse()
-                            );
+                            const latest = data[data.length - 1];
+                            this.hrvScore = latest.avg_hrv;
+                            this.hrvLabel = `${latest.min_hrv}–${latest.max_hrv} ms range (${latest.samples} samples)`;
+                            const days = data.map(d => d.day);
+                            const vals = data.map(d => d.avg_hrv);
+                            this.renderRecoveryBars(days, vals);
                         } else {
-                            this.recoveryScore = null;
-                            this.recoveryLabel = '';
+                            this.hrvScore = null;
+                            this.hrvLabel = '';
                             this.renderRecoveryBars([], []);
                         }
                     } catch (e) { console.error('loadRecovery', e); }
