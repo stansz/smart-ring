@@ -69,39 +69,6 @@
             </button>
         </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <!-- SpO2 -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
-                 :class="spo2Latest >= 95 ? 'border-green-500' : spo2Latest >= 90 ? 'border-amber-500' : 'border-red-500'">
-                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">🩸 SpO₂</p>
-                <p class="text-3xl font-bold mt-1"
-                   :class="spo2Latest >= 95 ? 'text-green-600' : spo2Latest >= 90 ? 'text-amber-600' : 'text-red-600'">
-                    <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
-                </p>
-                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="spo2Range" x-text="spo2Range.min + '–' + spo2Range.max + '%'"></p>
-            </div>
-            <!-- Skin Temp -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
-                 :class="tempLatest >= 37 ? 'border-red-500' : tempLatest >= 32 ? 'border-green-500' : 'border-amber-500'">
-                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">🌡️ Skin Temp</p>
-                <p class="text-3xl font-bold mt-1"
-                   :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'">
-                    <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
-                </p>
-                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
-            </div>
-            <!-- Resting HR -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
-                 :class="restingHr <= 60 ? 'border-green-500' : restingHr <= 70 ? 'border-amber-500' : 'border-red-500'">
-                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">🫀 Resting HR</p>
-                <p class="text-3xl font-bold mt-1"
-                   :class="restingHr <= 60 ? 'text-green-600' : restingHr <= 70 ? 'text-amber-600' : 'text-red-600'">
-                    <span x-text="restingHr || '—'"></span>
-                </p>
-                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="restingHr">bpm overnight</p>
-            </div>
-        </div>
-
         <!-- Today's Activity (Gadgetbridge-style dials) -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
             <div class="flex justify-between items-baseline mb-4">
@@ -235,10 +202,10 @@
                     <p class="text-sm text-gray-400 dark:text-gray-500">No sleep data yet — sync the ring to pull sleep history</p>
                 </div>
             </div>
-            <!-- Stress Detail -->
+            <!-- Stress + Body Metrics -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💪 Stress</h2>
-                <div class="flex items-center gap-6">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💪 Stress &amp; Vitals</h2>
+                <div class="flex items-start gap-6">
                     <div class="text-center flex-shrink-0">
                         <p class="text-4xl font-bold"
                            :class="stressDailyAvg <= 25 ? 'text-green-600' : stressDailyAvg <= 50 ? 'text-gray-600 dark:text-gray-300' : stressDailyAvg <= 75 ? 'text-amber-600' : 'text-red-600'"
@@ -264,9 +231,25 @@
                             <span class="text-gray-500 dark:text-gray-400">🌙 Evening</span>
                             <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressEvening || '—'"></span>
                         </div>
-                        <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 pt-1 border-t border-gray-100 dark:border-gray-700">
-                            <span>Scale: 0–25 relaxed</span>
-                            <span>76–100 high</span>
+                        <div class="pt-2 mt-2 border-t border-gray-100 dark:border-gray-700 grid grid-cols-3 gap-2 text-xs">
+                            <div class="text-center">
+                                <p class="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
+                                <p class="font-bold text-sm mt-0.5"
+                                   :class="spo2Latest >= 95 ? 'text-green-600' : spo2Latest >= 90 ? 'text-amber-600' : 'text-red-600'"
+                                   x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></p>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-gray-400 dark:text-gray-500">🌡️ Temp</p>
+                                <p class="font-bold text-sm mt-0.5"
+                                   :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'"
+                                   x-text="tempLatest != null ? tempLatest + '°C' : '—'"></p>
+                            </div>
+                            <div class="text-center">
+                                <p class="text-gray-400 dark:text-gray-500">🫀 HR</p>
+                                <p class="font-bold text-sm mt-0.5"
+                                   :class="restingHr <= 60 ? 'text-green-600' : restingHr <= 70 ? 'text-amber-600' : 'text-red-600'"
+                                   x-text="restingHr || '—'"></p>
+                            </div>
                         </div>
                     </div>
                 </div>
