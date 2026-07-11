@@ -82,17 +82,20 @@
                 </p>
                 <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
             </div>
-             <!-- HRV -->
+             <!-- Recovery -->
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
-                 :class="hrvLatest >= 45 ? 'border-green-500' : hrvLatest >= 30 ? 'border-amber-500' : 'border-red-500'">
+                 :class="readinessText.includes('Excellent') ? 'border-green-500' : readinessText.includes('Good') ? 'border-green-500' : readinessText.includes('Fair') ? 'border-amber-500' : readinessText.includes('Poor') ? 'border-red-500' : 'border-gray-300'">
                 <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💓 Recovery</p>
                 <p class="text-3xl font-bold mt-1"
                    :class="hrvLatest >= 45 ? 'text-green-600' : hrvLatest >= 30 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
                 </p>
-                <p class="text-sm font-medium mt-1" :class="recoveryDelta >= 0 ? 'text-green-600' : 'text-red-500'" x-show="recoveryDelta != null"
-                   x-text="recoveryDelta >= 0 ? '↑ +' + recoveryDelta + '% vs baseline' : '↓ ' + recoveryDelta + '% vs baseline'"></p>
-                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="hrvRange" x-text="hrvRange.min + '–' + hrvRange.max + 'ms'"></p>
+                <p class="text-sm font-medium mt-1"
+                   :class="readinessText.includes('Excellent') || readinessText.includes('Good') ? 'text-green-600' : readinessText.includes('Fair') ? 'text-amber-600' : 'text-red-500'"
+                   x-show="readinessText" x-text="readinessText"></p>
+                <p class="text-sm text-gray-400 dark:text-gray-500 mt-1" x-show="stressClass">
+                    Stress: <span class="font-medium" :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'" x-text="stressClass"></span>
+                </p>
             </div>
             <!-- Resting HR -->
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
@@ -384,6 +387,8 @@
                 hrvTrendDir: null,
                 hrvRange: null,
                 recoveryDelta: null,
+                readinessText: '',
+                stressClass: '',
                 restingHr: null,
                 stressLevel: null,
                 stressLabel: '',
@@ -484,16 +489,18 @@
 
                 async loadPersistedScores() {
                     try {
-                        const [recoveryRes, sleepRes] = await Promise.all([
+                        const [recoveryRes, sleepRes, stressRes] = await Promise.all([
                             fetch('/api/recovery?days=30'),
-                            fetch('/api/sleep?days=30')
+                            fetch('/api/sleep?days=30'),
+                            fetch('/api/stress?days=7')
                         ]);
                         const recovery = await recoveryRes.json();
                         const sleep = await sleepRes.json();
 
-                        // Recovery: latest z-score + readiness from analytics
+                        // Recovery: latest readiness text + z-score from analytics
                         if (recovery.length) {
                             const latest = recovery[recovery.length - 1];
+                            this.readinessText = latest.readiness_text || '';
                             if (latest.z_score != null) {
                                 this.recoveryDelta = Math.round(latest.z_score * 10);
                             }
@@ -505,6 +512,12 @@
                             if (latest.score != null) {
                                 this.sleepQualityScore = Math.round(latest.score);
                             }
+                        }
+
+                        // Stress classification
+                        const stress = await stressRes.json();
+                        if (stress.length) {
+                            this.stressClass = stress[0].classification || '';
                         }
                     } catch (e) { console.error('loadPersistedScores', e); }
                 },
