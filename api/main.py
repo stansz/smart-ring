@@ -61,18 +61,26 @@ def health():
 
 @app.get("/api/recovery")
 def get_recovery(days: int = 30):
-    """Daily HRV averages from raw composite data (proxy for recovery trend)."""
+    """Daily HRV recovery from persisted analytics (z-score + readiness)."""
     with SessionLocal() as db:
         rows = db.execute(text("""
-            SELECT DATE(ts) as day,
-                   ROUND(AVG(hrv_value)::numeric, 1) as avg_hrv,
-                   MIN(hrv_value) as min_hrv,
-                   MAX(hrv_value) as max_hrv,
-                   COUNT(*) as samples
-            FROM raw_hrv
-            WHERE hrv_value > 0
-              AND ts >= NOW() - INTERVAL ':days days'
-            GROUP BY DATE(ts)
+            SELECT day, rmssd, baseline_rmssd, z_score, readiness_text
+            FROM daily_recovery
+            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            ORDER BY day ASC
+        """), {"days": days}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/sleep")
+def get_sleep(days: int = 30):
+    """Sleep quality scores from persisted analytics."""
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT day, score, deep_pct, rem_pct, light_pct, wake_pct,
+                   temp_drop_c, total_sleep_minutes
+            FROM sleep_quality
+            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
             ORDER BY day ASC
         """), {"days": days}).mappings().all()
     return [dict(r) for r in rows]

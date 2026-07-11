@@ -445,6 +445,7 @@
                 async loadDashboard() {
                     this.loading = true;
                     await Promise.allSettled([
+                        this.loadPersistedScores(),
                         this.loadSleepStages(),
                         this.loadHealthMetrics(),
                         this.loadCircadian(),
@@ -479,6 +480,33 @@
                             this.renderRecoveryBars([], []);
                         }
                     } catch (e) { console.error('loadRecovery', e); }
+                },
+
+                async loadPersistedScores() {
+                    try {
+                        const [recoveryRes, sleepRes] = await Promise.all([
+                            fetch('/api/recovery?days=30'),
+                            fetch('/api/sleep?days=30')
+                        ]);
+                        const recovery = await recoveryRes.json();
+                        const sleep = await sleepRes.json();
+
+                        // Recovery: latest z-score + readiness from analytics
+                        if (recovery.length) {
+                            const latest = recovery[recovery.length - 1];
+                            if (latest.z_score != null) {
+                                this.recoveryDelta = Math.round(latest.z_score * 10);
+                            }
+                        }
+
+                        // Sleep: persisted quality score from analytics
+                        if (sleep.length) {
+                            const latest = sleep[sleep.length - 1];
+                            if (latest.score != null) {
+                                this.sleepQualityScore = Math.round(latest.score);
+                            }
+                        }
+                    } catch (e) { console.error('loadPersistedScores', e); }
                 },
 
                 async loadSleepStages() {
@@ -520,10 +548,7 @@
                         const deepMin = lastNight.stages.filter(s => s.stage === 'deep').reduce((a, s) => a + (s.duration_minutes || 0), 0);
                         const remMin = lastNight.stages.filter(s => s.stage === 'rem').reduce((a, s) => a + (s.duration_minutes || 0), 0);
                         this.sleepLabel = `${deepMin}m deep · ${remMin}m REM`;
-                        // Quality score: deep% contributes 60, REM% 40 (scale 0-100)
-                        const deepPct = (deepMin / totalMin) * 100;
-                        const remPct = (remMin / totalMin) * 100;
-                        this.sleepQualityScore = Math.round(Math.min(100, deepPct * 2.5 + remPct * 1.5));
+                        // Quality score comes from persisted analytics (loadPersistedScores)
                     } catch (e) { console.error('loadSleepStages', e); }
                 },
 
