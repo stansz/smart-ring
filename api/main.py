@@ -107,11 +107,17 @@ def get_hrv_trends(days: int = 60):
 def get_circadian_hr():
     with SessionLocal() as db:
         rows = db.execute(text("""
-            SELECT hour, avg_hr, min_hr, max_hr, sample_count
+            SELECT day, hour, avg_hr, min_hr, max_hr, sample_count
             FROM circadian_hr
-            ORDER BY hour
+            ORDER BY day, hour
         """)).mappings().all()
-    return [dict(r) for r in rows]
+    dates = db.execute(text("""
+        SELECT MIN(day)::text as min_day, MAX(day)::text as max_day
+        FROM circadian_hr
+    """)).mappings().first()
+    result = [dict(r) for r in rows]
+    result.append({"_range": dict(dates) if dates else {}})
+    return result
 
 
 @app.get("/api/stress")
