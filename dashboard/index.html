@@ -69,14 +69,7 @@
             </button>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-            <!-- Sleep -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border-indigo-500 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💤 Sleep</p>
-                <p class="text-3xl font-bold text-indigo-600 mt-1" x-text="sleepScore || '—'"></p>
-                <p class="text-sm font-medium text-indigo-500 mt-1" x-text="'Score ' + (sleepQualityScore || '—')" x-show="sleepQualityScore"></p>
-                <p class="text-sm text-gray-400 dark:text-gray-500 mt-1" x-text="sleepLabel || ''"></p>
-            </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <!-- SpO2 -->
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
                  :class="spo2Latest >= 95 ? 'border-green-500' : spo2Latest >= 90 ? 'border-amber-500' : 'border-red-500'">
@@ -97,21 +90,6 @@
                 </p>
                 <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
             </div>
-             <!-- Recovery -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
-                 :class="readinessText.includes('Excellent') ? 'border-green-500' : readinessText.includes('Good') ? 'border-green-500' : readinessText.includes('Fair') ? 'border-amber-500' : readinessText.includes('Poor') ? 'border-red-500' : 'border-gray-300'">
-                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💓 Recovery</p>
-                <p class="text-3xl font-bold mt-1"
-                   :class="hrvLatest >= 45 ? 'text-green-600' : hrvLatest >= 30 ? 'text-amber-600' : 'text-red-600'">
-                    <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
-                </p>
-                <p class="text-sm font-medium mt-1"
-                   :class="readinessText.includes('Excellent') || readinessText.includes('Good') ? 'text-green-600' : readinessText.includes('Fair') ? 'text-amber-600' : 'text-red-500'"
-                   x-show="readinessText" x-text="readinessText"></p>
-                <p class="text-sm text-gray-400 dark:text-gray-500 mt-1" x-show="stressClass">
-                    Stress: <span class="font-medium" :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'" x-text="stressClass"></span>
-                </p>
-            </div>
             <!-- Resting HR -->
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
                  :class="restingHr <= 60 ? 'border-green-500' : restingHr <= 70 ? 'border-amber-500' : 'border-red-500'">
@@ -120,7 +98,7 @@
                    :class="restingHr <= 60 ? 'text-green-600' : restingHr <= 70 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="restingHr || '—'"></span>
                 </p>
-                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="restingHr" class="text-sm">bpm overnight</p>
+                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="restingHr">bpm overnight</p>
             </div>
         </div>
 
@@ -201,6 +179,52 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Recovery Detail -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💓 Recovery</h2>
+                <div class="flex items-center gap-6">
+                    <!-- Big HRV number -->
+                    <div class="text-center flex-shrink-0">
+                        <p class="text-4xl font-bold"
+                           :class="hrvLatest >= 45 ? 'text-green-600' : hrvLatest >= 30 ? 'text-amber-600' : 'text-red-600'"
+                           x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></p>
+                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">latest HRV</p>
+                    </div>
+                    <!-- Detail rows -->
+                    <div class="flex-1 space-y-2">
+                        <div class="flex justify-between text-sm">
+                            <span class="text-gray-500 dark:text-gray-400">Readiness</span>
+                            <span class="font-medium"
+                                  :class="readinessText.includes('Excellent') || readinessText.includes('Good') ? 'text-green-600' : readinessText.includes('Fair') ? 'text-amber-600' : 'text-red-500'"
+                                  x-text="readinessText || '—'"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="recoveryBaseline">
+                            <span class="text-gray-500 dark:text-gray-400">7-day baseline</span>
+                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="recoveryBaseline ? recoveryBaseline + 'ms' : '—'"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="recoveryZScore != null">
+                            <span class="text-gray-500 dark:text-gray-400">Z-score</span>
+                            <span class="font-mono"
+                                  :class="recoveryZScore >= 0.5 ? 'text-green-600' : recoveryZScore >= -0.5 ? 'text-gray-600 dark:text-gray-300' : 'text-red-500'"
+                                  x-text="recoveryZScore != null ? (recoveryZScore > 0 ? '+' : '') + recoveryZScore.toFixed(2) : '—'"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="hrvRange">
+                            <span class="text-gray-500 dark:text-gray-400">Range</span>
+                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="hrvRange ? hrvRange.min + '–' + hrvRange.max + 'ms' : ''"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="stressClass">
+                            <span class="text-gray-500 dark:text-gray-400">Stress</span>
+                            <span class="font-medium capitalize"
+                                  :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'"
+                                  x-text="stressClass || '—'"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="restingHr">
+                            <span class="text-gray-500 dark:text-gray-400">Resting HR</span>
+                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="restingHr ? restingHr + ' bpm' : '—'"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <!-- Last Night's Sleep — concentric donut ring -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Last Night's Sleep
@@ -404,6 +428,8 @@
                 hrvRange: null,
                 recoveryDelta: null,
                 readinessText: '',
+                recoveryBaseline: null,
+                recoveryZScore: null,
                 stressClass: '',
                 restingHr: null,
                 stressLevel: null,
@@ -547,8 +573,12 @@
                             const match = recovery.find(r => r.day === selDay) || recovery[recovery.length - 1];
                             this.readinessText = match.readiness_text || '';
                             if (match.z_score != null) {
+                                this.recoveryZScore = match.z_score;
                                 this.recoveryDelta = Math.round(match.z_score * 10);
-                            }
+                            } else { this.recoveryZScore = null; }
+                            if (match.baseline_rmssd != null) {
+                                this.recoveryBaseline = match.baseline_rmssd;
+                            } else { this.recoveryBaseline = null; }
                         }
 
                         // Sleep: persisted quality score for selected date
