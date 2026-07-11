@@ -6,10 +6,10 @@ Open-source health data pipeline built around the **Colmi R09** — a $45 CAD ha
 
 Build a private, self-hosted health tracking system that:
 
-- **Collects** biometric data from the ring via BLE (HR, HRV, SpO2, skin temperature, accelerometer)
+- **Collects** biometric data from the ring via BLE (HR, HRV, SpO2, skin temperature, stress, sleep stages, steps)
 - **Stores** everything in Postgres — raw sensor data + computed metrics
-- **Computes** meaningful health metrics: RMSSD, pNN50, sleep staging, recovery scores, stress classification, circadian patterns
-- **Visualizes** in a dashboard — local or remote
+- **Computes** validated health scores: sleep quality (5-component), recovery (HRV z-score), stress classification
+- **Visualizes** in a dashboard — local-first, dark mode, accessible via Tailscale
 - **Stays hackable** — no subscriptions, no vendor lock-in, no cloud dependency
 
 ## Hardware
@@ -42,7 +42,7 @@ Home Network
        └─ python3 collector/sync_ring.py  (run manually, no cron)
 ```
 
-Dashboard tabs: **Dashboard** (recovery / sleep / HRV trends) and **Admin** (ring status, manual sync controls, sync log, system health). Both tabs served by FastAPI single-page (Alpine.js + Chart.js, no build step).
+Dashboard: single-page Alpine.js + Tailwind CSS app with two tabs — **Dashboard** (sleep donut, circadian HR line graph, activity dials, health-coded stat cards with emoji icons, dark mode toggle) and **Admin** (ring status, manual sync controls, sync log, system health, raw data tables). No build step.
 
 ## Usage
 
@@ -65,32 +65,58 @@ python3 collector/sync_ring.py         # full sync to Postgres
 
 ## Research
 
-All technical research, architecture, metric methodology, and deployment details live in **[RESEARCH.md](RESEARCH.md)**.
+All technical research, architecture, validated score formulas, and deployment details live in **[RESEARCH.md](RESEARCH.md)**.
 
 Topics covered:
 - Hardware specs & model comparison (R02 → R12)
-- BLE protocol reverse-engineering
-- Data availability (stored vs realtime)
-- 8 health metrics backed by published research
-- Deployment topology (bare metal + containers)
+- BLE protocol (Nordic UART + V2 big-data characteristic)
+- Data availability (stored vs realtime) — all 8 data types documented
+- **Validated score formulas** with peer-reviewed citations:
+  - Sleep quality (5-component, Ohayon 2004 architecture norms, Oura reverse-engineering)
+  - HRV recovery (Altini/Plews z-score framework, ln-transform, 7-day baseline)
+  - Stress classification (Garmin/Firstbeat thresholds, circadian awareness)
+- BLE quirks & reconnect bug (R09 firmware 3.10.21)
+- Deployment topology (bare metal + Podman containers)
 - Custom firmware roadmap
 - Oura comparison & bottom-line analysis
 
 ## Status
 
-🟢 **Working end-to-end.** R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). First contact succeeds, sync pulls HR + steps + stress to Postgres, dashboard operational, Gadgetbridge paired on phone. Sync behavior confirmed read-only (safe to sync from multiple devices).
+🟢 **Working end-to-end. All 8 data types collecting + all health scores computing.**
 
-### Currently working
-- Heart rate (49 records, 30-min intervals) — dashboard with trends + circadian pattern
-- Steps (15-min slots, per-hour counts with calories + distance)
-- Stress (29 records, 30-min intervals, all "normal" range)
-- Ring goals (steps target, calorie target) used in dashboard dials
-- On-demand sync via "Sync Now" button (poller picks up within 30s)
-- Analytics (circadian HR, resting HR, recovery score)
+R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync pulls all data types to Postgres, analytics engine computes validated health scores, dashboard operational with dark mode. Sync behavior confirmed read-only (safe to sync from multiple devices). Remote access via Tailscale.
 
-### Next steps
-- Sleep protocol alignment (Gadgetbridge uses cmd 0xBC — we need to switch from cmd 68)
-- HRV protocol alignment (Gadgetbridge uses cmd 0x39 — we need to switch from cmd 57)
-- SpO2 protocol alignment
-- Temperature data (event-driven push from ring)
-- Remote dashboard access (Cloudflare tunnel or Tailscale)
+### Data collection (all protocols aligned with Gadgetbridge)
+- ✅ Heart rate (cmd 0x15) — 5-min intervals, multi-packet per day
+- ✅ Steps/activity (cmd 0x43) — 15-min slots with calories + distance
+- ✅ HRV (cmd 0x39) — composite ms values at 30-min intervals (3-day buffer)
+- ✅ Sleep stages (cmd 0xBC + type 0x27) — per-session deep/REM/light/awake with timestamps
+- ✅ SpO2 (cmd 0xBC + type 0x2A) — hourly blood oxygen %
+- ✅ Temperature (cmd 0xBC + type 0x25) — skin temp at 30-min intervals (R09 exclusive)
+- ✅ Stress (cmd 0x37) — 30-min interval readings (0-99 scale)
+- ✅ Ring goals (cmd 0x21) — steps/calorie/distance targets
+
+### Health scores (server-side, persisted after each sync)
+- ✅ **Sleep quality** — 5-component score (0-100): duration, efficiency, architecture, continuity, latency. Trapezoidal scoring with Ohayon 2004 norms.
+- ✅ **Recovery** — ln(HRV) z-score vs 7-day baseline (Altini/Plews framework), readiness text, confidence flags
+- ✅ **Stress** — Garmin/Firstbeat thresholds + weighted daily score (daytime + peak sustained + overnight)
+- ✅ **Circadian HR** — HR mapped to hour-of-day across all days
+- ✅ **Resting HR** — overnight lowest HR (1-5 AM window)
+- ✅ **HRV trends** — 7-day and 28-day rolling averages
+
+### Dashboard
+- Sleep donut ring (concentric conic-gradient with stage breakdown)
+- Circadian HR SVG line graph with date range + tooltip
+- 5 health-coded stat cards (Sleep, SpO2, Skin Temp, Recovery, Resting HR) with emoji icons + color-coded borders
+- Today's Activity dials (Steps, HR, Active Time, Calories)
+- Dark mode toggle (persisted to localStorage)
+- Admin tab with Sync Now, ring status, sync log, raw data tables
+
+### How it works
+```
+Ring → BLE sync (on-demand) → Postgres raw tables → analytics.py → computed score tables
+                                    ↑                                          ↓
+                               FastAPI API ←←←←←←←←←←←←←←←←←←←←←←←←← Dashboard
+```
+
+The poller watches for sync requests every 30s, runs the collector, then runs analytics.py to recompute all scores. Fully automated after clicking "Sync Now".

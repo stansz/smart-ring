@@ -1,7 +1,7 @@
 # Smart Ring Research Summary
 
-*Compiled 2026-07-01 — Updated 2026-07-10*
-*Ring arrived and fully validated July 9, 2026. Firmware RT09_3.10.21_251107, HW RT09_V3.1.*
+*Compiled 2026-07-01 — Updated 2026-07-11*
+*Ring arrived and fully validated July 9, 2026. Firmware RT09_3.10.21_251107, HW RT09_V3.1. All data types collecting, all health scores computing.*
 
 ## Hardware Target: Colmi R09 ✅ ARRIVED & VALIDATED
 
@@ -73,14 +73,15 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 4. `colmi_r02_client --address=XX:XX set-heart-rate-log-settings` → set sampling interval ✅
 5. Build collector wrapper → sync → parse → push to Postgres ✅ (see `collector/sync_ring.py`)
 
-### Phase 3: Full pipeline ✅ IN PROGRESS
-- Postgres schema (raw HR, steps, HRV, sleep, SpO2, temperature, computed metrics) ✅
-- Web dashboard (Alpine.js + CSS bars, no external chart library) ✅ — served at `http://localhost:8000`
+### Phase 3: Full pipeline ✅ DONE
+- Postgres schema (raw HR, steps, HRV, sleep, SpO2, temperature, stress, goals + computed metrics) ✅
+- Web dashboard (Alpine.js + Tailwind CSS, dark mode, no external chart library) ✅ — served at `http://localhost:8000`
 - Admin UI with Sync Now button, ring status, system health, sync log, raw data tables ✅
 - On-demand sync via web UI → DB queue → host-side poller → BLE sync ✅
-- Analytics (circadian HR, resting HR, recovery score, stress classification) ✅
+- All 8 data types collecting (HR, steps, HRV, sleep, SpO2, temp, stress, goals) ✅
+- Validated health scores (sleep quality, recovery z-score, stress classification) ✅
+- Remote access via Tailscale ✅
 - ~~Optional CFW for enhanced behavior~~ (evaluating, not a priority)
-- Sleep/HRV/SpO2 protocol alignment with Gadgetbridge — IN PROGRESS (known gap)
 - Phone sync path (Gadgetbridge → FastAPI via Tailscale) — PLANNED
 
 ## Open Questions
@@ -97,21 +98,28 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 - Timer-driven or manual syncs are safe — no risk of missed data.
 - The ring can be synced by Gadgetbridge in the morning on the go, then synced again by the Linux box in the afternoon — both get the same data.
 
-### What is the HRV data format? STILL UNKNOWN
+### What is the HRV data format? ✅ RESOLVED — COMPOSITE VALUE
 
-The command we tried (cmd 57) does not return data on this firmware. Gadgetbridge uses `CMD_SYNC_HRV` (0x39) with a per-day offset parameter. This is a known protocol gap — needs alignment with Gadgetbridge.
+The ring stores a **composite HRV value** (single byte, 0-255, in milliseconds) — NOT true RR intervals. This is fetched via `CMD_SYNC_HRV` (0x39) with a per-day offset parameter (0-6). The ring's HRV buffer is ~3 days.
 
-### What commands does the R09 actually use? PARTIALLY RESOLVED
+The composite value can substitute for RMSSD in trend/z-score analysis — this is exactly how all commercial rings work (PPG-derived values against personal baselines). The z-score methodology is robust to monotonic transforms since it uses your own baseline and SD. See "Validated Score Formulas" below for the full methodology.
 
-| Data Type | Our Code (wrong) | Gadgetbridge (correct) |
-|-----------|------------------|----------------------|
-| Sleep | cmd 68 | `CMD_BIG_DATA_V2` (0xBC) + `BIG_DATA_TYPE_SLEEP` (0x27) |
-| HRV | cmd 57 | `CMD_SYNC_HRV` (0x39) with per-day offset |
-| SpO2 | cmd 105 | `CMD_BIG_DATA_V2` (0xBC) + `BIG_DATA_TYPE_SPO2` (0x2A) |
-| Heart Rate | cmd 21 (0x15) ✓ | Same |
-| Steps | cmd 67 (0x43) ✓ | Same |
-| Battery | cmd 3 ✓ | Same |
-| Device Info | GATT 0x180A ✓ | Same |
+RMSSD and pNN50 (which require RR intervals) are **NOT available** from this ring.
+
+### What commands does the R09 actually use? ✅ ALL RESOLVED
+
+| Data Type | Command | Status |
+|-----------|---------|--------|
+| Sleep | `CMD_BIG_DATA_V2` (0xBC) + type 0x27 | ✅ Implemented — per-session stages via V2 BLE characteristic |
+| HRV | `CMD_SYNC_HRV` (0x39) with per-day offset | ✅ Implemented — composite ms values at 30-min intervals |
+| SpO2 | `CMD_BIG_DATA_V2` (0xBC) + type 0x2A | ✅ Implemented — hourly min/max averaged |
+| Temperature | `CMD_BIG_DATA_V2` (0xBC) + type 0x25 | ✅ Implemented — 30-min intervals, temp = (raw/10)+20°C |
+| Stress | `CMD_SYNC_STRESS` (0x37) | ✅ Implemented — 30-min interval readings (0-99) |
+| Heart Rate | cmd 21 (0x15) | ✅ Same as library |
+| Steps | cmd 67 (0x43) | ✅ Same as library |
+| Battery | cmd 3 | ✅ Same as library |
+| Goals | `CMD_GOALS` (0x21) | ✅ Implemented — steps/calorie/distance targets |
+| Device Info | GATT 0x180A | ✅ Same as library |
 
 **Heart rate data format:** The ring's SportDetail returns `time_index` as a **15-minute slot** from local midnight (slots 0–95 per day), NOT the hour of the day. Each 15-min slot represents steps/calories/distance for that window.
 
@@ -216,13 +224,21 @@ Both options share the same components — they differ in WHERE things run.
 
 ## Data Availability — What the Ring Stores vs Streams
 
-### Stored on ring (syncable historically, ~7 day buffer)
-- **Heart Rate** (cmd 21 / 0x15) ✓ — processed BPM at 5-minute intervals, multi-packet response per day (packet 0=header with count, packets 1..N=hourly data). The `colmi_r02_client` library's `HeartRateLogParser` has a bug where it only completes for "today's" data — bypassed in `fetch_hr_history()`.
-- **Steps/Activity** (cmd 67 / 0x43) ✓ — `SportDetail` objects with `time_index` as **15-minute slots** from local midnight (0–95), each containing `steps`, `calories`, `distance`.
-- **HRV** (cmd 0x39 `CMD_SYNC_HRV`) — Gadgetbridge uses this with a per-day offset parameter. Our code still has cmd 57 which is wrong — known gap.
-- **Sleep** (cmd 0xBC `CMD_BIG_DATA_V2` + type 0x27 `BIG_DATA_TYPE_SLEEP`) — Gadgetbridge uses this multi-packet big-data protocol. Our code still has cmd 68 which returns no data — known gap.
-- **SpO2** (cmd 0xBC `CMD_BIG_DATA_V2` + type 0x2A `BIG_DATA_TYPE_SPO2`) — same big-data protocol as sleep — known gap.
-- **Temperature** (R09 only) — event-driven push via cmd 115 NotifyType=5, not polled. The ring pushes temperature notifications; we listen briefly during sync but the window may not have data if the ring hasn't pushed recently.
+### Stored on ring (syncable historically, ~3-7 day buffer depending on data type)
+- **Heart Rate** (cmd 0x15) ✅ — processed BPM at 5-minute intervals. Fetched via custom `fetch_hr_history()` which bypasses the library's buggy `HeartRateLogParser`.
+- **Steps/Activity** (cmd 0x43) ✅ — `SportDetail` objects with `time_index` as **15-minute slots** from local midnight (0–95), each containing `steps`, `calories`, `distance`.
+- **HRV** (cmd 0x39) ✅ — composite ms values at 30-minute intervals. Ring's buffer is ~3 days. NOT true RR intervals — the ring computes a single-byte composite HRV internally.
+- **Sleep** (cmd 0xBC + type 0x27) ✅ — per-session sleep data via V2 BLE characteristic: sleepStart/sleepEnd (minutes after midnight) + per-stage entries (type: 2=light, 3=deep, 4=rem, 5=awake + duration in minutes).
+- **SpO2** (cmd 0xBC + type 0x2A) ✅ — per-day hourly min/max blood oxygen, averaged to single value.
+- **Temperature** (cmd 0xBC + type 0x25) ✅ — skin temperature at 30-min intervals: `temp_c = (raw / 10) + 20`. R09 exclusive.
+- **Stress** (cmd 0x37) ✅ — stress values 0-99 at 30-min intervals. Multi-packet protocol (pkt 0=header, pkts 1-4=data).
+- **Goals** (cmd 0x21) ✅ — daily step/calorie/distance/sport/sleep targets.
+
+### V2 Big-Data Protocol (sleep, SpO2, temperature)
+These three data types use a **second BLE service** (`de5bf728`) separate from the Nordic UART:
+- **Request**: write to COMMAND char (`de5bf72a`) — raw bytes, no 16-byte framing
+- **Response**: notify on NOTIFY_V2 char (`de5bf729`) — multi-packet, accumulate until `length + 6` bytes (header bytes [2:3] = uint16 LE total length)
+- Implemented in `collector/ring_client.py` (`_handle_big_data`, `send_command`)
 
 ### Real-time only (live stream, on-demand — NOT stored)
 - **Raw PPG** — the actual light sensor waveform
@@ -233,8 +249,14 @@ Both options share the same components — they differ in WHERE things run.
 ### Critical constraint
 The ring does NOT store raw PPG waveforms. It processes them internally into BPM metrics, stores those results in a ~7-day circular buffer, and discards the raw signal. The 512KB flash can't hold continuous waveform data. For raw PPG you must be actively connected and streaming — which drains the 15mAh battery in ~4-6 hours of continuous use.
 
-### Open question: What's inside the stored HRV data?
-Gadgetbridge uses `CMD_SYNC_HRV` (0x39) with a per-day offset parameter — we haven't implemented this yet. Our current code uses cmd 57 which returns no data on RT09_3.10.21. If the ring stores **RR intervals** (time between heartbeats), RMSSD/pNN50 can be computed retrospectively from historical syncs. If it only stores a composite "HRV score," we're limited to whatever the firmware computed. **Need to align with Gadgetbridge protocol to resolve.**
+### HRV data details
+The ring stores a **composite HRV value** (single byte, ms) — not RR intervals. This means:
+- ❌ True RMSSD and pNN50 cannot be computed (require beat-to-beat interval arrays)
+- ✅ Trend analysis works: the composite value tracks meaningfully day-to-day
+- ✅ Z-score recovery computation works: uses personal baseline + SD, robust to the composite transform
+- ✅ All commercial rings (Oura, WHOOP) use PPG-derived values the same way
+
+The ring's HRV buffer is ~3 days (daysAgo 0-2 return data, 3-6 return empty).
 
 Source: Full BLE protocol docs at https://colmi.puxtril.com/commands/
 
