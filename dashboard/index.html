@@ -59,7 +59,8 @@
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border-indigo-500 border border-gray-100 dark:border-gray-700">
                 <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💤 Sleep</p>
                 <p class="text-3xl font-bold text-indigo-600 mt-1" x-text="sleepScore || '—'"></p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-2" x-text="sleepLabel || ''"></p>
+                <p class="text-sm font-medium text-indigo-500 mt-1" x-text="'Score ' + (sleepQualityScore || '—')" x-show="sleepQualityScore"></p>
+                <p class="text-sm text-gray-400 dark:text-gray-500 mt-1" x-text="sleepLabel || ''"></p>
             </div>
             <!-- SpO2 -->
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
@@ -81,14 +82,16 @@
                 </p>
                 <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
             </div>
-            <!-- HRV -->
+             <!-- HRV -->
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
                  :class="hrvLatest >= 45 ? 'border-green-500' : hrvLatest >= 30 ? 'border-amber-500' : 'border-red-500'">
-                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💓 HRV</p>
+                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💓 Recovery</p>
                 <p class="text-3xl font-bold mt-1"
                    :class="hrvLatest >= 45 ? 'text-green-600' : hrvLatest >= 30 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
                 </p>
+                <p class="text-sm font-medium mt-1" :class="recoveryDelta >= 0 ? 'text-green-600' : 'text-red-500'" x-show="recoveryDelta != null"
+                   x-text="recoveryDelta >= 0 ? '↑ +' + recoveryDelta + '% vs baseline' : '↓ ' + recoveryDelta + '% vs baseline'"></p>
                 <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="hrvRange" x-text="hrvRange.min + '–' + hrvRange.max + 'ms'"></p>
             </div>
             <!-- Resting HR -->
@@ -369,6 +372,7 @@
                 hrvLabel: '',
                 sleepScore: null,
                 sleepLabel: '',
+                sleepQualityScore: null,
                 sleepSummary: {},
                 spo2Latest: null,
                 spo2TrendDir: null,
@@ -379,6 +383,7 @@
                 hrvLatest: null,
                 hrvTrendDir: null,
                 hrvRange: null,
+                recoveryDelta: null,
                 restingHr: null,
                 stressLevel: null,
                 stressLabel: '',
@@ -515,6 +520,10 @@
                         const deepMin = lastNight.stages.filter(s => s.stage === 'deep').reduce((a, s) => a + (s.duration_minutes || 0), 0);
                         const remMin = lastNight.stages.filter(s => s.stage === 'rem').reduce((a, s) => a + (s.duration_minutes || 0), 0);
                         this.sleepLabel = `${deepMin}m deep · ${remMin}m REM`;
+                        // Quality score: deep% contributes 60, REM% 40 (scale 0-100)
+                        const deepPct = (deepMin / totalMin) * 100;
+                        const remPct = (remMin / totalMin) * 100;
+                        this.sleepQualityScore = Math.round(Math.min(100, deepPct * 2.5 + remPct * 1.5));
                     } catch (e) { console.error('loadSleepStages', e); }
                 },
 
@@ -544,6 +553,22 @@
                         if (hrvData.length) {
                             this.hrvLatest = hrvData[0].hrv_value;
                             this.hrvRange = range(hrvData, 'hrv_value');
+                            // Recovery delta: today's avg HRV vs 3-day baseline
+                            const now = new Date();
+                            const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+                            const todaysHRV = hrvData.filter(d => {
+                                const t = new Date(d.ts);
+                                return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
+                            });
+                            const baselineHRV = hrvData.filter(d => {
+                                const t = new Date(d.ts);
+                                return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` !== todayKey;
+                            });
+                            if (todaysHRV.length && baselineHRV.length) {
+                                const todayAvg = todaysHRV.reduce((a, d) => a + d.hrv_value, 0) / todaysHRV.length;
+                                const baselineAvg = baselineHRV.reduce((a, d) => a + d.hrv_value, 0) / baselineHRV.length;
+                                this.recoveryDelta = Math.round((todayAvg - baselineAvg) / baselineAvg * 100);
+                            }
                         }
                         // Resting HR from overnight data
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
