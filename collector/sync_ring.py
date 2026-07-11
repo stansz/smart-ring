@@ -652,7 +652,7 @@ async def fetch_hr_history(
     # which silently skipped today's HR data even when present).
     for days_ago in range(7, -1, -1):
         local_midnight = (local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-                          - timedelta(days=days_ago))
+                          - timedelta(days=days_ago)).astimezone()
         hr_request = make_packet(21, struct.pack("<L", int(local_midnight.timestamp())))
         log.info(f"HR fetch: days_ago={days_ago}, target={local_midnight.date()}, ts={int(local_midnight.timestamp())}")
         await client.send_packet(hr_request)
