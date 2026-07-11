@@ -56,50 +56,50 @@
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
             <!-- Sleep -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border-indigo-500 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">💤 Sleep</p>
-                <p class="text-2xl font-bold text-indigo-600 mt-1" x-text="sleepScore || '—'"></p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="sleepLabel || ''"></p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border-indigo-500 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💤 Sleep</p>
+                <p class="text-3xl font-bold text-indigo-600 mt-1" x-text="sleepScore || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-2" x-text="sleepLabel || ''"></p>
             </div>
             <!-- SpO2 -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
                  :class="spo2Latest >= 95 ? 'border-green-500' : spo2Latest >= 90 ? 'border-amber-500' : 'border-red-500'">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">🩸 SpO₂</p>
-                <p class="text-2xl font-bold mt-1"
+                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">🩸 SpO₂</p>
+                <p class="text-3xl font-bold mt-1"
                    :class="spo2Latest >= 95 ? 'text-green-600' : spo2Latest >= 90 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
                 </p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="spo2Range" x-text="spo2Range.min + '–' + spo2Range.max + '%'"></p>
+                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="spo2Range" x-text="spo2Range.min + '–' + spo2Range.max + '%'"></p>
             </div>
             <!-- Skin Temp -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
                  :class="tempLatest >= 37 ? 'border-red-500' : tempLatest >= 32 ? 'border-green-500' : 'border-amber-500'">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">🌡️ Skin Temp</p>
-                <p class="text-2xl font-bold mt-1"
+                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">🌡️ Skin Temp</p>
+                <p class="text-3xl font-bold mt-1"
                    :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'">
                     <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
                 </p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
+                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
             </div>
             <!-- HRV -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
                  :class="hrvLatest >= 45 ? 'border-green-500' : hrvLatest >= 30 ? 'border-amber-500' : 'border-red-500'">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">💓 HRV</p>
-                <p class="text-2xl font-bold mt-1"
+                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">💓 HRV</p>
+                <p class="text-3xl font-bold mt-1"
                    :class="hrvLatest >= 45 ? 'text-green-600' : hrvLatest >= 30 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
                 </p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="hrvRange" x-text="hrvRange.min + '–' + hrvRange.max + 'ms'"></p>
+                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="hrvRange" x-text="hrvRange.min + '–' + hrvRange.max + 'ms'"></p>
             </div>
             <!-- Resting HR -->
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border border-gray-100 dark:border-gray-700"
                  :class="restingHr <= 60 ? 'border-green-500' : restingHr <= 70 ? 'border-amber-500' : 'border-red-500'">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">🫀 Resting HR</p>
-                <p class="text-2xl font-bold mt-1"
+                <p class="text-sm font-semibold text-gray-400 dark:text-gray-500 tracking-wide">🫀 Resting HR</p>
+                <p class="text-3xl font-bold mt-1"
                    :class="restingHr <= 60 ? 'text-green-600' : restingHr <= 70 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="restingHr || '—'"></span>
                 </p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="restingHr">bpm overnight</p>
+                <p class="text-sm text-gray-400 dark:text-gray-500 mt-2" x-show="restingHr" class="text-sm">bpm overnight</p>
             </div>
         </div>
 
