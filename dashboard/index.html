@@ -54,26 +54,37 @@
 
     <!-- ============= DASHBOARD TAB ============= -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">HRV (avg ms)</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="hrvScore || '—'"></p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="hrvLabel || ''"></p>
-            </div>
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Sleep Score</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="sleepScore || '—'"></p>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Sleep</p>
+                <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="sleepScore || '—'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="sleepLabel || ''"></p>
             </div>
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Stress</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="stressLevel || '—'"></p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="stressLabel || ''"></p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Blood Oxygen</p>
+                <p class="text-2xl font-bold mt-1" :class="spo2Latest >= 95 ? 'text-green-600' : 'text-red-600'">
+                    <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
+                </p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="spo2Range" x-text="spo2Range.min + '–' + spo2Range.max + '%'"></p>
             </div>
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Resting HR</p>
-                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="restingHr || '—'"></p>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">bpm</p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Skin Temp</p>
+                <p class="text-2xl font-bold text-amber-600 mt-1">
+                    <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
+                </p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
+            </div>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">HRV</p>
+                <p class="text-2xl font-bold text-green-600 mt-1">
+                    <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
+                </p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="hrvRange" x-text="hrvRange.min + '–' + hrvRange.max + 'ms'"></p>
+            </div>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Resting HR</p>
+                <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="restingHr || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="restingHr">bpm overnight</p>
             </div>
         </div>
 
@@ -169,56 +180,8 @@
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Circadian HR Pattern
                     <span class="text-xs font-normal text-gray-400 dark:text-gray-500 cursor-help" title="Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.">ⓘ</span>
                 </h2>
+                <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
                 <div id="circadianBars"></div>
-            </div>
-        </div>
-
-        <!-- Health Metrics: SpO2, Skin Temp, HRV -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            <!-- SpO2 -->
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Blood Oxygen</p>
-                <div class="flex items-baseline gap-2 mt-1">
-                    <p class="text-3xl font-bold text-red-600">
-                        <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
-                    </p>
-                    <span class="text-xs" :class="spo2TrendDir > 0 ? 'text-green-600' : 'text-red-500'" x-show="spo2TrendDir != null" x-text="spo2TrendDir > 0 ? '↑' : '↓'"></span>
-                </div>
-                <div id="spo2Trend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
-                <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="spo2Range">
-                    <span x-text="spo2Range.min + '%'"></span>
-                    <span x-text="spo2Range.max + '%'"></span>
-                </div>
-            </div>
-            <!-- Skin Temperature -->
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Skin Temperature</p>
-                <div class="flex items-baseline gap-2 mt-1">
-                    <p class="text-3xl font-bold text-amber-600">
-                        <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
-                    </p>
-                    <span class="text-xs" :class="tempTrendDir > 0 ? 'text-amber-600' : 'text-blue-500'" x-show="tempTrendDir != null" x-text="tempTrendDir > 0 ? '↑' : '↓'"></span>
-                </div>
-                <div id="tempTrend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
-                <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="tempRange">
-                    <span x-text="tempRange.min + '°C'"></span>
-                    <span x-text="tempRange.max + '°C'"></span>
-                </div>
-            </div>
-            <!-- HRV -->
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">HRV (composite ms)</p>
-                <div class="flex items-baseline gap-2 mt-1">
-                    <p class="text-3xl font-bold text-green-600">
-                        <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
-                    </p>
-                    <span class="text-xs" :class="hrvTrendDir > 0 ? 'text-green-600' : 'text-red-500'" x-show="hrvTrendDir != null" x-text="hrvTrendDir > 0 ? '↑' : '↓'"></span>
-                </div>
-                <div id="hrvTrend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
-                <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="hrvRange">
-                    <span x-text="hrvRange.min + 'ms'"></span>
-                    <span x-text="hrvRange.max + 'ms'"></span>
-                </div>
             </div>
         </div>
 
@@ -462,13 +425,11 @@
                 async loadDashboard() {
                     this.loading = true;
                     await Promise.allSettled([
-                        this.loadRecovery(),
                         this.loadSleepStages(),
                         this.loadHealthMetrics(),
                         this.loadCircadian(),
                         this.loadSyncLog(),
                         this.loadDialsData(),
-                        this.loadStressCard()
                     ]);
                     this.loading = false;
                 },
@@ -549,34 +510,23 @@
                         const tempData = temp.status === 'fulfilled' ? await temp.value.json() : [];
                         const hrvData = hrv.status === 'fulfilled' ? await hrv.value.json() : [];
 
+                        const range = (d, k) => {
+                            const vals = d.map(x => x[k]).filter(v => v != null);
+                            return vals.length ? { min: vals[vals.length - 1], max: vals[0] } : null;
+                        };
                         if (spo2Data.length) {
                             this.spo2Latest = spo2Data[0].spo2_pct;
-                            const r = this.renderMiniTrend('spo2Trend', spo2Data, 'spo2_pct', 85, 100);
-                            this.spo2TrendDir = r.trendDir;
-                            this.spo2Range = r.min != null ? { min: r.min, max: r.max } : null;
+                            this.spo2Range = range(spo2Data, 'spo2_pct');
                         }
                         if (tempData.length) {
-                            const t = tempData[0].temp_c;
-                            this.tempLatest = Number(t).toFixed(1);
-                            const r = this.renderMiniTrend('tempTrend', tempData, 'temp_c', 30, 38);
-                            this.tempTrendDir = r.trendDir;
-                            this.tempRange = r.min != null ? { min: r.min.toFixed(1), max: r.max.toFixed(1) } : null;
+                            this.tempLatest = Number(tempData[0].temp_c).toFixed(1);
+                            this.tempRange = range(tempData, 'temp_c');
                         }
                         if (hrvData.length) {
                             this.hrvLatest = hrvData[0].hrv_value;
-                            const r = this.renderMiniTrend('hrvTrend', hrvData, 'hrv_value', 10, 80);
-                            this.hrvTrendDir = r.trendDir;
-                            this.hrvRange = r.min != null ? { min: r.min, max: r.max } : null;
-                            // Night HRV avg for resting HR
-                            const nightHRV = hrvData.filter(d => {
-                                const h = new Date(d.ts).getHours();
-                                return h >= 0 && h <= 5;
-                            });
-                            if (this.restingHr == null && nightHRV.length > 0) {
-                                // Already computed in loadHRV via raw HR, skip HRV-based
-                            }
+                            this.hrvRange = range(hrvData, 'hrv_value');
                         }
-                        // Still compute resting HR from raw heart rate
+                        // Resting HR from overnight data
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
                         const hrData = await hrRes.json();
                         const nightHR = hrData.filter(d => {
@@ -597,29 +547,31 @@
                             this.renderCircadianLine([], []);
                             return;
                         }
-                        // Aggregate by hour-of-day across all days (so chart is
-                        // 24 points, not 26 with overlapping labels).
+                        // Last element is the _range metadata
+                        let range = null;
+                        if (data[data.length - 1]._range) {
+                            range = data.pop()._range;
+                        }
+                        // Aggregate by hour-of-day across all days
                         const byHour = {};
                         for (const d of data) {
                             const h = d.hour;
-                            if (!byHour[h]) byHour[h] = { sum: 0, n: 0, min: Infinity, max: 0 };
+                            if (!byHour[h]) byHour[h] = { sum: 0, n: 0 };
                             byHour[h].sum += Number(d.avg_hr);
                             byHour[h].n += 1;
-                            byHour[h].min = Math.min(byHour[h].min, d.min_hr);
-                            byHour[h].max = Math.max(byHour[h].max, d.max_hr);
                         }
                         const labels = [];
                         const values = [];
                         for (let h = 0; h < 24; h++) {
-                            if (byHour[h]) {
-                                labels.push(`${h}:00`);
-                                values.push(byHour[h].sum / byHour[h].n);
-                            } else {
-                                labels.push(`${h}:00`);
-                                values.push(null);
-                            }
+                            labels.push(`${h}:00`);
+                            values.push(byHour[h] ? byHour[h].sum / byHour[h].n : null);
                         }
                         this.renderCircadianLine(labels, values);
+                        // Show date range subtitle
+                        const subtitle = document.getElementById('circadianSubtitle');
+                        if (subtitle && range && range.min_day) {
+                            subtitle.textContent = range.min_day + ' – ' + range.max_day;
+                        }
                     } catch (e) { console.error('loadCircadian', e); }
                 },
 
