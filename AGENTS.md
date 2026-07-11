@@ -578,6 +578,55 @@ DB changes:
 - `db/init.sql` — duration_minutes column, new unique constraint
 - `AGENTS.md` — this entry
 
+### 2026-07-10 (e) — Analytics Engine Rewrite + Dashboard Overhaul
+
+**Task:** Complete rewrite of `analytics.py` with peer-reviewed health score formulas, plus a full dashboard redesign to surface all new data types.
+
+**Research phase:** Conducted deep-dive academic research (3 agents) into validated formulas for sleep quality, HRV recovery, and stress classification. Key sources: Ohayon 2004 (3,327 citations, sleep architecture norms), Altini Sensors 2021 (9M HRV measurements), Frontiers Physiology 2025 (circadian stress), Chheda (Oura reverse-engineering, R²=0.846).
+
+**Analytics.py — full rewrite** (was 705 lines broken RMSSD code → 330 lines working validated formulas):
+
+`compute_hrv_recovery()`:
+- Log-transform: ln(composite_hrv) to normalize distribution
+- 7-day rolling baseline (mean + SD of ln values)
+- Z-score: (ln_today - mean_7d) / SD_7d (Plews/Altini framework)
+- Readiness: Excellent/Good/Fair/Poor/Very Poor from z thresholds
+- Confidence flag: 'low confidence' until 7+ baseline days
+- Stores to daily_recovery + hrv_trends
+
+`compute_sleep_quality()`:
+- 5-component score (0-100): 30% Duration, 25% Efficiency, 25% Architecture, 15% Continuity, 5% Latency
+- Trapezoidal scoring (full credit in optimal range, linear decline outside)
+- Architecture: deep 13-23% AND REM 20-25% = full credit (Ohayon 2004 norms)
+- Reads real per-session stage data from raw_sleep (start_ts, end_ts, duration_minutes)
+- Overnight temp drop from raw_temperature
+- Stores to sleep_quality
+
+`compute_stress()`:
+- Garmin/Firstbeat thresholds: 0-25 relaxed, 26-50 low, 51-75 medium, 76-100 high
+- Daily weighted score: 0.5×daytime + 0.3×peak_sustained(2h) + 0.2×overnight
+- Morning/noon/evening breakdowns from raw_stress
+- Stores to stress_classification
+
+`compute_circadian_hr()` and `compute_resting_hr()` — kept (already worked).
+
+**Dashboard overhaul** (multiple sessions):
+- Sleep donut ring (concentric conic-gradient with stage breakdown)
+- Circadian HR SVG line graph (was CSS bars)
+- 5 stat cards with emoji icons + health-coded colors + left borders
+- Dark mode toggle (Tailwind class strategy, localStorage persisted)
+- Recovery delta + sleep quality score from persisted analytics
+- Removed redundant health metrics sparkline row
+
+**Verified:** Analytics runs cleanly after sync. All 5 computed tables populated.
+
+**Files changed:**
+- `collector/analytics.py` — full rewrite with validated formulas
+- `api/main.py` — /api/recovery and /api/sleep now read from persisted tables
+- `dashboard/index.html` — donut, SVG line, dark mode, stat cards, health coding
+- `RESEARCH.md` — validated formula documentation with citations
+- `AGENTS.md` — this entry
+
 ---
 
 ## Agent Notes
