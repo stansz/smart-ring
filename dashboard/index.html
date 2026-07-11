@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smart Ring Dashboard</title>
+    <script>tailwind={config:{darkMode:'class'}}</script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -15,28 +16,31 @@
         .loading { opacity: 0.6; pointer-events: none; }
     </style>
 </head>
-<body class="bg-gray-50 min-h-screen" x-data="dashboard()" x-init="init()">
-    <nav class="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-50">
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen x-data="dashboard()" x-init="init()">
+    <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
                 <div class="flex items-center space-x-8">
-                    <h1 class="text-xl font-semibold text-gray-900">Smart Ring</h1>
+                    <h1 class="text-xl font-semibold text-gray-900 dark:text-gray-100">Smart Ring</h1>
                     <!-- Tabs -->
                     <div class="flex space-x-1">
                         <button @click="switchTab('dashboard')"
                                 class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'">
+                                :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
                             Dashboard
                         </button>
                         <button @click="switchTab('admin')"
                                 class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'">
+                                :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
                             Admin
                         </button>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <span class="text-sm text-gray-500" x-text="lastSync"></span>
+                    <button @click="toggleDark()" class="text-lg leading-none px-1 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition" title="Toggle dark mode">
+                        <span x-text="darkMode ? '☀️' : '🌙'"></span>
+                    </button>
+                    <span class="text-sm text-gray-500 dark:text-gray-400" x-text="lastSync"></span>
                     <button @click="queueSync()"
                             :disabled="syncQueueBusy"
                             class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
@@ -51,36 +55,36 @@
     <!-- ============= DASHBOARD TAB ============= -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">Recovery Score</p>
-                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="recoveryScore || '—'"></p>
-                <p class="text-xs text-gray-400 mt-1" x-text="recoveryLabel || ''"></p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Recovery Score</p>
+                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="recoveryScore || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="recoveryLabel || ''"></p>
             </div>
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">Sleep Score</p>
-                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="sleepScore || '—'"></p>
-                <p class="text-xs text-gray-400 mt-1" x-text="sleepLabel || ''"></p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Sleep Score</p>
+                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="sleepScore || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="sleepLabel || ''"></p>
             </div>
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">Stress</p>
-                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="stressLevel || '—'"></p>
-                <p class="text-xs text-gray-400 mt-1" x-text="stressLabel || ''"></p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Stress</p>
+                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="stressLevel || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="stressLabel || ''"></p>
             </div>
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">Resting HR</p>
-                <p class="text-3xl font-bold text-gray-900 mt-1" x-text="restingHr || '—'"></p>
-                <p class="text-xs text-gray-400 mt-1">bpm</p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Resting HR</p>
+                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="restingHr || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">bpm</p>
             </div>
         </div>
 
         <!-- Today's Activity (Gadgetbridge-style dials) -->
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-8">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
             <div class="flex justify-between items-baseline mb-4">
-                <h2 class="text-lg font-semibold text-gray-900">Today's Activity
-                    <span class="text-sm font-normal text-gray-400 ml-2"
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Today's Activity
+                    <span class="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2"
                           x-text="new Date().toLocaleDateString()"></span>
                 </h2>
-                <span class="text-xs text-gray-400"
+                <span class="text-xs text-gray-400 dark:text-gray-500"
                       x-text="lastSyncSummary.completed_at ? 'Last synced ' + new Date(lastSyncSummary.completed_at).toLocaleTimeString() : ''"></span>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -91,12 +95,12 @@
                              :style="`background: conic-gradient(#3b82f6 ${stepsPct}%, #e5e7eb ${stepsPct}%);`">
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900" x-text="stepsToday || 0"></span>
-                            <span class="text-xs text-gray-500">steps</span>
+                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="stepsToday || 0"></span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">steps</span>
                         </div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 mt-2">Steps</p>
-                    <p class="text-xs text-gray-400"
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Steps</p>
+                    <p class="text-xs text-gray-400 dark:text-gray-500"
                        x-text="`${stepsPct}% of ${goals?.steps_goal || '10,000'}`"></p>
                 </div>
 
@@ -107,12 +111,12 @@
                              :style="`background: conic-gradient(#ef4444 ${hrPct}%, #e5e7eb ${hrPct}%);`">
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900" x-text="hrAvg || '—'"></span>
-                            <span class="text-xs text-gray-500">bpm avg</span>
+                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="hrAvg || '—'"></span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">bpm avg</span>
                         </div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 mt-2">Heart Rate</p>
-                    <p class="text-xs text-gray-400" x-text="hrMinMax + (hrDateLabel !== 'today' ? ' (' + hrDateLabel + ')' : '')"></p>
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Heart Rate</p>
+                    <p class="text-xs text-gray-400 dark:text-gray-500" x-text="hrMinMax + (hrDateLabel !== 'today' ? ' (' + hrDateLabel + ')' : '')"></p>
                 </div>
 
                 <!-- Active Minutes Dial -->
@@ -122,12 +126,12 @@
                              :style="`background: conic-gradient(#10b981 ${activePct}%, #e5e7eb ${activePct}%);`">
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900" x-text="activeMinutes || 0"></span>
-                            <span class="text-xs text-gray-500">min</span>
+                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="activeMinutes || 0"></span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">min</span>
                         </div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 mt-2">Active Time</p>
-                    <p class="text-xs text-gray-400"
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Active Time</p>
+                    <p class="text-xs text-gray-400 dark:text-gray-500"
                        x-text="`${activeSlotCount} slots ≥ ${activeThreshold} steps`"></p>
                 </div>
 
@@ -138,33 +142,40 @@
                              :style="`background: conic-gradient(#f59e0b ${caloriesPct}%, #e5e7eb ${caloriesPct}%);`">
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900" x-text="caloriesToday || '—'"></span>
-                            <span class="text-xs text-gray-500">kcal</span>
+                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="caloriesToday || '—'"></span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">kcal</span>
                         </div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 mt-2">Calories</p>
-                    <p class="text-xs text-gray-400"
+                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Calories</p>
+                    <p class="text-xs text-gray-400 dark:text-gray-500"
                        x-text="`${caloriesPct}% of ${goals?.calories_goal ? Math.round(goals.calories_goal/1000) : '300'} kcal`"></p>
                 </div>
             </div>
         </div>
 
-        <!-- Last Night's Sleep — concentric donut ring -->
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-8">
-            <h2 class="text-lg font-semibold text-gray-900 mb-4">Last Night's Sleep
-                <span class="text-sm font-normal text-gray-400 ml-2"
-                      x-text="sleepSummary.date ? '(' + new Date(sleepSummary.date + 'T00:00').toLocaleDateString() + ')' : ''"></span>
-            </h2>
-            <div id="sleepDonut" class="flex flex-col sm:flex-row items-center gap-6">
-                <p class="text-sm text-gray-400">No sleep data yet — sync the ring to pull sleep history</p>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Last Night's Sleep — concentric donut ring -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Last Night's Sleep
+                    <span class="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2"
+                          x-text="sleepSummary.date ? '(' + new Date(sleepSummary.date + 'T00:00').toLocaleDateString() + ')' : ''"></span>
+                </h2>
+                <div id="sleepDonut" class="flex flex-col sm:flex-row items-center gap-6">
+                    <p class="text-sm text-gray-400 dark:text-gray-500">No sleep data yet — sync the ring to pull sleep history</p>
+                </div>
+            </div>
+            <!-- Recovery Trend -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recovery Trend</h2>
+                <div id="recoveryBars" class="text-sm text-gray-700 dark:text-gray-300"></div>
             </div>
         </div>
 
         <!-- Health Metrics: SpO2, Skin Temp, HRV -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             <!-- SpO2 -->
-            <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
-                <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Blood Oxygen</p>
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Blood Oxygen</p>
                 <div class="flex items-baseline gap-2 mt-1">
                     <p class="text-3xl font-bold text-red-600">
                         <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
@@ -172,14 +183,14 @@
                     <span class="text-xs" :class="spo2TrendDir > 0 ? 'text-green-600' : 'text-red-500'" x-show="spo2TrendDir != null" x-text="spo2TrendDir > 0 ? '↑' : '↓'"></span>
                 </div>
                 <div id="spo2Trend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
-                <div class="flex justify-between text-xs text-gray-400 mt-1" x-show="spo2Range">
+                <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="spo2Range">
                     <span x-text="spo2Range.min + '%'"></span>
                     <span x-text="spo2Range.max + '%'"></span>
                 </div>
             </div>
             <!-- Skin Temperature -->
-            <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
-                <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Skin Temperature</p>
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Skin Temperature</p>
                 <div class="flex items-baseline gap-2 mt-1">
                     <p class="text-3xl font-bold text-amber-600">
                         <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
@@ -187,14 +198,14 @@
                     <span class="text-xs" :class="tempTrendDir > 0 ? 'text-amber-600' : 'text-blue-500'" x-show="tempTrendDir != null" x-text="tempTrendDir > 0 ? '↑' : '↓'"></span>
                 </div>
                 <div id="tempTrend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
-                <div class="flex justify-between text-xs text-gray-400 mt-1" x-show="tempRange">
+                <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="tempRange">
                     <span x-text="tempRange.min + '°C'"></span>
                     <span x-text="tempRange.max + '°C'"></span>
                 </div>
             </div>
             <!-- HRV -->
-            <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
-                <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">HRV (composite ms)</p>
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">HRV (composite ms)</p>
                 <div class="flex items-baseline gap-2 mt-1">
                     <p class="text-3xl font-bold text-green-600">
                         <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
@@ -202,30 +213,24 @@
                     <span class="text-xs" :class="hrvTrendDir > 0 ? 'text-green-600' : 'text-red-500'" x-show="hrvTrendDir != null" x-text="hrvTrendDir > 0 ? '↑' : '↓'"></span>
                 </div>
                 <div id="hrvTrend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
-                <div class="flex justify-between text-xs text-gray-400 mt-1" x-show="hrvRange">
+                <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="hrvRange">
                     <span x-text="hrvRange.min + 'ms'"></span>
                     <span x-text="hrvRange.max + 'ms'"></span>
                 </div>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Recovery Trend</h2>
-                <div id="recoveryBars" class="text-sm text-gray-700"></div>
-            </div>
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Circadian HR Pattern</h2>
-                <div id="circadianBars" class="text-sm text-gray-700"></div>
-            </div>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Circadian HR Pattern</h2>
+            <div id="circadianBars" class="text-sm text-gray-700 dark:text-gray-300"></div>
         </div>
 
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-            <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent Syncs</h2>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recent Syncs</h2>
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
-                        <tr class="text-left text-gray-500 border-b border-gray-200">
+                        <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
                             <th class="pb-2 pr-4">Time</th>
                             <th class="pb-2 pr-4">Records</th>
                             <th class="pb-2 pr-4">Battery</th>
@@ -233,7 +238,7 @@
                             <th class="pb-2 pr-4">Status</th>
                         </tr>
                     </thead>
-                    <tbody id="syncTable" class="text-gray-700"></tbody>
+                    <tbody id="syncTable" class="text-gray-700 dark:text-gray-300"></tbody>
                 </table>
             </div>
         </div>
@@ -244,62 +249,62 @@
 
         <!-- Ring status -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">Battery</p>
-                <p class="text-3xl font-bold text-gray-900 mt-1">
-                    <span x-text="ringStatus.battery_pct ?? '—'"></span><span class="text-base text-gray-400" x-show="ringStatus.battery_pct != null">%</span>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Battery</p>
+                <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+                    <span x-text="ringStatus.battery_pct ?? '—'"></span><span class="text-base text-gray-400 dark:text-gray-500" x-show="ringStatus.battery_pct != null">%</span>
                 </p>
-                <p class="text-xs text-gray-400 mt-1" x-text="ringStatus.ts ? 'As of ' + new Date(ringStatus.ts).toLocaleString() : 'No data yet — ring not synced'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="ringStatus.ts ? 'As of ' + new Date(ringStatus.ts).toLocaleString() : 'No data yet — ring not synced'"></p>
             </div>
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">Firmware</p>
-                <p class="text-2xl font-bold text-gray-900 mt-1" x-text="ringStatus.firmware_version || '—'"></p>
-                <p class="text-xs text-gray-400 mt-1">From device info read</p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Firmware</p>
+                <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="ringStatus.firmware_version || '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">From device info read</p>
             </div>
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">Last Sync</p>
-                <p class="text-2xl font-bold text-gray-900 mt-1" x-text="lastSyncSummary.completed_at ? new Date(lastSyncSummary.completed_at).toLocaleString() : 'Never'"></p>
-                <p class="text-xs text-gray-400 mt-1">
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Last Sync</p>
+                <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="lastSyncSummary.completed_at ? new Date(lastSyncSummary.completed_at).toLocaleString() : 'Never'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     <span x-text="lastSyncSummary.records_synced != null ? lastSyncSummary.records_synced + ' records' : ''"></span>
                 </p>
             </div>
-            <div class="stat-card bg-white rounded-lg shadow p-5 border border-gray-100">
-                <p class="text-sm font-medium text-gray-500">DB Status</p>
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">DB Status</p>
                 <p class="text-2xl font-bold mt-1" :class="health.db === 'connected' ? 'text-green-600' : 'text-red-600'" x-text="health.db === 'connected' ? 'OK' : 'DOWN'"></p>
-                <p class="text-xs text-gray-400 mt-1" x-text="health.container_host ? 'host: ' + health.container_host : ''"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="health.container_host ? 'host: ' + health.container_host : ''"></p>
             </div>
         </div>
 
         <!-- System health -->
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-6">
-            <h2 class="text-lg font-semibold text-gray-900 mb-4">System Health</h2>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-6">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">System Health</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
-                    <p class="text-gray-500">Database</p>
+                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Database</p>
                     <p class="font-semibold" :class="health.db === 'connected' ? 'text-green-600' : 'text-red-600'" x-text="health.db"></p>
                 </div>
                 <div>
-                    <p class="text-gray-500">Ring status rows</p>
+                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Ring status rows</p>
                     <p class="font-semibold" x-text="health.ring_status_rows ?? '—'"></p>
                 </div>
                 <div>
-                    <p class="text-gray-500">Sync log rows</p>
+                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Sync log rows</p>
                     <p class="font-semibold" x-text="health.sync_log_rows ?? '—'"></p>
                 </div>
                 <div>
-                    <p class="text-gray-500">Container</p>
+                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Container</p>
                     <p class="font-semibold text-sm" x-text="health.container_host ?? '—'"></p>
                 </div>
             </div>
         </div>
 
         <!-- Full sync log -->
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-            <h2 class="text-lg font-semibold text-gray-900 mb-4">Sync Log</h2>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Sync Log</h2>
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
-                        <tr class="text-left text-gray-500 border-b border-gray-200">
+                        <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
                             <th class="pb-2 pr-4">Started</th>
                             <th class="pb-2 pr-4">Completed</th>
                             <th class="pb-2 pr-4">Records</th>
@@ -310,7 +315,7 @@
                     </thead>
                     <tbody>
                         <template x-for="s in adminSyncLog" :key="s.id">
-                            <tr class="border-b border-gray-100">
+                            <tr class="border-b border-gray-100 dark:border-gray-700">
                                 <td class="py-2 pr-4" x-text="s.started_at ? new Date(s.started_at).toLocaleString() : '—'"></td>
                                 <td class="py-2 pr-4" x-text="s.completed_at ? new Date(s.completed_at).toLocaleString() : '—'"></td>
                                 <td class="py-2 pr-4" x-text="s.records_synced ?? 0"></td>
@@ -328,7 +333,7 @@
                             </tr>
                         </template>
                         <tr x-show="adminSyncLog.length === 0">
-                            <td colspan="6" class="py-6 text-center text-gray-400">No syncs yet. Ring hasn't been paired.</td>
+                            <td colspan="6" class="py-6 text-center text-gray-400 dark:text-gray-500">No syncs yet. Ring hasn't been paired.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -337,37 +342,37 @@
 
         <!-- Raw Data Tables -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Heart Rate Log
-                    <span class="text-sm font-normal text-gray-400" x-text="rawHrCount + ' records'"></span>
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Heart Rate Log
+                    <span class="text-sm font-normal text-gray-400 dark:text-gray-500" x-text="rawHrCount + ' records'"></span>
                 </h2>
                 <div class="overflow-y-auto" style="max-height: 300px;">
                     <table class="w-full text-sm">
                         <thead class="sticky top-0 bg-white">
-                            <tr class="text-left text-gray-500 border-b border-gray-200">
+                            <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
                                 <th class="pb-2 pr-4">Time (local)</th>
                                 <th class="pb-2 pr-4">BPM</th>
                             </tr>
                         </thead>
-                        <tbody id="hrTable" class="text-gray-700"></tbody>
+                        <tbody id="hrTable" class="text-gray-700 dark:text-gray-300"></tbody>
                     </table>
                 </div>
             </div>
-            <div class="bg-white rounded-lg shadow p-6 border border-gray-100">
-                <h2 class="text-lg font-semibold text-gray-900 mb-4">Steps Log
-                    <span class="text-sm font-normal text-gray-400" x-text="rawStepsCount + ' records'"></span>
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Steps Log
+                    <span class="text-sm font-normal text-gray-400 dark:text-gray-500" x-text="rawStepsCount + ' records'"></span>
                 </h2>
                 <div class="overflow-y-auto" style="max-height: 300px;">
                     <table class="w-full text-sm">
                         <thead class="sticky top-0 bg-white">
-                            <tr class="text-left text-gray-500 border-b border-gray-200">
+                            <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
                                 <th class="pb-2 pr-4">Time (local)</th>
                                 <th class="pb-2 pr-4">Steps</th>
                                 <th class="pb-2 pr-4">Cal</th>
                                 <th class="pb-2 pr-4">Dist</th>
                             </tr>
                         </thead>
-                        <tbody id="stepsTable" class="text-gray-700"></tbody>
+                        <tbody id="stepsTable" class="text-gray-700 dark:text-gray-300"></tbody>
                     </table>
                 </div>
             </div>
@@ -379,6 +384,7 @@
             return {
                 // Tab routing
                 tab: 'dashboard',
+                darkMode: false,
 
                 loading: false,
                 lastSync: '—',
@@ -428,13 +434,20 @@
                 _pollTimer: null,
 
                 init() {
+                    // Dark mode: read localStorage, apply to <html>
+                    this.darkMode = localStorage.getItem('darkMode') === 'true';
+                    if (this.darkMode) document.documentElement.classList.add('dark');
                     // Always load health + sync summary so the nav bar shows something useful
                     this.loadHealth();
                     this.loadRingStatus();
                     // Defer dashboard load so Alpine has finished rendering the canvases
-                    // before Chart.js tries to draw on them. Without this the chart
-                    // canvases can be 0x0 and the charts appear blank.
                     this.$nextTick(() => this.loadDashboard());
+                },
+
+                toggleDark() {
+                    this.darkMode = !this.darkMode;
+                    localStorage.setItem('darkMode', this.darkMode);
+                    document.documentElement.classList.toggle('dark', this.darkMode);
                 },
 
                 switchTab(t) {
@@ -502,7 +515,7 @@
                         const data = await res.json();
                         if (!data.length) {
                             document.getElementById('sleepDonut').innerHTML =
-                                '<p class="text-sm text-gray-400">No sleep data yet — sync the ring to pull sleep history</p>';
+                                '<p class="text-sm text-gray-400 dark:text-gray-500">No sleep data yet — sync the ring to pull sleep history</p>';
                             return;
                         }
                         // Find last night: pick the most recent day that has deep/rem stages
@@ -523,7 +536,7 @@
                         }
                         if (!lastNight) {
                             document.getElementById('sleepDonut').innerHTML =
-                                '<p class="text-sm text-gray-400">No complete sleep cycles found — keep wearing the ring overnight</p>';
+                                '<p class="text-sm text-gray-400 dark:text-gray-500">No complete sleep cycles found — keep wearing the ring overnight</p>';
                             return;
                         }
                         this.renderSleepDonut(lastNight);
@@ -681,12 +694,12 @@
                     const tbody = document.getElementById('stepsTable');
                     if (!tbody) return;
                     if (!rows || !rows.length) {
-                        tbody.innerHTML = '<tr><td colspan="4" class="py-3 text-gray-400">No data yet</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="4" class="py-3 text-gray-400 dark:text-gray-500">No data yet</td></tr>';
                         return;
                     }
                     tbody.innerHTML = rows.map(d => {
                         const cal = d.calories != null ? Math.round(d.calories / 1000) : null;
-                        return `<tr class="border-b border-gray-100">
+                        return `<tr class="border-b border-gray-100 dark:border-gray-700">
                             <td class="py-1.5 pr-4">${new Date(d.ts).toLocaleString()}</td>
                             <td class="py-1.5 pr-4 font-mono">${d.steps}</td>
                             <td class="py-1.5 pr-4 font-mono">${cal != null ? cal : '—'}</td>
@@ -808,11 +821,11 @@
                     const tbody = document.getElementById(tbodyId);
                     if (!tbody) return;
                     if (!rows || !rows.length) {
-                        tbody.innerHTML = '<tr><td colspan="2" class="py-3 text-gray-400">No data yet</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="2" class="py-3 text-gray-400 dark:text-gray-500">No data yet</td></tr>';
                         return;
                     }
                     tbody.innerHTML = rows.map(d => `
-                        <tr class="border-b border-gray-100">
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
                             <td class="py-1.5 pr-4">${new Date(d.ts).toLocaleString()}</td>
                             <td class="py-1.5 pr-4 font-mono">${d[valueKey]}</td>
                         </tr>
@@ -823,7 +836,7 @@
                     const el = document.getElementById('recoveryBars');
                     if (!el) return;
                     if (!labels || !labels.length) {
-                        el.innerHTML = '<p class="text-gray-400">No recovery data yet</p>';
+                        el.innerHTML = '<p class="text-gray-400 dark:text-gray-500">No recovery data yet</p>';
                         return;
                     }
                     const max = Math.max(60, ...values.filter(v => v != null));
@@ -833,16 +846,16 @@
                         const v = values[i];
                         if (v == null) {
                             return `<div class="flex items-center gap-2 mb-1">
-                                <span class="w-20 text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
-                                <span class="text-gray-400 text-xs">—</span>
+                                <span class="w-20 text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
+                                <span class="text-gray-400 dark:text-gray-500 text-xs">—</span>
                             </div>`;
                         }
                         const widthPct = ((v - min) / range * 80 + 10).toFixed(1);
                         return `<div class="flex items-center gap-2 mb-1">
-                            <span class="w-20 text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
-                            <div class="flex-1 bg-gray-100 rounded h-5 relative">
+                            <span class="w-20 text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
+                            <div class="flex-1 bg-gray-100 dark:bg-gray-700 rounded h-5 relative">
                                 <div class="bg-blue-500 h-5 rounded" style="width: ${widthPct}%"></div>
-                                <span class="absolute right-2 top-0 leading-5 text-xs text-gray-700">${v.toFixed(1)}</span>
+                                <span class="absolute right-2 top-0 leading-5 text-xs text-gray-700 dark:text-gray-300">${v.toFixed(1)}</span>
                             </div>
                         </div>`;
                     }).join('');
@@ -888,8 +901,8 @@
                         const min = byType[stage] || 0;
                         return `<div class="flex items-center gap-2 text-sm">
                             <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${stageColors[stage]}"></span>
-                            <span class="text-gray-700">${stageLabels[stage]}</span>
-                            <span class="ml-auto font-mono text-gray-500">${min}m (${pct}%)</span>
+                            <span class="text-gray-700 dark:text-gray-300">${stageLabels[stage]}</span>
+                            <span class="ml-auto font-mono text-gray-500 dark:text-gray-400">${min}m (${pct}%)</span>
                         </div>`;
                     }).join('');
 
@@ -906,13 +919,13 @@
                     container.innerHTML = `
                         <div class="relative w-44 h-44 flex-shrink-0">
                             <div class="absolute inset-0 rounded-full" style="${donutStyle}"></div>
-                            <div class="absolute inset-3 bg-white rounded-full flex flex-col items-center justify-center">
-                                <span class="text-2xl font-bold text-gray-900">${totalHours}h ${remMin}m</span>
-                                <span class="text-xs text-gray-400">${bedFmt} – ${wakeFmt}</span>
+                            <div class="absolute inset-3 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
+                                <span class="text-2xl font-bold text-gray-900 dark:text-gray-100">${totalHours}h ${remMin}m</span>
+                                <span class="text-xs text-gray-400 dark:text-gray-500">${bedFmt} – ${wakeFmt}</span>
                             </div>
                         </div>
                         <div class="flex-1 space-y-1.5">
-                            <p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Stage Breakdown</p>
+                            <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">Stage Breakdown</p>
                             ${legendRows}
                         </div>`;
                 },
@@ -948,18 +961,20 @@
                     if (!el) return;
                     const validVals = values.filter(v => v != null);
                     if (!validVals.length) {
-                        el.innerHTML = '<p class="text-gray-400">No circadian data yet</p>';
+                        el.innerHTML = '<p class="text-gray-400 dark:text-gray-500">No circadian data yet</p>';
                         return;
                     }
                     const max = Math.max(...validVals);
                     const min = Math.min(...validVals);
                     const range = max - min || 1;
-                    const pad = 5; // px padding
+                    const pad = 5;
                     const w = 520, h = 160, plotW = w - 70, plotH = h - 30;
                     const xScale = plotW / (labels.length - 1 || 1);
                     const yScale = plotH / range;
+                    const dark = this.darkMode;
+                    const axisColor = dark ? '#9ca3af' : '#6b7280';
+                    const gridColor = dark ? '#374151' : '#e5e7eb';
 
-                    // Build polyline points
                     const points = [];
                     const validIndices = [];
                     for (let i = 0; i < values.length; i++) {
@@ -971,26 +986,23 @@
                         }
                     }
 
-                    // X-axis labels (every 3h)
                     const xLabels = [];
                     for (let i = 0; i < labels.length; i += 3) {
-                        xLabels.push(`<text x="${60 + i * xScale}" y="${h - 4}" text-anchor="middle" class="text-xs fill-gray-400" font-size="10">${labels[i]}</text>`);
+                        xLabels.push(`<text x="${60 + i * xScale}" y="${h - 4}" text-anchor="middle" font-size="10" fill="${axisColor}">${labels[i]}</text>`);
                     }
-                    // Y-axis labels
                     const yTicks = 4;
                     const yLabels = [];
                     for (let i = 0; i <= yTicks; i++) {
                         const val = Math.round(min + (range / yTicks) * i);
                         const y = pad + plotH - (val - min) * yScale;
-                        yLabels.push(`<text x="52" y="${y + 3}" text-anchor="end" class="text-xs fill-gray-400" font-size="10">${val}</text>`);
-                        yLabels.push(`<line x1="56" y1="${y}" x2="${w}" y2="${y}" stroke="#e5e7eb" stroke-dasharray="2,2"/>`);
+                        yLabels.push(`<text x="52" y="${y + 3}" text-anchor="end" font-size="10" fill="${axisColor}">${val}</text>`);
+                        yLabels.push(`<line x1="56" y1="${y}" x2="${w}" y2="${y}" stroke="${gridColor}" stroke-dasharray="2,2"/>`);
                     }
 
                     el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="w-full" style="max-height:200px">
                         ${yLabels.join('')}
                         ${xLabels.join('')}
                         <polyline points="${points.join(' ')}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round"/>
-                        <!-- dots at valid points -->
                         ${validIndices.map(i => {
                             const x = 60 + i * xScale;
                             const y = pad + plotH - (values[i] - min) * yScale;
@@ -1002,7 +1014,7 @@
                 renderSyncTable(data) {
                     const tbody = document.getElementById('syncTable');
                     tbody.innerHTML = data.map(d => `
-                        <tr class="border-b border-gray-100">
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
                             <td class="py-2 pr-4">${new Date(d.started_at).toLocaleString()}</td>
                             <td class="py-2 pr-4">${d.records_synced || 0}</td>
                             <td class="py-2 pr-4">${d.battery_pct ? d.battery_pct + '%' : '—'}</td>
