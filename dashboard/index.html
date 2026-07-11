@@ -16,7 +16,7 @@
         .loading { opacity: 0.6; pointer-events: none; }
     </style>
 </head>
-<body class="bg-gray-50 dark:bg-gray-900 min-h-screen x-data="dashboard()" x-init="init()">
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen" x-data="dashboard()" x-init="init()">
     <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
@@ -56,22 +56,22 @@
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Recovery Score</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Recovery Score</p>
                 <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="recoveryScore || '—'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="recoveryLabel || ''"></p>
             </div>
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Sleep Score</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Sleep Score</p>
                 <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="sleepScore || '—'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="sleepLabel || ''"></p>
             </div>
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Stress</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Stress</p>
                 <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="stressLevel || '—'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="stressLabel || ''"></p>
             </div>
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Resting HR</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Resting HR</p>
                 <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="restingHr || '—'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">bpm</p>
             </div>
@@ -96,7 +96,7 @@
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="stepsToday || 0"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">steps</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">steps</span>
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Steps</p>
@@ -112,7 +112,7 @@
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="hrAvg || '—'"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">bpm avg</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">bpm avg</span>
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Heart Rate</p>
@@ -127,7 +127,7 @@
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="activeMinutes || 0"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">min</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">min</span>
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Active Time</p>
@@ -143,7 +143,7 @@
                         </div>
                         <div class="absolute inset-2 bg-white rounded-full flex flex-col items-center justify-center">
                             <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="caloriesToday || '—'"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-500">kcal</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">kcal</span>
                         </div>
                     </div>
                     <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Calories</p>
@@ -230,7 +230,7 @@
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
-                        <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                             <th class="pb-2 pr-4">Time</th>
                             <th class="pb-2 pr-4">Records</th>
                             <th class="pb-2 pr-4">Battery</th>
@@ -250,26 +250,26 @@
         <!-- Ring status -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Battery</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Battery</p>
                 <p class="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1">
                     <span x-text="ringStatus.battery_pct ?? '—'"></span><span class="text-base text-gray-400 dark:text-gray-500" x-show="ringStatus.battery_pct != null">%</span>
                 </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="ringStatus.ts ? 'As of ' + new Date(ringStatus.ts).toLocaleString() : 'No data yet — ring not synced'"></p>
             </div>
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Firmware</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Firmware</p>
                 <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="ringStatus.firmware_version || '—'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">From device info read</p>
             </div>
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">Last Sync</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Sync</p>
                 <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="lastSyncSummary.completed_at ? new Date(lastSyncSummary.completed_at).toLocaleString() : 'Never'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     <span x-text="lastSyncSummary.records_synced != null ? lastSyncSummary.records_synced + ' records' : ''"></span>
                 </p>
             </div>
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 dark:text-gray-500">DB Status</p>
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">DB Status</p>
                 <p class="text-2xl font-bold mt-1" :class="health.db === 'connected' ? 'text-green-600' : 'text-red-600'" x-text="health.db === 'connected' ? 'OK' : 'DOWN'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="health.container_host ? 'host: ' + health.container_host : ''"></p>
             </div>
@@ -280,19 +280,19 @@
             <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">System Health</h2>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
-                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Database</p>
+                    <p class="text-gray-500 dark:text-gray-400">Database</p>
                     <p class="font-semibold" :class="health.db === 'connected' ? 'text-green-600' : 'text-red-600'" x-text="health.db"></p>
                 </div>
                 <div>
-                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Ring status rows</p>
+                    <p class="text-gray-500 dark:text-gray-400">Ring status rows</p>
                     <p class="font-semibold" x-text="health.ring_status_rows ?? '—'"></p>
                 </div>
                 <div>
-                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Sync log rows</p>
+                    <p class="text-gray-500 dark:text-gray-400">Sync log rows</p>
                     <p class="font-semibold" x-text="health.sync_log_rows ?? '—'"></p>
                 </div>
                 <div>
-                    <p class="text-gray-500 dark:text-gray-400 dark:text-gray-500">Container</p>
+                    <p class="text-gray-500 dark:text-gray-400">Container</p>
                     <p class="font-semibold text-sm" x-text="health.container_host ?? '—'"></p>
                 </div>
             </div>
@@ -304,7 +304,7 @@
             <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>
-                        <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                             <th class="pb-2 pr-4">Started</th>
                             <th class="pb-2 pr-4">Completed</th>
                             <th class="pb-2 pr-4">Records</th>
@@ -349,7 +349,7 @@
                 <div class="overflow-y-auto" style="max-height: 300px;">
                     <table class="w-full text-sm">
                         <thead class="sticky top-0 bg-white">
-                            <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                            <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                                 <th class="pb-2 pr-4">Time (local)</th>
                                 <th class="pb-2 pr-4">BPM</th>
                             </tr>
@@ -365,7 +365,7 @@
                 <div class="overflow-y-auto" style="max-height: 300px;">
                     <table class="w-full text-sm">
                         <thead class="sticky top-0 bg-white">
-                            <tr class="text-left text-gray-500 dark:text-gray-400 dark:text-gray-500 border-b border-gray-200 dark:border-gray-700">
+                            <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                                 <th class="pb-2 pr-4">Time (local)</th>
                                 <th class="pb-2 pr-4">Steps</th>
                                 <th class="pb-2 pr-4">Cal</th>
@@ -846,13 +846,13 @@
                         const v = values[i];
                         if (v == null) {
                             return `<div class="flex items-center gap-2 mb-1">
-                                <span class="w-20 text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
+                                <span class="w-20 text-gray-500 dark:text-gray-400 text-xs">${new Date(day).toLocaleDateString()}</span>
                                 <span class="text-gray-400 dark:text-gray-500 text-xs">—</span>
                             </div>`;
                         }
                         const widthPct = ((v - min) / range * 80 + 10).toFixed(1);
                         return `<div class="flex items-center gap-2 mb-1">
-                            <span class="w-20 text-gray-500 dark:text-gray-400 dark:text-gray-500 text-xs">${new Date(day).toLocaleDateString()}</span>
+                            <span class="w-20 text-gray-500 dark:text-gray-400 text-xs">${new Date(day).toLocaleDateString()}</span>
                             <div class="flex-1 bg-gray-100 dark:bg-gray-700 rounded h-5 relative">
                                 <div class="bg-blue-500 h-5 rounded" style="width: ${widthPct}%"></div>
                                 <span class="absolute right-2 top-0 leading-5 text-xs text-gray-700 dark:text-gray-300">${v.toFixed(1)}</span>
