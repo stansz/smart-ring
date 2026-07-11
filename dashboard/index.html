@@ -235,22 +235,6 @@
                     <p class="text-sm text-gray-400 dark:text-gray-500">No sleep data yet — sync the ring to pull sleep history</p>
                 </div>
             </div>
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recent Syncs</h2>
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                            <th class="pb-2 pr-4">Time</th>
-                            <th class="pb-2 pr-4">Records</th>
-                            <th class="pb-2 pr-4">Battery</th>
-                            <th class="pb-2 pr-4">Clock Drift</th>
-                            <th class="pb-2 pr-4">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="syncTable" class="text-gray-700 dark:text-gray-300"></tbody>
-                </table>
-            </div>
             <!-- Stress Detail -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💪 Stress</h2>
@@ -270,15 +254,15 @@
                         </div>
                         <div class="flex justify-between text-sm" x-show="stressMorning != null">
                             <span class="text-gray-500 dark:text-gray-400">🌅 Morning</span>
-                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressMorning != null ? stressMorning : '—'"></span>
+                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressMorning || '—'"></span>
                         </div>
                         <div class="flex justify-between text-sm" x-show="stressNoon != null">
                             <span class="text-gray-500 dark:text-gray-400">☀️ Midday</span>
-                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressNoon != null ? stressNoon : '—'"></span>
+                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressNoon || '—'"></span>
                         </div>
                         <div class="flex justify-between text-sm" x-show="stressEvening != null">
                             <span class="text-gray-500 dark:text-gray-400">🌙 Evening</span>
-                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressEvening != null ? stressEvening : '—'"></span>
+                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressEvening || '—'"></span>
                         </div>
                         <div class="flex justify-between text-xs text-gray-400 dark:text-gray-500 pt-1 border-t border-gray-100 dark:border-gray-700">
                             <span>Scale: 0–25 relaxed</span>
@@ -287,17 +271,32 @@
                     </div>
                 </div>
             </div>
-            <!-- Circadian HR -->
+            <!-- Circadian HR Pattern -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
-<h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Circadian HR Pattern
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Circadian HR Pattern
                     <span class="text-xs font-normal text-gray-400 dark:text-gray-500 cursor-help" title="Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.">ⓘ</span>
                 </h2>
                 <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
                 <div id="circadianBars"></div>
             </div>
-        
-            </div>
+        </div>
 
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Recent Syncs</h2>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                            <th class="pb-2 pr-4">Time</th>
+                            <th class="pb-2 pr-4">Records</th>
+                            <th class="pb-2 pr-4">Battery</th>
+                            <th class="pb-2 pr-4">Clock Drift</th>
+                            <th class="pb-2 pr-4">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="syncTable" class="text-gray-700 dark:text-gray-300"></tbody>
+                </table>
+            </div>
         </div>
     </main>
 
@@ -640,11 +639,8 @@
                             this.stressMorning = sMatch.morning_rmssd;
                             this.stressNoon = sMatch.noon_rmssd;
                             this.stressEvening = sMatch.evening_rmssd;
-                            // Compute daily average from morning/noon/evening
                             const vals = [sMatch.morning_rmssd, sMatch.noon_rmssd, sMatch.evening_rmssd].filter(v => v != null);
-                            if (vals.length) {
-                                this.stressDailyAvg = vals.reduce((a, b) => a + b, 0) / vals.length;
-                            }
+                            this.stressDailyAvg = vals.length ? vals.reduce((a,b) => a+b) / vals.length : null;
                         }
                     } catch (e) { console.error('loadPersistedScores', e); }
                 },
