@@ -163,6 +163,39 @@ def get_goals():
     return dict(row) if row else {}
 
 
+@app.get("/api/raw/sleep")
+def get_raw_sleep(hours: int = 168, limit: int = 200):
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT day, stage, start_ts, end_ts, duration_minutes FROM raw_sleep
+            WHERE start_ts >= NOW() - INTERVAL ':hours hours'
+            ORDER BY start_ts DESC LIMIT :limit
+        """), {"hours": hours, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/raw/spo2")
+def get_raw_spo2(hours: int = 168, limit: int = 200):
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, spo2_pct FROM raw_spo2
+            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            ORDER BY ts DESC LIMIT :limit
+        """), {"hours": hours, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/raw/hrv")
+def get_raw_hrv(hours: int = 168, limit: int = 500):
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, hrv_value FROM raw_hrv
+            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            ORDER BY ts DESC LIMIT :limit
+        """), {"hours": hours, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/raw/temperature")
 def get_raw_temp(hours: int = 48, limit: int = 1000):
     with SessionLocal() as db:
