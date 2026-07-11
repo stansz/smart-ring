@@ -93,6 +93,17 @@ def readiness_text(z: Optional[float]) -> str:
 class Analytics:
     def __init__(self):
         self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        # Set session timezone to host's local timezone so EXTRACT(HOUR)
+        # and DATE() use local time, not the container's UTC.
+        try:
+            with open('/etc/timezone') as f:
+                local_tz = f.read().strip()
+            with self.conn.cursor() as cur:
+                cur.execute(f"SET TIME ZONE '{local_tz}'")
+            self.conn.commit()
+            log.info(f"Analytics DB session timezone: {local_tz}")
+        except Exception as e:
+            log.warning(f"Could not set DB timezone: {e}")
 
     # =================== HRV Recovery ===================
 
