@@ -55,35 +55,50 @@
     <!-- ============= DASHBOARD TAB ============= -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Sleep</p>
-                <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="sleepScore || '—'"></p>
+            <!-- Sleep -->
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border-indigo-500 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">💤 Sleep</p>
+                <p class="text-2xl font-bold text-indigo-600 mt-1" x-text="sleepScore || '—'"></p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-text="sleepLabel || ''"></p>
             </div>
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Blood Oxygen</p>
-                <p class="text-2xl font-bold mt-1" :class="spo2Latest >= 95 ? 'text-green-600' : 'text-red-600'">
+            <!-- SpO2 -->
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+                 :class="spo2Latest >= 95 ? 'border-green-500' : spo2Latest >= 90 ? 'border-amber-500' : 'border-red-500'">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">🩸 SpO₂</p>
+                <p class="text-2xl font-bold mt-1"
+                   :class="spo2Latest >= 95 ? 'text-green-600' : spo2Latest >= 90 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
                 </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="spo2Range" x-text="spo2Range.min + '–' + spo2Range.max + '%'"></p>
             </div>
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Skin Temp</p>
-                <p class="text-2xl font-bold text-amber-600 mt-1">
+            <!-- Skin Temp -->
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+                 :class="tempLatest >= 37 ? 'border-red-500' : tempLatest >= 32 ? 'border-green-500' : 'border-amber-500'">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">🌡️ Skin Temp</p>
+                <p class="text-2xl font-bold mt-1"
+                   :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'">
                     <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
                 </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="tempRange" x-text="tempRange.min + '–' + tempRange.max + '°C'"></p>
             </div>
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">HRV</p>
-                <p class="text-2xl font-bold text-green-600 mt-1">
+            <!-- HRV -->
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+                 :class="hrvLatest >= 45 ? 'border-green-500' : hrvLatest >= 30 ? 'border-amber-500' : 'border-red-500'">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">💓 HRV</p>
+                <p class="text-2xl font-bold mt-1"
+                   :class="hrvLatest >= 45 ? 'text-green-600' : hrvLatest >= 30 ? 'text-amber-600' : 'text-red-600'">
                     <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
                 </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="hrvRange" x-text="hrvRange.min + '–' + hrvRange.max + 'ms'"></p>
             </div>
-            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border border-gray-100 dark:border-gray-700">
-                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Resting HR</p>
-                <p class="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1" x-text="restingHr || '—'"></p>
+            <!-- Resting HR -->
+            <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-4 border-l-4 border border-gray-100 dark:border-gray-700"
+                 :class="restingHr <= 60 ? 'border-green-500' : restingHr <= 70 ? 'border-amber-500' : 'border-red-500'">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 tracking-wide">🫀 Resting HR</p>
+                <p class="text-2xl font-bold mt-1"
+                   :class="restingHr <= 60 ? 'text-green-600' : restingHr <= 70 ? 'text-amber-600' : 'text-red-600'">
+                    <span x-text="restingHr || '—'"></span>
+                </p>
                 <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="restingHr">bpm overnight</p>
             </div>
         </div>
@@ -494,8 +509,12 @@
                         this.renderSleepDonut(lastNight);
                         // Fill legacy stat card
                         const totalMin = lastNight.stages.reduce((s, r) => s + (r.duration_minutes || 0), 0);
-                        this.sleepScore = Math.round(totalMin / 60 * 10); // crude score from total hours
-                        this.sleepLabel = `${totalMin} min total`;
+                        const h = Math.floor(totalMin / 60);
+                        const m = totalMin % 60;
+                        this.sleepScore = h + 'h ' + m + 'm';
+                        const deepMin = lastNight.stages.filter(s => s.stage === 'deep').reduce((a, s) => a + (s.duration_minutes || 0), 0);
+                        const remMin = lastNight.stages.filter(s => s.stage === 'rem').reduce((a, s) => a + (s.duration_minutes || 0), 0);
+                        this.sleepLabel = `${deepMin}m deep · ${remMin}m REM`;
                     } catch (e) { console.error('loadSleepStages', e); }
                 },
 
