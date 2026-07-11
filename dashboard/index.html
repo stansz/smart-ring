@@ -149,22 +149,13 @@
             </div>
         </div>
 
-        <!-- Last Night's Sleep Stages (from big-data) -->
+        <!-- Last Night's Sleep — concentric donut ring -->
         <div class="bg-white rounded-lg shadow p-6 border border-gray-100 mb-8">
-            <div class="flex justify-between items-baseline mb-4">
-                <h2 class="text-lg font-semibold text-gray-900">Last Night's Sleep
-                    <span class="text-sm font-normal text-gray-400 ml-2"
-                          x-text="sleepSummary.date ? '(' + new Date(sleepSummary.date + 'T00:00').toLocaleDateString() + ')' : ''"></span>
-                </h2>
-                <div class="flex space-x-6 text-sm" x-show="sleepSummary.totalMinutes">
-                    <span class="text-gray-600">Total <strong class="text-gray-900" x-text="sleepSummary.totalMinutes + 'm'"></strong></span>
-                    <span class="text-indigo-600">Deep <strong class="text-indigo-700" x-text="sleepSummary.deepPct + '%'"></strong></span>
-                    <span class="text-purple-600">REM <strong class="text-purple-700" x-text="sleepSummary.remPct + '%'"></strong></span>
-                    <span class="text-blue-500">Light <strong class="text-blue-600" x-text="sleepSummary.lightPct + '%'"></strong></span>
-                    <span class="text-orange-500">Awake <strong class="text-orange-600" x-text="sleepSummary.awakePct + '%'"></strong></span>
-                </div>
-            </div>
-            <div id="sleepTimeline" class="relative" style="min-height:60px">
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Last Night's Sleep
+                <span class="text-sm font-normal text-gray-400 ml-2"
+                      x-text="sleepSummary.date ? '(' + new Date(sleepSummary.date + 'T00:00').toLocaleDateString() + ')' : ''"></span>
+            </h2>
+            <div id="sleepDonut" class="flex flex-col sm:flex-row items-center gap-6">
                 <p class="text-sm text-gray-400">No sleep data yet — sync the ring to pull sleep history</p>
             </div>
         </div>
@@ -174,26 +165,47 @@
             <!-- SpO2 -->
             <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
                 <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Blood Oxygen</p>
-                <p class="text-3xl font-bold text-red-600 mt-1">
-                    <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
-                </p>
-                <div id="spo2Trend" class="mt-2 flex items-end space-x-0.5" style="height:36px"></div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <p class="text-3xl font-bold text-red-600">
+                        <span x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></span>
+                    </p>
+                    <span class="text-xs" :class="spo2TrendDir > 0 ? 'text-green-600' : 'text-red-500'" x-show="spo2TrendDir != null" x-text="spo2TrendDir > 0 ? '↑' : '↓'"></span>
+                </div>
+                <div id="spo2Trend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1" x-show="spo2Range">
+                    <span x-text="spo2Range.min + '%'"></span>
+                    <span x-text="spo2Range.max + '%'"></span>
+                </div>
             </div>
             <!-- Skin Temperature -->
             <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
                 <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">Skin Temperature</p>
-                <p class="text-3xl font-bold text-amber-600 mt-1">
-                    <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
-                </p>
-                <div id="tempTrend" class="mt-2 flex items-end space-x-0.5" style="height:36px"></div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <p class="text-3xl font-bold text-amber-600">
+                        <span x-text="tempLatest != null ? tempLatest + '°C' : '—'"></span>
+                    </p>
+                    <span class="text-xs" :class="tempTrendDir > 0 ? 'text-amber-600' : 'text-blue-500'" x-show="tempTrendDir != null" x-text="tempTrendDir > 0 ? '↑' : '↓'"></span>
+                </div>
+                <div id="tempTrend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1" x-show="tempRange">
+                    <span x-text="tempRange.min + '°C'"></span>
+                    <span x-text="tempRange.max + '°C'"></span>
+                </div>
             </div>
             <!-- HRV -->
             <div class="bg-white rounded-lg shadow p-4 border border-gray-100">
                 <p class="text-xs font-medium text-gray-400 uppercase tracking-wide">HRV (composite ms)</p>
-                <p class="text-3xl font-bold text-green-600 mt-1">
-                    <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
-                </p>
-                <div id="hrvTrend" class="mt-2 flex items-end space-x-0.5" style="height:36px"></div>
+                <div class="flex items-baseline gap-2 mt-1">
+                    <p class="text-3xl font-bold text-green-600">
+                        <span x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></span>
+                    </p>
+                    <span class="text-xs" :class="hrvTrendDir > 0 ? 'text-green-600' : 'text-red-500'" x-show="hrvTrendDir != null" x-text="hrvTrendDir > 0 ? '↑' : '↓'"></span>
+                </div>
+                <div id="hrvTrend" class="mt-2 flex items-end space-x-0.5" style="height:40px"></div>
+                <div class="flex justify-between text-xs text-gray-400 mt-1" x-show="hrvRange">
+                    <span x-text="hrvRange.min + 'ms'"></span>
+                    <span x-text="hrvRange.max + 'ms'"></span>
+                </div>
             </div>
         </div>
 
@@ -376,8 +388,14 @@
                 sleepLabel: '',
                 sleepSummary: {},
                 spo2Latest: null,
+                spo2TrendDir: null,
+                spo2Range: null,
                 tempLatest: null,
+                tempTrendDir: null,
+                tempRange: null,
                 hrvLatest: null,
+                hrvTrendDir: null,
+                hrvRange: null,
                 restingHr: null,
                 stressLevel: null,
                 stressLabel: '',
@@ -483,7 +501,7 @@
                         const res = await fetch('/api/raw/sleep?hours=72&limit=200');
                         const data = await res.json();
                         if (!data.length) {
-                            document.getElementById('sleepTimeline').innerHTML =
+                            document.getElementById('sleepDonut').innerHTML =
                                 '<p class="text-sm text-gray-400">No sleep data yet — sync the ring to pull sleep history</p>';
                             return;
                         }
@@ -504,11 +522,11 @@
                             }
                         }
                         if (!lastNight) {
-                            document.getElementById('sleepTimeline').innerHTML =
+                            document.getElementById('sleepDonut').innerHTML =
                                 '<p class="text-sm text-gray-400">No complete sleep cycles found — keep wearing the ring overnight</p>';
                             return;
                         }
-                        this.renderSleepTimeline(lastNight);
+                        this.renderSleepDonut(lastNight);
                         // Fill legacy stat card
                         const totalMin = lastNight.stages.reduce((s, r) => s + (r.duration_minutes || 0), 0);
                         this.sleepScore = Math.round(totalMin / 60 * 10); // crude score from total hours
@@ -529,16 +547,22 @@
 
                         if (spo2Data.length) {
                             this.spo2Latest = spo2Data[0].spo2_pct;
-                            this.renderMiniTrend('spo2Trend', spo2Data, 'spo2_pct', 85, 100);
+                            const r = this.renderMiniTrend('spo2Trend', spo2Data, 'spo2_pct', 85, 100);
+                            this.spo2TrendDir = r.trendDir;
+                            this.spo2Range = r.min != null ? { min: r.min, max: r.max } : null;
                         }
                         if (tempData.length) {
                             const t = tempData[0].temp_c;
                             this.tempLatest = Number(t).toFixed(1);
-                            this.renderMiniTrend('tempTrend', tempData, 'temp_c', 30, 38);
+                            const r = this.renderMiniTrend('tempTrend', tempData, 'temp_c', 30, 38);
+                            this.tempTrendDir = r.trendDir;
+                            this.tempRange = r.min != null ? { min: r.min.toFixed(1), max: r.max.toFixed(1) } : null;
                         }
                         if (hrvData.length) {
                             this.hrvLatest = hrvData[0].hrv_value;
-                            this.renderMiniTrend('hrvTrend', hrvData, 'hrv_value', 10, 80);
+                            const r = this.renderMiniTrend('hrvTrend', hrvData, 'hrv_value', 10, 80);
+                            this.hrvTrendDir = r.trendDir;
+                            this.hrvRange = r.min != null ? { min: r.min, max: r.max } : null;
                             // Night HRV avg for resting HR
                             const nightHRV = hrvData.filter(d => {
                                 const h = new Date(d.ts).getHours();
@@ -566,7 +590,7 @@
                         const res = await fetch('/api/circadian-hr');
                         const data = await res.json();
                         if (!data.length) {
-                            this.renderCircadianBars([], []);
+                            this.renderCircadianLine([], []);
                             return;
                         }
                         // Aggregate by hour-of-day across all days (so chart is
@@ -591,7 +615,7 @@
                                 values.push(null);
                             }
                         }
-                        this.renderCircadianBars(labels, values);
+                        this.renderCircadianLine(labels, values);
                     } catch (e) { console.error('loadCircadian', e); }
                 },
 
@@ -824,68 +848,102 @@
                     }).join('');
                 },
 
-                renderSleepTimeline(lastNight) {
-                    const container = document.getElementById('sleepTimeline');
+                renderSleepDonut(lastNight) {
+                    const container = document.getElementById('sleepDonut');
                     if (!container) return;
                     const stages = lastNight.stages;
-                    const stageColors = { light: '#60a5fa', deep: '#4338ca', rem: '#a855f7', awake: '#fb923c' };
-                    // Compute time range
-                    const first = new Date(stages[0].start_ts);
-                    const last = new Date(stages[stages.length - 1].end_ts);
-                    const totalMin = (last - first) / 60000;
-                    if (totalMin <= 0) { container.innerHTML = '<p class="text-sm text-gray-400">Invalid sleep data</p>'; return; }
-                    // Build summary
                     const byType = {};
                     for (const s of stages) {
                         byType[s.stage] = (byType[s.stage] || 0) + (s.duration_minutes || 0);
                     }
                     const total = Object.values(byType).reduce((a, b) => a + b, 0) || 1;
+                    const stageColors = { deep: '#4338ca', rem: '#a855f7', light: '#60a5fa', awake: '#fb923c' };
+                    const stageLabels = { deep: 'Deep', rem: 'REM', light: 'Light', awake: 'Awake' };
+
+                    // Build conic-gradient: each stage as a colored arc
+                    const order = ['deep', 'rem', 'light', 'awake'];
+                    let cumulative = 0;
+                    const slices = [];
+                    for (const stage of order) {
+                        const pct = (byType[stage] || 0) / total * 100;
+                        if (pct > 0) {
+                            const start = cumulative;
+                            cumulative += pct;
+                            slices.push(`${stageColors[stage]} ${start}% ${cumulative}%`);
+                        }
+                    }
+                    const donutStyle = `background: conic-gradient(${slices.join(', ')})`;
+
+                    // Compute sleep window
+                    const firstTs = new Date(stages[0].start_ts);
+                    const lastTs = new Date(stages[stages.length - 1].end_ts);
+                    const bedFmt = firstTs.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const wakeFmt = lastTs.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const totalHours = Math.floor(total / 60);
+                    const remMin = total % 60;
+
+                    // Build legend rows
+                    const legendRows = order.map(stage => {
+                        const pct = Math.round((byType[stage] || 0) / total * 100);
+                        const min = byType[stage] || 0;
+                        return `<div class="flex items-center gap-2 text-sm">
+                            <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${stageColors[stage]}"></span>
+                            <span class="text-gray-700">${stageLabels[stage]}</span>
+                            <span class="ml-auto font-mono text-gray-500">${min}m (${pct}%)</span>
+                        </div>`;
+                    }).join('');
+
                     this.sleepSummary = {
                         date: lastNight.day,
                         totalMinutes: Math.round(total),
+                        totalHours: totalHours + 'h',
                         deepPct: Math.round((byType['deep'] || 0) / total * 100),
                         remPct: Math.round((byType['rem'] || 0) / total * 100),
                         lightPct: Math.round((byType['light'] || 0) / total * 100),
                         awakePct: Math.round((byType['awake'] || 0) / total * 100),
                     };
-                    // Render timeline bars
-                    const barMaxPct = 100; // container pct width
-                    const timeScale = barMaxPct / totalMin;
-                    const bars = stages.map(s => {
-                        const startMin = (new Date(s.start_ts) - first) / 60000;
-                        const width = Math.max(0.5, (s.duration_minutes || 0) * timeScale);
-                        const color = stageColors[s.stage] || '#9ca3af';
-                        return `<div class="absolute h-full rounded-sm" style="left:${startMin * timeScale}%;width:${width}%;background:${color}"
-                                     title="${s.stage}: ${s.duration_minutes}m (${new Date(s.start_ts).toLocaleTimeString()})"></div>`;
-                    }).join('');
 
-                    const timeLabels = [];
-                    for (let m = 0; m <= Math.ceil(totalMin); m += 60) {
-                        const t = new Date(first.getTime() + m * 60000);
-                        timeLabels.push(`<div class="absolute text-xs text-gray-400" style="left:${(m/totalMin)*100}%;top:100%;transform:translateX(-50%);margin-top:4px">${t.getHours()}:00</div>`);
-                    }
-
-                    container.innerHTML = `<div class="relative" style="height:40px;margin-bottom:24px">
-                        <div class="absolute inset-0 bg-gray-100 rounded">${bars}</div>
-                        <div class="absolute inset-0 bg-gray-100 rounded opacity-30" style="clip-path:rect(0,0,0,0)"></div>
-                        ${timeLabels.join('')}
-                    </div>`;
+                    container.innerHTML = `
+                        <div class="relative w-44 h-44 flex-shrink-0">
+                            <div class="absolute inset-0 rounded-full" style="${donutStyle}"></div>
+                            <div class="absolute inset-3 bg-white rounded-full flex flex-col items-center justify-center">
+                                <span class="text-2xl font-bold text-gray-900">${totalHours}h ${remMin}m</span>
+                                <span class="text-xs text-gray-400">${bedFmt} – ${wakeFmt}</span>
+                            </div>
+                        </div>
+                        <div class="flex-1 space-y-1.5">
+                            <p class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Stage Breakdown</p>
+                            ${legendRows}
+                        </div>`;
                 },
 
                 renderMiniTrend(elemId, data, key, minVal, maxVal) {
                     const el = document.getElementById(elemId);
-                    if (!el) return;
-                    // Show last 48 data points, reversed so newest is on the right
+                    if (!el) return {};
                     const points = [...data].slice(0, 48).reverse();
                     const range = maxVal - minVal || 1;
-                    el.innerHTML = points.map(d => {
-                        const pct = Math.max(0, Math.min(100, ((d[key] || minVal) - minVal) / range * 100));
-                        const color = d[key] != null ? (pct > 70 ? '#10b981' : pct > 30 ? '#f59e0b' : '#ef4444') : '#e5e7eb';
+                    let dataMin = Infinity, dataMax = -Infinity;
+                    let firstVal = null, lastVal = null;
+                    const bars = points.map((d, idx) => {
+                        const v = d[key];
+                        if (v != null) {
+                            if (v < dataMin) dataMin = v;
+                            if (v > dataMax) dataMax = v;
+                            if (firstVal === null) firstVal = v;
+                            lastVal = v;
+                        }
+                        const pct = v != null ? Math.max(0, Math.min(100, (v - minVal) / range * 100)) : 0;
+                        const color = v != null ? (pct > 70 ? '#10b981' : pct > 30 ? '#f59e0b' : '#ef4444') : '#e5e7eb';
                         return `<div class="flex-1 rounded-t" style="height:${Math.max(4, pct)}%;background:${color};min-width:2px"></div>`;
-                    }).join('');
+                    });
+                    el.innerHTML = bars.join('');
+                    const trendDir = (lastVal != null && firstVal != null) ? (lastVal - firstVal > 0 ? 1 : -1) : null;
+                    if (dataMin === Infinity) dataMin = null;
+                    if (dataMax === -Infinity) dataMax = null;
+                    return { min: dataMin, max: dataMax, trendDir };
                 },
 
-                renderCircadianBars(labels, values) {
+                renderCircadianLine(labels, values) {
                     const el = document.getElementById('circadianBars');
                     if (!el) return;
                     const validVals = values.filter(v => v != null);
@@ -896,18 +954,49 @@
                     const max = Math.max(...validVals);
                     const min = Math.min(...validVals);
                     const range = max - min || 1;
-                    el.innerHTML = labels.map((label, i) => {
-                        const v = values[i];
-                        const widthPct = v != null ? Math.max(3, ((v - min) / range) * 90 + 5) : 0;
-                        const color = v != null && v < 65 ? 'bg-green-500' : v != null && v < 80 ? 'bg-yellow-500' : 'bg-red-500';
-                        return `<div class="flex items-center gap-2 mb-0.5 text-xs">
-                            <span class="w-12 text-gray-500 font-mono">${label}</span>
-                            <div class="flex-1 bg-gray-100 rounded h-4 relative">
-                                <div class="${color} h-4 rounded" style="width: ${widthPct}%"></div>
-                                <span class="absolute right-2 top-0 leading-4 text-gray-700">${v != null ? v.toFixed(0) : '—'}</span>
-                            </div>
-                        </div>`;
-                    }).join('');
+                    const pad = 5; // px padding
+                    const w = 520, h = 160, plotW = w - 70, plotH = h - 30;
+                    const xScale = plotW / (labels.length - 1 || 1);
+                    const yScale = plotH / range;
+
+                    // Build polyline points
+                    const points = [];
+                    const validIndices = [];
+                    for (let i = 0; i < values.length; i++) {
+                        if (values[i] != null) {
+                            validIndices.push(i);
+                            const x = 60 + i * xScale;
+                            const y = pad + plotH - (values[i] - min) * yScale;
+                            points.push(`${x},${y}`);
+                        }
+                    }
+
+                    // X-axis labels (every 3h)
+                    const xLabels = [];
+                    for (let i = 0; i < labels.length; i += 3) {
+                        xLabels.push(`<text x="${60 + i * xScale}" y="${h - 4}" text-anchor="middle" class="text-xs fill-gray-400" font-size="10">${labels[i]}</text>`);
+                    }
+                    // Y-axis labels
+                    const yTicks = 4;
+                    const yLabels = [];
+                    for (let i = 0; i <= yTicks; i++) {
+                        const val = Math.round(min + (range / yTicks) * i);
+                        const y = pad + plotH - (val - min) * yScale;
+                        yLabels.push(`<text x="52" y="${y + 3}" text-anchor="end" class="text-xs fill-gray-400" font-size="10">${val}</text>`);
+                        yLabels.push(`<line x1="56" y1="${y}" x2="${w}" y2="${y}" stroke="#e5e7eb" stroke-dasharray="2,2"/>`);
+                    }
+
+                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="w-full" style="max-height:200px">
+                        ${yLabels.join('')}
+                        ${xLabels.join('')}
+                        <polyline points="${points.join(' ')}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round"/>
+                        <!-- dots at valid points -->
+                        ${validIndices.map(i => {
+                            const x = 60 + i * xScale;
+                            const y = pad + plotH - (values[i] - min) * yScale;
+                            return `<circle cx="${x}" cy="${y}" r="2.5" fill="#3b82f6"/>`;
+                        }).join('')}
+                    </svg>`;
                 },
 
                 renderSyncTable(data) {
