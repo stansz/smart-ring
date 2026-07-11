@@ -289,15 +289,106 @@ Research shows periodic sampling throughout the day is scientifically valid and 
 ---
 
 ### Metrics to Implement (both options)
-- **RMSSD** (root mean square of successive differences) — primary HRV metric
-- **pNN50** — percentage of successive intervals differing by >50ms
-- **Sleep staging** — light/deep/REM/wake from periodic HR/HRV + accelerometer + temperature
-- **Resting HR** — lowest sustained HR during sleep
-- **Recovery score** — morning RMSSD z-score vs 7-day baseline
-- **Stress/rest classification** — tri-daily HRV pattern analysis
-- **HRV trends** — rolling 7/14/28-day windows
-- **Circadian HR pattern** — HR mapped to time-of-day
-- **Illness early warning** — HRV drop + RHR rise above baseline
+- ~~**RMSSD** (root mean square of successive differences)~~ — NOT AVAILABLE: ring provides composite HRV, not RR intervals
+- ~~**pNN50**~~ — NOT AVAILABLE: requires RR intervals
+- ✅ **Sleep staging** — light/deep/REM/wake from cmd 0xBC big-data (IMPLEMENTED)
+- ✅ **Resting HR** — lowest sustained HR during sleep (IMPLEMENTED)
+- ✅ **Recovery score** — ln(composite_HRV) z-score vs 7-day baseline (IMPLEMENTED)
+- ✅ **Stress classification** — Garmin/Firstbeat thresholds from raw_stress (IMPLEMENTED)
+- ✅ **HRV trends** — rolling 7d/28d windows of composite HRV (IMPLEMENTED)
+- ✅ **Circadian HR pattern** — HR mapped to time-of-day (IMPLEMENTED)
+- [ ] **Illness early warning** — HRV drop + RHR rise above baseline (future)
+
+---
+
+## Validated Score Formulas (2026-07-10)
+
+All formulas are backed by peer-reviewed research and commercial validation studies. See `collector/analytics.py` for implementation.
+
+### Sleep Quality Score (0-100)
+
+**5-component composite** — mirrors Oura's architecture (reverse-engineered by Chheda, ~500 nights, R²=0.846):
+
+```
+SleepScore = 30%·S_dur + 25%·S_eff + 25%·S_arch + 15%·S_cont + 5%·S_lat
+```
+
+Each sub-score uses trapezoidal scoring (full credit in optimal range, linear decline outside):
+
+| Component | Optimal | Declines to 0 at | Reference |
+|-----------|---------|-------------------|-----------|
+| Duration | 7-9 hours | <4h, >10h | Watson et al. 2015 (NSF consensus); Koemel et al. 2026 |
+| Efficiency | ≥90% | <60% | Ohayon 2004 meta-analysis (3,327 citations) |
+| Architecture | deep 13-23%, REM 20-25% | penalize below/above | Ohayon et al. 2004, AASM norms |
+| Continuity | WASO <20min, <2 awakenings | WASO >60min, >6 awakenings | AASM clinical practice |
+| Latency | 10-20 min | <5min (debt), >30min (poor) | PSQI / Oura contributor |
+
+**Why these weights:** Oura's reverse-engineering (Chheda) shows total sleep time is the #1 predictor (coefficient 25.26), followed by latency (12.14), then REM (7.56). Duration gets ~2-3× the weight of any single stage metric.
+
+**Normal sleep architecture (Ohayon 2004 meta-analysis, 65 studies, 3,577 subjects):**
+- Deep (N3): 13-23% (declines ~2%/decade with age; men >70 have ~50% less than men <55)
+- REM: 20-25% (subtle decline; meaningful impairment usually only after 80)
+- Light (N1+N2): 50-60%
+- Wake: <10%
+
+**Previous formula** (`deep_pct × 2.5 + rem_pct × 1.5`) was duration-blind, over-rewarded supra-physiological deep sleep, and ignored efficiency/continuity. Replaced.
+
+### HRV Recovery Score (z-score)
+
+**Altini/Plews/Buchheit framework** — the gold standard for athlete recovery monitoring:
+
+1. **Log-transform**: `ln(composite_hrv)` — normalizes the distribution (RMSSD is right-skewed)
+2. **7-day rolling baseline**: mean of ln(HRV) over previous 7 days
+3. **Z-score**: `z = (ln_today - mean_7d) / SD_7d`
+4. **Readiness mapping**:
+
+| Z-score | Readiness |
+|---------|-----------|
+| > +1.0 | Excellent |
+| +0.5 to +1.0 | Good |
+| -0.5 to +0.5 | Fair (normal) |
+| -1.0 to -0.5 | Poor |
+| < -1.0 | Very Poor |
+
+5. **Coefficient of variation** (CV): SD/mean × 100; CV >15% with suppressed baseline = accumulated fatigue flag
+6. **Cold-start**: ≥5 nights/week needed for reliable 7-day estimates (Grosicki et al. 2026, 2M nights). Scores flagged "low confidence" until 7+ days.
+
+**Why composite HRV works:** The ring's composite value is a PPG-derived HRV metric. All commercial rings (Oura, WHOOP, Garmin) use PPG-derived RMSSD against personal baselines — population norms are less useful than individual trends. The z-score methodology is robust to monotonic transforms since it uses your own baseline and SD.
+
+**Key references:**
+- Altini M (2021). "Longitudinal HRV monitoring." *Sensors*. 9M measurements, 28,175 users.
+- Plews DJ, Laursen PB, Stanley J, et al. (2013). "Training adaptation and heart rate variability in elite endurance athletes." *Sports Medicine*.
+- Marco Altini is data science advisor at Oura; creator of HRV4Training.
+
+### Stress Classification
+
+**Garmin/Firstbeat thresholds** (industry standard, most cited):
+
+| Level | Score Range | Garmin Band |
+|-------|------------|-------------|
+| Relaxed | 0-25 | Rest/recovery |
+| Low | 26-50 | Normal daytime |
+| Medium | 51-75 | Elevated |
+| High | 76-100 | Acute stress |
+
+**Daily weighted stress score:**
+```
+daily_stress = 0.5 × daytime_avg + 0.3 × peak_sustained + 0.2 × overnight_avg
+```
+- **Daytime average** (0.5 weight): bulk of readings, 6AM-10PM
+- **Peak sustained** (0.3 weight): highest 2-hour rolling average — prolonged stress is more meaningful than brief spikes
+- **Overnight average** (0.2 weight): recovery quality signal, 10PM-6AM
+
+**Circadian awareness** (Frontiers in Physiology 2025, Shen et al.): Detrending HRV features with circadian rhythm removal improved stress classification accuracy by **13.67%**. Future: compute per-slot 14-day baselines and report deviation from baseline.
+
+**Cross-validation:** Pearson r between `raw_stress.stress_value` and `raw_hrv.hrv_value` should be ≈ -0.4 to -0.7. Healthy systems show inverse correlation (high stress → low HRV).
+
+### Resting Heart Rate
+
+Tracked as complement to HRV (Altini: "HRV is more sensitive, HR is more specific"):
+- Overnight lowest HR (1-5 AM window)
+- >3 bpm elevation for 2+ consecutive days vs 7-day baseline = warning (illness, overtraining)
+- Most useful when it **diverges** from HRV (confirms or contradicts the signal)
 
 ### Local hardware available
 - **Linux Mint HTPC** (AMD 3800x, 64GB RAM, GTX 1070) — on 24/7, has built-in BT (currently used for mouse)
