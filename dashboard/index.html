@@ -204,47 +204,36 @@
             </div>
             <!-- Stress + Body Metrics -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💪 Stress &amp; Vitals</h2>
-                <div class="flex items-start gap-6">
-                    <div class="text-center flex-shrink-0">
-                        <p class="text-4xl font-bold"
-                           :class="stressDailyAvg <= 25 ? 'text-green-600' : stressDailyAvg <= 50 ? 'text-gray-600 dark:text-gray-300' : stressDailyAvg <= 75 ? 'text-amber-600' : 'text-red-600'"
-                           x-text="stressDailyAvg != null ? Math.round(stressDailyAvg) : '—'"></p>
-                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">daily avg</p>
+                <div class="flex justify-between items-baseline mb-1">
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">💪 Stress &amp; Vitals</h2>
+                    <span class="text-xs text-gray-400 dark:text-gray-500" x-text="selectedDate && !isToday() ? new Date(selectedDate).toLocaleDateString() : ''"></span>
+                </div>
+                <div class="flex items-center gap-3 mb-3">
+                    <p class="text-3xl font-bold"
+                       :class="stressDailyAvg <= 25 ? 'text-green-600' : stressDailyAvg <= 50 ? 'text-gray-600 dark:text-gray-300' : stressDailyAvg <= 75 ? 'text-amber-600' : 'text-red-600'"
+                       x-text="stressDailyAvg != null ? Math.round(stressDailyAvg) : '—'"></p>
+                    <div>
+                        <span class="text-xs font-medium capitalize px-2 py-0.5 rounded"
+                              :class="stressClass === 'relaxed' ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : stressClass === 'low' ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300' : stressClass === 'medium' ? 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300' : 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'"
+                              x-text="stressClass || '—'"></span>
+                        <span class="text-xs text-gray-400 dark:text-gray-500 ml-2" x-show="stressTrendText" x-text="stressTrendText"></span>
                     </div>
-                    <div class="flex-1 space-y-2">
-                        <div class="flex justify-between text-sm">
-                            <span class="text-gray-500 dark:text-gray-400">Level</span>
-                            <span class="font-medium capitalize"
-                                  :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'"
-                                  x-text="stressClass || '—'"></span>
-                        </div>
-                        <div class="flex justify-between text-sm" x-show="stressMorning != null">
-                            <span class="text-gray-500 dark:text-gray-400">🌅 Morning</span>
-                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressMorning || '—'"></span>
-                        </div>
-                        <div class="flex justify-between text-sm" x-show="stressNoon != null">
-                            <span class="text-gray-500 dark:text-gray-400">☀️ Midday</span>
-                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressNoon || '—'"></span>
-                        </div>
-                        <div class="flex justify-between text-sm" x-show="stressEvening != null">
-                            <span class="text-gray-500 dark:text-gray-400">🌙 Evening</span>
-                            <span class="font-mono text-gray-700 dark:text-gray-300" x-text="stressEvening || '—'"></span>
-                        </div>
-                        <div class="pt-2 mt-2 border-t border-gray-100 dark:border-gray-700 grid grid-cols-2 gap-2 text-xs">
-                            <div class="text-center">
-                                <p class="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
-                                <p class="font-bold text-sm mt-0.5"
-                                   :class="spo2Latest >= 95 ? 'text-green-600' : spo2Latest >= 90 ? 'text-amber-600' : 'text-red-600'"
-                                   x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></p>
-                            </div>
-                            <div class="text-center">
-                                <p class="text-gray-400 dark:text-gray-500">🌡️ Temp</p>
-                                <p class="font-bold text-sm mt-0.5"
-                                   :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'"
-                                   x-text="tempLatest != null ? tempLatest + '°C' : '—'"></p>
-                            </div>
-                        </div>
+                </div>
+                <div id="stressChart" class="mb-3" style="min-height:120px">
+                    <p class="text-sm text-gray-400 dark:text-gray-500">Syncing stress data from ring...</p>
+                </div>
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div class="text-center">
+                        <p class="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
+                        <p class="font-bold text-sm mt-0.5"
+                           :class="spo2Latest >= 95 ? 'text-green-600' : spo2Latest >= 90 ? 'text-amber-600' : 'text-red-600'"
+                           x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-gray-400 dark:text-gray-500">🌡️ Temp</p>
+                        <p class="font-bold text-sm mt-0.5"
+                           :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'"
+                           x-text="tempLatest != null ? tempLatest + '°C' : '—'"></p>
                     </div>
                 </div>
             </div>
@@ -453,6 +442,7 @@
                 stressMorning: null,
                 stressNoon: null,
                 stressEvening: null,
+                stressTrendText: '',
                 restingHr: null,
                 stressLevel: null,
                 stressLabel: '',
@@ -546,6 +536,7 @@
                         this.loadPersistedScores(),
                         this.loadSleepStages(),
                         this.loadHealthMetrics(),
+                        this.loadStressChart(),
                         this.loadCircadian(),
                         this.loadSyncLog(),
                         this.loadDialsData(),
@@ -624,6 +615,18 @@
                             this.stressEvening = sMatch.evening_rmssd;
                             const vals = [sMatch.morning_rmssd, sMatch.noon_rmssd, sMatch.evening_rmssd].filter(v => v != null);
                             this.stressDailyAvg = vals.length ? vals.reduce((a,b) => a+b) / vals.length : null;
+                            // Trend vs previous day
+                            const sIdx = stress.indexOf(sMatch);
+                            if (sIdx < stress.length - 1 && this.stressDailyAvg != null) {
+                                const prev = stress[sIdx + 1];
+                                const pVals = [prev.morning_rmssd, prev.noon_rmssd, prev.evening_rmssd].filter(v => v != null);
+                                if (pVals.length) {
+                                    const prevAvg = pVals.reduce((a,b)=>a+b) / pVals.length;
+                                    const diff = Math.round(this.stressDailyAvg - prevAvg);
+                                    if (diff !== 0) this.stressTrendText = (diff > 0 ? '↑+' : '↓') + Math.abs(diff) + ' from yesterday';
+                                    else this.stressTrendText = '';
+                                }
+                            }
                         }
                     } catch (e) { console.error('loadPersistedScores', e); }
                 },
@@ -1084,6 +1087,102 @@
                     if (dataMin === Infinity) dataMin = null;
                     if (dataMax === -Infinity) dataMax = null;
                     return { min: dataMin, max: dataMax, trendDir };
+                },
+
+                async loadStressChart() {
+                    try {
+                        const [stressRes, hrvRes] = await Promise.all([
+                            fetch('/api/raw/stress?hours=168&limit=100'),
+                            fetch('/api/raw/hrv?hours=168&limit=200')
+                        ]);
+                        const stressAll = await stressRes.json();
+                        const hrvAll = await hrvRes.json();
+                        const selKey = this.dateKey(this.selectedDate);
+                        const byDate = (arr) => arr.filter(d => this.dateKey(new Date(d.ts)) === selKey);
+                        const stressDay = byDate(stressAll).length ? byDate(stressAll) : (this.isToday() ? stressAll : []);
+                        const hrvDay = byDate(hrvAll).length ? byDate(hrvAll) : (this.isToday() ? hrvAll : []);
+                        this.renderStressChart(stressDay, hrvDay);
+                    } catch (e) { console.error('loadStressChart', e); }
+                },
+
+                renderStressChart(stressData, hrvData) {
+                    const el = document.getElementById('stressChart');
+                    if (!el) return;
+                    if (!stressData.length && !hrvData.length) {
+                        el.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-500">No stress data for this day</p>';
+                        return;
+                    }
+                    // Aggregate by hour
+                    const byHour = {};
+                    for (let h = 0; h < 24; h++) byHour[h] = { stress: [], hrv: [] };
+                    for (const s of stressData) {
+                        const h = new Date(s.ts).getHours();
+                        if (byHour[h]) byHour[h].stress.push(s.stress_value);
+                    }
+                    for (const r of hrvData) {
+                        const h = new Date(r.ts).getHours();
+                        if (byHour[h]) byHour[h].hrv.push(r.hrv_value);
+                    }
+                    const stressAvg = [], hrvAvg = [];
+                    for (let h = 0; h < 24; h++) {
+                        stressAvg.push(byHour[h].stress.length ? byHour[h].stress.reduce((a,b)=>a+b,0)/byHour[h].stress.length : null);
+                        hrvAvg.push(byHour[h].hrv.length ? byHour[h].hrv.reduce((a,b)=>a+b,0)/byHour[h].hrv.length : null);
+                    }
+
+                    const stressMin = 0, stressMax = 100;
+                    const hrvMin = 20, hrvMax = 60;
+                    const dark = this.darkMode;
+                    const axisColor = dark ? '#9ca3af' : '#6b7280';
+                    const gridColor = dark ? '#374151' : '#e5e7eb';
+                    const pad = 8, w = 480, h = 130;
+                    const plotW = w - 90, plotH = h - pad * 2;
+                    const xScale = plotW / 23;
+
+                    // Stress fill area (red, left axis)
+                    let areaPts = '', linePts = '';
+                    let firstValid = true;
+                    for (let i = 0; i < 24; i++) {
+                        if (stressAvg[i] != null) {
+                            const x = 55 + i * xScale;
+                            const y = pad + plotH - ((stressAvg[i] - stressMin) / (stressMax - stressMin)) * plotH;
+                            if (firstValid) { areaPts += `M${x},${pad+plotH} L${x},${y} `; firstValid = false; }
+                            else areaPts += `L${x},${y} `;
+                            linePts += `${x},${y} `;
+                        }
+                    }
+                    const stressPoly = areaPts ? `<path d="${areaPts} L${55+23*xScale},${pad+plotH} Z" fill="#fca5a5" opacity="0.6"/><polyline points="${linePts.trim()}" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-linejoin="round"/>` : '';
+
+                    // HRV line (green, right axis)
+                    let hrvPts = '';
+                    for (let i = 0; i < 24; i++) {
+                        if (hrvAvg[i] != null) {
+                            const x = 55 + i * xScale;
+                            const y = pad + plotH - ((hrvAvg[i] - hrvMin) / (hrvMax - hrvMin)) * plotH;
+                            hrvPts += `${x},${y} `;
+                        }
+                    }
+                    const hrvLine = hrvPts ? `<polyline points="${hrvPts.trim()}" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>` : '';
+
+                    // Grid lines + labels
+                    let grid = '';
+                    for (let i = 0; i <= 4; i++) {
+                        const sv = stressMin + (stressMax - stressMin) / 4 * i;
+                        const hv = hrvMin + (hrvMax - hrvMin) / 4 * i;
+                        const y = pad + plotH - ((sv - stressMin) / (stressMax - stressMin)) * plotH;
+                        grid += `<line x1="55" y1="${y}" x2="${w}" y2="${y}" stroke="${gridColor}" stroke-dasharray="2,2"/>`;
+                        grid += `<text x="50" y="${y+3}" text-anchor="end" font-size="9" fill="#ef4444" opacity="0.7">${sv}</text>`;
+                        grid += `<text x="${w-4}" y="${y+3}" text-anchor="start" font-size="9" fill="#10b981" opacity="0.7">${hv}</text>`;
+                    }
+                    // Hour labels
+                    for (let h = 0; h < 24; h += 3) {
+                        grid += `<text x="${55 + h*xScale}" y="${h-4}" text-anchor="middle" font-size="9" fill="${axisColor}">${h}h</text>`;
+                    }
+
+                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h+8}" class="w-full" style="max-height:160px">
+                        ${grid}
+                        ${stressPoly}
+                        ${hrvLine}
+                    </svg>`;
                 },
 
                 renderCircadianLine(labels, values) {
