@@ -54,6 +54,21 @@
 
     <!-- ============= DASHBOARD TAB ============= -->
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'dashboard'">
+        <!-- Date navigation -->
+        <div class="flex items-center justify-center gap-4 mb-6">
+            <button @click="prevDay()" class="px-3 py-1.5 rounded-lg bg-white dark:bg-gray-800 shadow border border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                <span class="text-lg">←</span>
+            </button>
+            <div class="text-center min-w-[180px]">
+                <p class="text-lg font-semibold text-gray-900 dark:text-gray-100" x-text="formatSelectedDate()"></p>
+                <button @click="goToday()" x-show="!isToday()" class="text-xs text-blue-600 hover:underline">Jump to today</button>
+            </div>
+            <button @click="nextDay()" :disabled="isToday()"
+                    class="px-3 py-1.5 rounded-lg bg-white dark:bg-gray-800 shadow border border-gray-100 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                <span class="text-lg">→</span>
+            </button>
+        </div>
+
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
             <!-- Sleep -->
             <div class="stat-card bg-white dark:bg-gray-800 rounded-lg shadow p-5 border-l-[6px] border-indigo-500 border border-gray-100 dark:border-gray-700">
@@ -366,6 +381,7 @@
                 // Tab routing
                 tab: 'dashboard',
                 darkMode: false,
+                selectedDate: new Date(),
 
                 loading: false,
                 lastSync: '—',
@@ -437,6 +453,34 @@
                     document.documentElement.classList.toggle('dark', this.darkMode);
                 },
 
+                dateKey(d) {
+                    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                },
+                isToday() {
+                    return this.dateKey(this.selectedDate) === this.dateKey(new Date());
+                },
+                formatSelectedDate() {
+                    const d = this.selectedDate;
+                    const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+                    if (this.isToday()) return 'Today';
+                    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+                    if (this.dateKey(d) === this.dateKey(yesterday)) return 'Yesterday';
+                    return d.toLocaleDateString(undefined, opts);
+                },
+                prevDay() {
+                    this.selectedDate = new Date(this.selectedDate.getTime() - 86400000);
+                    this.loadDashboard();
+                },
+                nextDay() {
+                    if (this.isToday()) return;
+                    this.selectedDate = new Date(this.selectedDate.getTime() + 86400000);
+                    this.loadDashboard();
+                },
+                goToday() {
+                    this.selectedDate = new Date();
+                    this.loadDashboard();
+                },
+
                 switchTab(t) {
                     this.tab = t;
                     if (t === 'admin') this.loadAdmin();
@@ -497,20 +541,22 @@
                         const recovery = await recoveryRes.json();
                         const sleep = await sleepRes.json();
 
-                        // Recovery: latest readiness text + z-score from analytics
+                        // Recovery: find selected date's readiness (fall back to latest)
                         if (recovery.length) {
-                            const latest = recovery[recovery.length - 1];
-                            this.readinessText = latest.readiness_text || '';
-                            if (latest.z_score != null) {
-                                this.recoveryDelta = Math.round(latest.z_score * 10);
+                            const selDay = this.dateKey(this.selectedDate);
+                            const match = recovery.find(r => r.day === selDay) || recovery[recovery.length - 1];
+                            this.readinessText = match.readiness_text || '';
+                            if (match.z_score != null) {
+                                this.recoveryDelta = Math.round(match.z_score * 10);
                             }
                         }
 
-                        // Sleep: persisted quality score from analytics
+                        // Sleep: persisted quality score for selected date
                         if (sleep.length) {
-                            const latest = sleep[sleep.length - 1];
-                            if (latest.score != null) {
-                                this.sleepQualityScore = Math.round(latest.score);
+                            const selDay = this.dateKey(this.selectedDate);
+                            const match = sleep.find(r => r.day === selDay) || sleep[sleep.length - 1];
+                            if (match.score != null) {
+                                this.sleepQualityScore = Math.round(match.score);
                             }
                         }
 
@@ -531,20 +577,23 @@
                                 '<p class="text-sm text-gray-400 dark:text-gray-500">No sleep data yet — sync the ring to pull sleep history</p>';
                             return;
                         }
-                        // Find last night: pick the most recent day that has deep/rem stages
-                        // (skip today — sleep data is from overnight)
+                        // Find sleep for selected date; fall back to latest for today
                         const stagesByDay = {};
                         for (const s of data) {
                             if (!stagesByDay[s.day]) stagesByDay[s.day] = [];
                             stagesByDay[s.day].push(s);
                         }
-                        const days = Object.keys(stagesByDay).sort().reverse();
+                        const selDay = this.dateKey(this.selectedDate);
                         let lastNight = null;
-                        for (const day of days) {
-                            const stages = stagesByDay[day];
-                            if (stages.some(s => s.stage === 'deep' || s.stage === 'rem')) {
-                                lastNight = { day, stages: stages.sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts)) };
-                                break;
+                        if (stagesByDay[selDay] && stagesByDay[selDay].some(s => s.stage === 'deep' || s.stage === 'rem')) {
+                            lastNight = { day: selDay, stages: stagesByDay[selDay].sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts)) };
+                        } else if (this.isToday()) {
+                            const days = Object.keys(stagesByDay).sort().reverse();
+                            for (const day of days) {
+                                if (stagesByDay[day].some(s => s.stage === 'deep' || s.stage === 'rem')) {
+                                    lastNight = { day, stages: stagesByDay[day].sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts)) };
+                                    break;
+                                }
                             }
                         }
                         if (!lastNight) {
@@ -572,52 +621,51 @@
                             fetch('/api/raw/temperature?hours=168&limit=100'),
                             fetch('/api/raw/hrv?hours=168&limit=200')
                         ]);
-                        const spo2Data = spo2.status === 'fulfilled' ? await spo2.value.json() : [];
-                        const tempData = temp.status === 'fulfilled' ? await temp.value.json() : [];
-                        const hrvData = hrv.status === 'fulfilled' ? await hrv.value.json() : [];
+                        const spo2All = spo2.status === 'fulfilled' ? await spo2.value.json() : [];
+                        const tempAll = temp.status === 'fulfilled' ? await temp.value.json() : [];
+                        const hrvAll = hrv.status === 'fulfilled' ? await hrv.value.json() : [];
+
+                        // Filter to selected date
+                        const selKey = this.dateKey(this.selectedDate);
+                        const byDate = (arr) => arr.filter(d => this.dateKey(new Date(d.ts)) === selKey);
+                        const spo2Data = byDate(spo2All);
+                        const tempData = byDate(tempAll);
+                        const hrvData = byDate(hrvAll);
+
+                        // Fall back to all data if selected date has nothing
+                        const spo2Final = spo2Data.length ? spo2Data : (this.isToday() ? spo2All : []);
+                        const tempFinal = tempData.length ? tempData : (this.isToday() ? tempAll : []);
+                        const hrvFinal = hrvData.length ? hrvData : (this.isToday() ? hrvAll : []);
 
                         const range = (d, k) => {
                             const vals = d.map(x => x[k]).filter(v => v != null);
-                            return vals.length ? { min: vals[vals.length - 1], max: vals[0] } : null;
+                            return vals.length ? { min: Math.min(...vals), max: Math.max(...vals) } : null;
                         };
-                        if (spo2Data.length) {
-                            this.spo2Latest = spo2Data[0].spo2_pct;
-                            this.spo2Range = range(spo2Data, 'spo2_pct');
-                        }
-                        if (tempData.length) {
-                            this.tempLatest = Number(tempData[0].temp_c).toFixed(1);
-                            this.tempRange = range(tempData, 'temp_c');
-                        }
-                        if (hrvData.length) {
-                            this.hrvLatest = hrvData[0].hrv_value;
-                            this.hrvRange = range(hrvData, 'hrv_value');
-                            // Recovery delta: today's avg HRV vs 3-day baseline
-                            const now = new Date();
-                            const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
-                            const todaysHRV = hrvData.filter(d => {
-                                const t = new Date(d.ts);
-                                return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
-                            });
-                            const baselineHRV = hrvData.filter(d => {
-                                const t = new Date(d.ts);
-                                return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` !== todayKey;
-                            });
-                            if (todaysHRV.length && baselineHRV.length) {
-                                const todayAvg = todaysHRV.reduce((a, d) => a + d.hrv_value, 0) / todaysHRV.length;
-                                const baselineAvg = baselineHRV.reduce((a, d) => a + d.hrv_value, 0) / baselineHRV.length;
-                                this.recoveryDelta = Math.round((todayAvg - baselineAvg) / baselineAvg * 100);
-                            }
-                        }
-                        // Resting HR from overnight data
+                        if (spo2Final.length) {
+                            this.spo2Latest = spo2Final[0].spo2_pct;
+                            this.spo2Range = range(spo2Final, 'spo2_pct');
+                        } else { this.spo2Latest = null; this.spo2Range = null; }
+                        if (tempFinal.length) {
+                            this.tempLatest = Number(tempFinal[0].temp_c).toFixed(1);
+                            this.tempRange = range(tempFinal, 'temp_c');
+                        } else { this.tempLatest = null; this.tempRange = null; }
+                        if (hrvFinal.length) {
+                            this.hrvLatest = hrvFinal[0].hrv_value;
+                            this.hrvRange = range(hrvFinal, 'hrv_value');
+                        } else { this.hrvLatest = null; this.hrvRange = null; }
+
+                        // Resting HR from overnight data for selected date
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
-                        const hrData = await hrRes.json();
-                        const nightHR = hrData.filter(d => {
+                        const hrAll = await hrRes.json();
+                        const hrDay = hrAll.filter(d => this.dateKey(new Date(d.ts)) === selKey);
+                        const hrSource = hrDay.length ? hrDay : (this.isToday() ? hrAll : []);
+                        const nightHR = hrSource.filter(d => {
                             const h = new Date(d.ts).getHours();
                             return h >= 1 && h <= 5;
                         });
                         if (nightHR.length > 0) {
                             this.restingHr = Math.round(nightHR.reduce((a, b) => a + b.bpm, 0) / nightHR.length);
-                        }
+                        } else { this.restingHr = null; }
                     } catch (e) { console.error('loadHealthMetrics', e); }
                 },
 
@@ -736,12 +784,11 @@
                 computeDials(hrData, stepsData, stressData, goals) {
                     // Cache goals for the template
                     this.goals = goals || {};
-                    // "Today" = local-time entries from today's date only.
-                    const now = new Date();
-                    const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+                    // Filter for selected date (defaults to today).
+                    const selKey = this.dateKey(this.selectedDate);
                     const todaysSteps = stepsData.filter(s => {
                         const t = new Date(s.ts);
-                        return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
+                        return this.dateKey(t) === selKey;
                     });
                     // ACTIVE TIME: count 15-min slots where steps exceed a movement
                     // threshold. Gadgetbridge uses "intensity" from the
@@ -778,19 +825,17 @@
                     const stepsGoal = (goals && goals.steps_goal) || 10000;
                     this.stepsPct = Math.min(100, Math.round(stepsTotal / stepsGoal * 100)).toString();
 
-                    // HR stats: prefer today, fall back to most recent day
-                    // with data (user may not be wearing the ring today).
+                    // HR stats: filter for selected date, fall back to most recent day with data
                     const todaysHr = hrData.filter(h => {
                         const t = new Date(h.ts);
-                        return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === todayKey;
+                        return this.dateKey(t) === selKey;
                     });
                     let hrForStats = todaysHr;
-                    let hrDateLabel = 'today';
+                    let hrDateLabel = this.isToday() ? 'today' : this.formatSelectedDate().toLowerCase();
                     if (todaysHr.length === 0 && hrData.length > 0) {
-                        // Find most recent date with data
                         const sorted = [...hrData].sort((a, b) => new Date(b.ts) - new Date(a.ts));
                         const lastDate = new Date(sorted[0].ts);
-                        const lastDateKey = `${lastDate.getFullYear()}-${lastDate.getMonth()}-${lastDate.getDate()}`;
+                        const lastDateKey = this.dateKey(lastDate);
                         hrForStats = hrData.filter(h => {
                             const t = new Date(h.ts);
                             return `${t.getFullYear()}-${t.getMonth()}-${t.getDate()}` === lastDateKey;
