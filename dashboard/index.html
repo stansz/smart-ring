@@ -558,19 +558,15 @@
             </div>
         </div>
 
-        <!-- Ring buffer / drift status -->
-        <div x-show="clockAlert.future_rows > 0 || (clockAlert.latest_drift_ms != null && Math.abs(clockAlert.latest_drift_ms) > 60000)"
+        <!-- Ring buffer status (phantom future entries from old clock) -->
+        <div x-show="clockAlert.future_rows > 0"
              x-transition.opacity
              class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6 flex items-start gap-3">
             <span class="text-xl">ℹ️</span>
             <div>
-                <p class="text-sm font-semibold text-blue-800 dark:text-blue-200" x-text="clockAlert.future_rows > 0
-                    ? 'Ring buffer still contains old records'
-                    : 'Ring clock drift detected'"></p>
+                <p class="text-sm font-semibold text-blue-800 dark:text-blue-200">Ring buffer still contains old records</p>
                 <p class="text-xs text-blue-700 dark:text-blue-300 mt-0.5"
-                   x-text="clockAlert.future_rows > 0
-                       ? `${clockAlert.future_rows} record(s) from before the time-fix still in ring's buffer. Will clear naturally in 2−3 days as the ring fills with fresh data.`
-                       : `Latest sync drift: ${(clockAlert.latest_drift_ms/1000).toFixed(1)}s.`"></p>
+                   x-text="`${clockAlert.future_rows} record(s) from before the time-fix still in ring's buffer. Will clear naturally in 2−3 days as the ring fills with fresh data.`"></p>
             </div>
         </div>
 
@@ -608,7 +604,7 @@
                             <th class="pb-2 pr-4">Completed</th>
                              <th class="pb-2 pr-4">Records</th>
                              <th class="pb-2 pr-4">Battery</th>
-                             <th class="pb-2 pr-4">Clock Drift</th>
+                             <th class="pb-2 pr-4">Time Sync</th>
                              <th class="pb-2 pr-4">Status</th>
                             <th class="pb-2 pr-4">Error</th>
                         </tr>
@@ -621,8 +617,8 @@
                                 <td class="py-2 pr-4" x-text="s.records_synced ?? 0"></td>
                                 <td class="py-2 pr-4" x-text="s.battery_pct != null ? s.battery_pct + '%' : '—'"></td>
                                 <td class="py-2 pr-4">
-                                    <span x-text="s.clock_drift_ms != null ? (s.clock_drift_ms/1000).toFixed(1) + 's' : '—'"
-                                          :class="s.clock_drift_ms == null ? '' : s.clock_drift_ms > 60000 ? 'text-red-600 font-semibold' : s.clock_drift_ms < -60000 ? 'text-amber-600' : 'text-green-600'"></span>
+                                    <span x-text="s.clock_drift_ms === 1 ? 'OK' : s.clock_drift_ms === 0 ? 'No ack' : '—'"
+                                          :class="s.clock_drift_ms === 1 ? 'text-green-600 font-semibold' : s.clock_drift_ms === 0 ? 'text-red-600 font-semibold' : 'text-gray-400'"></span>
                                 </td>
                                 <td class="py-2 pr-4">
                                     <span class="px-2 py-0.5 text-xs rounded"
@@ -753,7 +749,7 @@
                 syncElapsedCount: 0,
                 syncProgress: '',
                 syncError: null,
-                clockAlert: { future_rows: 0, latest_drift_ms: null },
+                clockAlert: { future_rows: 0 },
                 // Analytics tab state
                 analyticsRange: 7,
                 analyticsRecovery: {},

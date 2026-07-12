@@ -123,7 +123,25 @@ RMSSD and pNN50 (which require RR intervals) are **NOT available** from this rin
 
 **Heart rate data format:** The ring's SportDetail returns `time_index` as a **15-minute slot** from local midnight (slots 0–95 per day), NOT the hour of the day. Each 15-min slot represents steps/calories/distance for that window.
 
-**Ring time:** The ring's clock is set via `client.set_time(datetime.now())` which is naive local time. All stored data uses the ring's local time as the reference for time_index values. When building timestamps, you must use local midnight (not UTC midnight) as the base, then convert to UTC via `.astimezone()`. See `collector/sync_ring.py` for the current implementation.
+**Ring time — R09 Time Sync Protocol (Gadgetbridge source-verified, Jul 2026):**
+
+The R09 firmware reads the set_time BCD bytes as **local wall-clock values** (not UTC). Three implementations compared:
+
+| Aspect | Gadgetbridge `setDateTime()` | Our `set_time_local()` | Library `set_time_packet()` |
+|--------|------------------------------|------------------------|-----------------------------|
+| Timezone | LOCAL (`GregorianCalendar.getInstance()`) | LOCAL (`datetime.now()`) | UTC (converts via `.astimezone(timezone.utc)`) |
+| Data bytes | 6 (year/month/day/hour/min/sec) | 6 (same) | 7 (+ language flag `0x01`) |
+| Encoding | BCD via `Byte.parseByte(str, 16)` | BCD via `byte_to_bcd()` | BCD via `byte_to_bcd()` |
+
+The library's UTC approach shifts the ring's "midnight" by the host's UTC offset, causing data to land in wrong time slots. Our 6-byte local packet matches Gadgetbridge byte-for-byte.
+
+**The ring acknowledges `set_time`:** After sending cmd 0x01, the ring responds with a 16-byte capability packet (same cmd byte). The library's `client.py` registers `empty_parse` for 0x01, which returns `None` and silently discards this response. We override with `_pass_through` so the ack reaches `client.queues[0x01]`. After `set_time_local()`, we wait 3s for this response — if it arrives, the ring processed the command.
+
+**Ring buffer behavior after clock jumps:** When the ring's clock is changed (e.g., factory UTC+8 → our local time), old data in the ring's circular buffer retains its original timestamps. This creates "phantom" future-dated entries in the DB. The `clipFuture` filter on the dashboard hides these. The ring's ~7-day buffer flushes old entries naturally as new data fills in.
+
+**Drift measurement pitfall:** Do NOT measure clock drift as `max(HR ts) - now()`. With 30-min HR sampling, this always shows -10 to -30 min "drift" — that's just the time since the last HR sample, not clock error. Any data-freshness-based check will false-alarm when the ring is off the finger. The ack-based approach avoids this entirely.
+
+All stored data uses the ring's local time as the reference. When building timestamps, use local midnight (not UTC midnight) as the base, then convert to UTC via `.astimezone()`.
 
 ---
 

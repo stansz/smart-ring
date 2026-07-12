@@ -56,6 +56,7 @@ class SyncResult:
     battery_pct: Optional[int] = None
     fw_version: Optional[str] = None
     error: Optional[str] = None
+    time_sync_acked: Optional[bool] = None
 
 
 def get_db():
@@ -69,43 +70,18 @@ def log_sync_start() -> int:
             return cur.fetchone()["id"]
 
 
-def _compute_clock_drift_ms() -> Optional[int]:
-    """Ring clock skew vs host ``now()``, in ms.
-
-    Computed as ``max(recent_ts) - now()`` from ``raw_heart_rate``
-    within the last 24 hours.  Positive = ring is ahead of host
-    (future-dated readings exist).  Only looks at the current day so
-    that old buffer entries (recorded before a time-fix) do not
-    pollute the signal.
-    """
-    try:
-        with get_db() as conn, conn.cursor() as cur:
-            cur.execute("""
-                SELECT EXTRACT(EPOCH FROM (max(ts) - now())) * 1000
-                FROM raw_heart_rate
-                WHERE ts > now() - interval '24 hours'
-            """)
-            row = cur.fetchone()
-            if not row:
-                return None
-            val = list(row.values())[0]
-            return int(val) if val is not None else None
-    except Exception as e:
-        log.debug(f"compute_clock_drift failed: {e}")
-        return None
-
-
 def log_sync_complete(sync_id: int, result: SyncResult):
-    drift = _compute_clock_drift_ms()
-    if drift is not None and abs(drift) > 60_000:
-        log.warning(f"Ring clock drift: {drift} ms — consider re-pairing")
+    # clock_drift_ms column repurposed: 1 = set_time acked by ring, 0 = no ack, NULL = unknown
+    ack_flag = None
+    if result.time_sync_acked is not None:
+        ack_flag = 1 if result.time_sync_acked else 0
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE sync_log SET completed_at = NOW(), records_synced = %s,
                     battery_pct = %s, clock_drift_ms = %s, status = %s, error = %s
                 WHERE id = %s
-            """, (result.records_synced, result.battery_pct, drift,
+            """, (result.records_synced, result.battery_pct, ack_flag,
                   "completed" if not result.error else "error", result.error, sync_id))
 
 
@@ -727,25 +703,15 @@ async def fetch_hr_history(
             # Each element is the BPM value or 0/-1 for no data.
             # Use local midnight as the base since the ring stores times in local time.
             day_count = 0
-            day_max_ts = None
             ts = local_midnight
             five_min = timedelta(minutes=5)
             for hr_val in result.heart_rates:
                 if hr_val > 0:
                     records.append({"ts": ts, "bpm": hr_val})
                     day_count += 1
-                    if day_max_ts is None or ts > day_max_ts:
-                        day_max_ts = ts
                 ts += five_min
-            # Per-day drift diagnostic — TODAY is the canary
-            if day_count > 0 and day_max_ts is not None:
-                now_ref = datetime.now(timezone.utc)
-                drift_sec = (day_max_ts - now_ref).total_seconds()
-                tag = "TODAY  " if days_ago == 0 else f"day-{days_ago}"
-                level = logging.WARNING if abs(drift_sec) > 300 else logging.INFO
-                log.log(level,
-                    f"  drift {tag}: {drift_sec:.0f}s "
-                    f"({day_count} records, max_ts={day_max_ts.isoformat()})")
+            if day_count:
+                log.info(f"  HR {local_midnight.date()}: {day_count} records")
 
     return records
 
@@ -914,6 +880,18 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
             now = datetime.now()
             await client.set_time_local(now)
             log.info(f"Time synced (local BCD): {now.strftime('%Y-%m-%d %H:%M:%S')}")
+            # Wait for ring to acknowledge the set_time command (cmd 0x01).
+            # The ring responds with a capability packet — its arrival confirms
+            # the command was received and processed. This is a direct
+            # verification, unlike the old drift metric which conflated
+            # sampling lag with clock error.
+            try:
+                await asyncio.wait_for(client.queues[1].get(), timeout=3.0)
+                result.time_sync_acked = True
+                log.info("Time sync acknowledged by ring")
+            except asyncio.TimeoutError:
+                result.time_sync_acked = False
+                log.warning("Time sync: no ack from ring (3s timeout) — time may not be set")
         except Exception as e:
             log.warning(f"Time sync failed: {e}")
 
