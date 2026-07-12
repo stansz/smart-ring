@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS sync_log (
     battery_pct INT,
     clock_drift_ms INT,
     status TEXT DEFAULT 'running',
+    current_step TEXT,
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_log_started ON sync_log(started_at DESC);

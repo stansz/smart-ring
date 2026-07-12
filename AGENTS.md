@@ -63,7 +63,7 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 | File | Purpose | Notes |
 |------|---------|-------|
 | `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient`; robust packet handling; V2 big-data service support; `set_time_local()` matches Gadgetbridge encoding (BCD local, no language byte); forget/pair/disconnect BlueZ helpers for R09 reconnect-bug workaround |
-| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `set_time_local()` (Gadgetbridge-compatible BCD local, 2s post-connect delay); `_compute_clock_drift_ms()` measures ring clock skew per sync (24h scope, stored in `sync_log.clock_drift_ms`); per-day drift logging in `fetch_hr_history`; all data parsers use `.astimezone()` for correct tz-aware timestamps |
+| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `set_time_local()` (Gadgetbridge-compatible BCD local, 2s post-connect delay); `_compute_clock_drift_ms()` measures ring clock skew per sync (24h scope, stored in `sync_log.clock_drift_ms`); per-day drift logging in `fetch_hr_history`; `update_progress()` writes sync phase to `sync_log.current_step` for real-time dashboard progress; all data parsers use `.astimezone()` for correct tz-aware timestamps |
 | `collector/collector-wrapper.py` | Tiny shim that sets `sys.path` and runs `sync_ring.main()` | Injects `--forget` into sys.argv for R09 reconnect-bug workaround |
 | `collector/first_contact.py` | Safe read-only diagnostics | Reads battery, firmware, device info, sets clock via `set_time_local()` — NO data sync |
 | `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
@@ -71,7 +71,7 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 | `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Watches `sync_requests` table every 30s, runs `collector-wrapper.py` for any pending row. Safe to run continuously: no BLE connection between syncs. |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
 | `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; endpoints: `/api/raw/{heart-rate,steps,stress,temperature,spo2,hrv}`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/circadian-hr`, `/api/stress`, `/api/sync-log`, `/api/admin/{ring-status,health,sync-log,sync,sync-requests,clock-alert}` |
-| `dashboard/index.html` | Single-page Alpine.js + Tailwind CSS UI, **three tabs: Dashboard + Analytics + Admin** | No build step; pure SVG charts with Catmull-Rom smoothing + hover tooltips + entrance animations; Vitals chart (HR + SpO₂ + Temp triple-axis); Circadian HR line graph; sleep donut; 4 activity dials; `clipFuture` filter hides phantom buffer entries; Analytics tab with data pipeline reference + score breakdowns + 4 trend charts (HRV/sleep/stress/resting-HR); clock drift alert banner; dark mode; sync log in Admin tab only |
+| `dashboard/index.html` | Single-page Alpine.js + Tailwind CSS UI, **three tabs: Dashboard + Analytics + Admin** | No build step; pure SVG charts with Catmull-Rom smoothing + hover tooltips + entrance animations; Vitals chart (HR + SpO₂ + Temp triple-axis); Circadian HR line graph with inline explainer; sleep donut; 4 activity dials; `clipFuture` filter hides phantom buffer entries; Analytics tab with data pipeline reference + score breakdowns + 4 trend charts (HRV/sleep/stress/resting-HR); clock drift alert banner; battery indicator in nav bar; sync button with spinner + elapsed timer + progress badge + auto-refresh + error banner; dark mode; sync log in Admin tab only |
 | `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue; `raw_steps` now includes `calories` + `distance`; `raw_stress` + `ring_goals` tables added |
 
 ---
@@ -707,6 +707,43 @@ Additionally, the library includes a 7th data byte (language=1) that Gadgetbridg
 - `dashboard/index.html` — Analytics tab HTML + `loadAnalytics()` + `loadAnalyticsTrends()` + `renderAnalyticsTrendChart()` + `_attachTrendTooltip()` methods
 - `api/main.py` — added `/api/resting-hr` endpoint
 - `AGENTS.md` — this entry; updated Key Source Files table
+
+---
+
+### 2026-07-11 (c) — Sync Button Improvements: Spinner, Progress Stages, Auto-Refresh
+
+**Task:** Replace the basic "Sync Now" button with live progress feedback: animated spinner, elapsed timer, sync phase badge, auto-refresh on completion, and inline error banner (replaces `alert()`).
+
+**What was built:**
+
+**DB:** Added `current_step TEXT` column to `sync_log` table. Sync phases are written by the collector and polled by the dashboard via a new API endpoint.
+
+**Collector (`sync_ring.py`):**
+- `update_progress(sync_id, step)` helper — writes the current phase to `sync_log.current_step`
+- `_collect_data()` now accepts `sync_id` and calls `update_progress` at 12 phases:
+  Connected → Reading device info → Reading battery → Syncing time → Fetching heart rate → Fetching steps → Fetching HRV → Fetching sleep → Fetching SpO₂ → Fetching temperature → Fetching stress → Fetching goals
+- `sync_ring()` and `main()` thread `sync_id` through the call chain
+
+**API (`main.py`):**
+- `GET /api/admin/sync-progress` — returns latest sync_log's `current_step` + `started_at` for real-time display
+
+**Dashboard (`index.html`):**
+- CSS spinner animation (`@keyframes spin`) + Tailwind `animate-spin` on button SVG
+- Elapsed timer `[M:SS]` next to button, counting up every 1s from `syncStartTime`
+- Progress badge (pulsating blue chip) next to button showing `syncProgress` from API
+- Auto-refresh: when `loadSyncRequests` detects transition from syncing to idle, calls `loadDashboard()` + `loadRingStatus()` + `loadAdminSyncLog()` automatically. Only checks most recent request (index 0), not entire list (fixes false-error-banner bug).
+- Inline error banner: red bar at page top replaces `alert()` (click to dismiss)
+- `init()` now checks for active sync on page load (handles mid-sync refresh)
+- `switchTab` already triggers reloads; polling continues across tabs
+- Battery indicator in nav bar: SVG battery icon with fill level + percentage, green/amber/red by level, next to last-sync timestamp
+- Circadian HR explainer: moved from ⓘ tooltip to visible text block below chart (fills blank space)
+
+**Files changed:**
+- `db/init.sql` — `current_step TEXT` column on `sync_log`
+- `collector/sync_ring.py` — `update_progress()` helper, 12 progress calls, `sync_id` threading
+- `api/main.py` — `GET /api/admin/sync-progress` endpoint
+- `dashboard/index.html` — spinner, elapsed timer, progress badge, auto-refresh, error banner, battery indicator, circadian explainer
+- `AGENTS.md` — this entry
 
 ---
 

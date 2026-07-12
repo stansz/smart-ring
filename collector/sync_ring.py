@@ -109,6 +109,17 @@ def log_sync_complete(sync_id: int, result: SyncResult):
                   "completed" if not result.error else "error", result.error, sync_id))
 
 
+def update_progress(sync_id: Optional[int], step: str):
+    if sync_id is None:
+        return
+    log.info(f"Progress: {step}")
+    try:
+        with get_db() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE sync_log SET current_step = %s WHERE id = %s", (step, sync_id))
+    except Exception:
+        pass  # non-critical
+
+
 def log_ring_status(battery_pct: Optional[int], fw_version: Optional[str]):
     with get_db() as conn:
         with conn.cursor() as cur:
@@ -870,16 +881,18 @@ def upsert_goals(goals: dict) -> int:
             return cur.rowcount
 
 
-async def _collect_data(client: Client, address: str) -> SyncResult:
+async def _collect_data(client: Client, address: str, sync_id: Optional[int] = None) -> SyncResult:
     """All sync work after the BLE link is up. Used by sync_ring() and tests."""
     result = SyncResult()
     total_records = 0
 
     try:
         log.info(f"Connected to {address}")
+        update_progress(sync_id, "Connected")
 
         # 1. Device info + battery
         try:
+            update_progress(sync_id, "Reading device info...")
             info = await client.get_device_info()
             result.fw_version = info.get("fw_version")
             log.info(f"FW: {result.fw_version}")
@@ -887,6 +900,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.debug(f"Device info failed: {e}")
 
         try:
+            update_progress(sync_id, "Reading battery...")
             battery = await client.get_battery()
             result.battery_pct = battery.battery_level
             log.info(f"Battery: {result.battery_pct}%")
@@ -895,6 +909,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
 
         # 2. Sync time — Gadgetbridge-compatible: 2s delay + local BCD
         try:
+            update_progress(sync_id, "Syncing time...")
             await asyncio.sleep(2)
             now = datetime.now()
             await client.set_time_local(now)
@@ -907,6 +922,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
         # only returns results for today's data. We handle the multi-packet
         # protocol ourselves, following Gadgetbridge's ColmiR0xDeviceSupport.
         log.info("Syncing heart rate history...")
+        update_progress(sync_id, "Fetching heart rate...")
         try:
             hr_records = await fetch_hr_history(client, None, None)
             count = upsert_heart_rate(hr_records)
@@ -922,6 +938,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
         # The ring stores time in local time (we set it with datetime.now()
         # which is naive local). Build timestamps from local midnight +
         # time_index * 15 minutes, then convert to UTC.
+        update_progress(sync_id, "Fetching steps...")
         try:
             step_records = []
             local_now = datetime.now()
@@ -953,6 +970,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.error(f"Steps sync failed: {e}")
 
         # 5. Sync HRV (cmd 0x39, Gadgetbridge CMD_SYNC_HRV)
+        update_progress(sync_id, "Fetching HRV...")
         try:
             hrv_records = await fetch_hrv_history(client)
             count = upsert_hrv(hrv_records)
@@ -962,6 +980,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.warning(f"HRV sync failed: {e}")
 
         # 6. Sync sleep (cmd 0xBC + type 0x27, Gadgetbridge big-data)
+        update_progress(sync_id, "Fetching sleep...")
         try:
             sleep_records = await fetch_sleep_history(client)
             count = upsert_sleep(sleep_records)
@@ -971,6 +990,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.warning(f"Sleep sync failed: {e}")
 
         # 7. SpO2 (cmd 0xBC + type 0x2A, Gadgetbridge big-data)
+        update_progress(sync_id, "Fetching SpO2...")
         try:
             spo2_records = await fetch_spo2_history(client)
             count = upsert_spo2(spo2_records)
@@ -980,6 +1000,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.warning(f"SpO2 sync failed: {e}")
 
         # 8. Temperature (cmd 0xBC + type 0x25, Gadgetbridge big-data)
+        update_progress(sync_id, "Fetching temperature...")
         try:
             temp_records = await fetch_temperature_history(client)
             count = upsert_temperature_list(temp_records)
@@ -989,6 +1010,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.warning(f"Temperature sync failed: {e}")
 
         # 9. Stress history (cmd 0x37, multi-packet, 30-min intervals)
+        update_progress(sync_id, "Fetching stress...")
         try:
             stress_records = await fetch_stress_history(client)
             count = upsert_stress(stress_records)
@@ -998,6 +1020,7 @@ async def _collect_data(client: Client, address: str) -> SyncResult:
             log.warning(f"Stress sync failed: {e}")
 
         # 10. Ring goals (steps, calories, distance targets)
+        update_progress(sync_id, "Fetching goals...")
         try:
             goals = await fetch_goals(client)
             if goals:
@@ -1020,6 +1043,7 @@ async def sync_ring(
     attempts: int = 5,
     wake_ping: bool = True,
     forget_repair: bool = False,
+    sync_id: Optional[int] = None,
 ) -> SyncResult:
     """Main async sync routine with retry-on-sleep + R09 reconnect-bug workaround.
 
@@ -1035,7 +1059,7 @@ async def sync_ring(
         forget_repair=forget_repair,
     )
     try:
-        return await _collect_data(client, address)
+        return await _collect_data(client, address, sync_id=sync_id)
     finally:
         try:
             await client.__aexit__(None, None, None)
@@ -1116,7 +1140,7 @@ async def main():
                 except Exception:
                     pass
         else:
-            result = await sync_ring(address, attempts=attempts, forget_repair=do_forget)
+            result = await sync_ring(address, attempts=attempts, forget_repair=do_forget, sync_id=sync_id)
 
         log_sync_complete(sync_id, result)
         if result.error:
