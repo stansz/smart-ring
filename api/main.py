@@ -384,6 +384,20 @@ def list_sync_requests(limit: int = 20):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/admin/sync-progress")
+def get_sync_progress():
+    """Latest sync's current_step and started_at for real-time progress display."""
+    with SessionLocal() as db:
+        row = db.execute(text("""
+            SELECT current_step, started_at
+            FROM sync_log
+            ORDER BY started_at DESC LIMIT 1
+        """)).mappings().first()
+    if not row:
+        return {"current_step": None, "started_at": None}
+    return dict(row)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=settings.api_host, port=settings.api_port)

@@ -45,9 +45,19 @@
         .chart-tooltip.show { opacity: 1; }
         .chart-legend-dot { transition: transform 0.15s ease; }
         .chart-legend-row:hover .chart-legend-dot { transform: scale(1.25); }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .animate-spin { animation: spin 1s linear infinite; }
+        @keyframes pulse { 50% { opacity: 0.5; } }
+        .animate-pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
     </style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 min-h-screen" x-data="dashboard()" x-init="init()">
+    <!-- Error banner -->
+    <div x-show="syncError" @click="syncError = null"
+         class="bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm px-4 py-2 text-center cursor-pointer">
+        <span x-text="syncError"></span>
+        <span class="ml-2 opacity-50 text-xs">(click to dismiss)</span>
+    </div>
     <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16">
@@ -77,12 +87,36 @@
                         <span x-text="darkMode ? '☀️' : '🌙'"></span>
                     </button>
                     <span class="text-sm text-gray-500 dark:text-gray-400" x-text="lastSync"></span>
+                    <!-- Battery indicator -->
+                    <span x-show="ringStatus.battery_pct != null" class="flex items-center gap-1 text-sm"
+                          :class="ringStatus.battery_pct >= 50 ? 'text-green-600 dark:text-green-400' : ringStatus.battery_pct >= 20 ? 'text-amber-600 dark:text-amber-400' : 'text-red-500 dark:text-red-400'"
+                          :title="'Ring battery: ' + ringStatus.battery_pct + '%'">
+                        <svg class="w-5 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <!-- Battery outline -->
+                            <rect x="1" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+                            <rect x="20" y="9" width="2" height="6" rx="1" fill="currentColor"/>
+                            <!-- Fill level -->
+                            <rect x="3" y="7" :width="Math.round(ringStatus.battery_pct * 14 / 100)" height="10" rx="1" fill="currentColor"/>
+                        </svg>
+                        <span x-text="ringStatus.battery_pct + '%'"></span>
+                    </span>
+                    <!-- Sync progress badge -->
+                    <span x-show="syncProgress" x-text="syncProgress"
+                          class="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-full animate-pulse"></span>
                     <button @click="queueSync()"
                             :disabled="syncQueueBusy"
-                            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">
+                            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed inline-flex items-center gap-1.5 transition">
+                        <svg x-show="syncQueueBusy" class="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
                         <span x-show="!syncQueueBusy">Sync Now</span>
                         <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
                     </button>
+                    <!-- Elapsed time -->
+                    <span x-show="syncQueueBusy && syncElapsedCount > 0"
+                          class="text-xs text-gray-400 dark:text-gray-500 tabular-nums"
+                          x-text="'[' + Math.floor(syncElapsedCount / 60) + ':' + String(syncElapsedCount % 60).padStart(2, '0') + ']'"></span>
                 </div>
             </div>
         </div>
@@ -271,11 +305,12 @@
             </div>
             <!-- Circadian HR Pattern -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Circadian HR Pattern
-                    <span class="text-xs font-normal text-gray-400 dark:text-gray-500 cursor-help" title="Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.">ⓘ</span>
-                </h2>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Circadian HR Pattern</h2>
                 <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
                 <div id="circadianBars" class="chart-host"></div>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 leading-relaxed">
+                    Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.
+                </p>
             </div>
         </div>
     </main>
@@ -714,6 +749,10 @@
                 syncRequests: [],
                 syncQueueBusy: false,
                 syncQueueStatus: '',
+                syncStartTime: null,
+                syncElapsedCount: 0,
+                syncProgress: '',
+                syncError: null,
                 clockAlert: { future_rows: 0, latest_drift_ms: null },
                 // Analytics tab state
                 analyticsRange: 7,
@@ -723,11 +762,15 @@
                 analyticsRestingHr: null,
                 analyticsRestingHrDate: '',
                 _pollTimer: null,
+                _elapsedTimer: null,
 
-                init() {
+                async init() {
                     // Dark mode: read localStorage, apply to <html>
                     this.darkMode = localStorage.getItem('darkMode') === 'true';
                     if (this.darkMode) document.documentElement.classList.add('dark');
+                    // Check for active sync on page load (e.g., user refreshed mid-sync)
+                    await this.loadSyncRequests();
+                    if (this.syncQueueBusy) this.startPolling();
                     // Always load health + sync summary so the nav bar shows something useful
                     this.loadHealth();
                     this.loadRingStatus();
@@ -1873,19 +1916,85 @@
                     try {
                         const res = await fetch('/api/admin/sync-requests?limit=20');
                         this.syncRequests = await res.json();
-                        // If any request is pending or running, reflect that on the button
                         const active = this.syncRequests.find(r => r.status === 'pending' || r.status === 'running');
                         if (active) {
-                            this.syncQueueBusy = true;
+                            if (!this.syncQueueBusy) {
+                                this.syncQueueBusy = true;
+                                this.syncStartTime = new Date();
+                                this._startElapsedTimer();
+                            }
                             this.syncQueueStatus = active.status === 'pending' ? 'Queued...' : 'Syncing...';
+                            this.wasSyncing = true;
                         } else {
+                            // Sync just completed (was syncing, now idle)
+                            if (this.wasSyncing) {
+                                this._stopElapsedTimer();
+                                const latest = this.syncRequests[0];
+                                if (latest?.status === 'completed') {
+                                    this.syncProgress = '';
+                                    this.syncError = null;
+                                } else if (latest?.status === 'failed') {
+                                    this.syncError = 'Sync failed: ' + (latest.error || 'unknown error');
+                                }
+                                // Auto-refresh dashboard data
+                                await this.loadDashboard();
+                                await this.loadRingStatus();
+                                await this.loadAdminSyncLog();
+                                this.wasSyncing = false;
+                                this.syncQueueBusy = false;
+                                this.syncQueueStatus = '';
+                                this.syncStartTime = null;
+                                this.syncElapsedCount = 0;
+                                this.syncProgress = '';
+                                // Stop polling
+                                if (this._pollTimer) {
+                                    clearInterval(this._pollTimer);
+                                    this._pollTimer = null;
+                                }
+                                return;
+                            }
                             this.syncQueueBusy = false;
                             this.syncQueueStatus = '';
+                            this.syncStartTime = null;
+                            this.syncElapsedCount = 0;
+                            this.syncProgress = '';
+                            this.wasSyncing = false;
+                            this._stopElapsedTimer();
+                            if (this._pollTimer) {
+                                clearInterval(this._pollTimer);
+                                this._pollTimer = null;
+                            }
                         }
                     } catch (e) { console.error('sync-requests', e); }
                 },
 
+                async loadSyncProgress() {
+                    try {
+                        const res = await fetch('/api/admin/sync-progress');
+                        if (res.ok) {
+                            const p = await res.json();
+                            if (p.current_step) this.syncProgress = p.current_step;
+                        }
+                    } catch (e) { /* ignore */ }
+                },
+
+                _startElapsedTimer() {
+                    if (this._elapsedTimer) return;
+                    this.syncElapsedCount = 0;
+                    this._elapsedTimer = setInterval(() => {
+                        this.syncElapsedCount = Math.floor((Date.now() - this.syncStartTime.getTime()) / 1000);
+                    }, 1000);
+                },
+
+                _stopElapsedTimer() {
+                    if (this._elapsedTimer) {
+                        clearInterval(this._elapsedTimer);
+                        this._elapsedTimer = null;
+                    }
+                },
+
                 async queueSync() {
+                    this.syncError = null;
                     try {
                         const res = await fetch('/api/admin/sync', {
                             method: 'POST',
@@ -1894,34 +2003,36 @@
                         });
                         if (res.status === 409) {
                             const err = await res.json();
-                            alert(err.detail || 'A sync is already in progress.');
-                        } else if (!res.ok) {
-                            alert('Failed to queue sync (HTTP ' + res.status + ')');
-                        } else {
-                            this.syncQueueBusy = true;
-                            this.syncQueueStatus = 'Queued...';
-                            await this.loadSyncRequests();
+                            this.syncError = err.detail || 'A sync is already in progress.';
+                            return;
                         }
+                        if (!res.ok) {
+                            this.syncError = 'Failed to queue sync (HTTP ' + res.status + ')';
+                            return;
+                        }
+                        this.syncQueueBusy = true;
+                        this.syncQueueStatus = 'Queued...';
+                        this.syncStartTime = new Date();
+                        this.syncProgress = '';
+                        this._startElapsedTimer();
+                        this.wasSyncing = true;
+                        await this.loadSyncRequests();
+                        this.startPolling();
                     } catch (e) {
                         console.error('queue sync', e);
-                        alert('Network error queueing sync.');
+                        this.syncError = 'Network error queueing sync.';
                     }
                 },
 
-                // Poll for status updates while a sync is pending/running
+                // Poll for status + progress while a sync is pending/running
                 startPolling() {
                     if (this._pollTimer) return;
                     this._pollTimer = setInterval(async () => {
                         await this.loadSyncRequests();
+                        if (this.syncQueueBusy) await this.loadSyncProgress();
                         await this.loadAdminSyncLog();
                         await this.loadRingStatus();
                         await this.loadClockAlert();
-                        // Stop polling once nothing is active AND we're not seeing changes
-                        const active = this.syncRequests.find(r => r.status === 'pending' || r.status === 'running');
-                        if (!active) {
-                            clearInterval(this._pollTimer);
-                            this._pollTimer = null;
-                        }
                     }, 5000);
                 }
             }
