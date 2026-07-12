@@ -62,16 +62,16 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 
 | File | Purpose | Notes |
 |------|---------|-------|
-| `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient` (upstream hangs without one); replaces `assert packet_type < 127` with `logger.debug` so async ring pushes don't kill the listener; includes forget/pair/disconnect BlueZ helpers for R09 reconnect-bug workaround; registers cmd 0x21 (goals) and 0x37 (stress) handlers |
-| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `datetime.now()` **(local time, not UTC)**; uses `ring_client.Client`; own `fetch_hr_history()` bypasses broken library HR parser; steps use `time_index * 15` for per-15-min-slot timestamps; `fetch_stress_history()` + `fetch_goals()`; `_read_multi_packet()` generic helper |
+| `collector/ring_client.py` | Drop-in wrapper around `colmi_r02_client.Client` | Passes explicit `timeout` to `BleakClient`; robust packet handling; V2 big-data service support; `set_time_local()` matches Gadgetbridge encoding (BCD local, no language byte); forget/pair/disconnect BlueZ helpers for R09 reconnect-bug workaround |
+| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | Time sync uses `set_time_local()` (Gadgetbridge-compatible BCD local, 2s post-connect delay); `_compute_clock_drift_ms()` measures ring clock skew per sync (24h scope, stored in `sync_log.clock_drift_ms`); per-day drift logging in `fetch_hr_history`; all data parsers use `.astimezone()` for correct tz-aware timestamps |
 | `collector/collector-wrapper.py` | Tiny shim that sets `sys.path` and runs `sync_ring.main()` | Injects `--forget` into sys.argv for R09 reconnect-bug workaround |
-| `collector/first_contact.py` | Safe read-only diagnostics | Reads battery (`battery_level`), firmware, device info, sets clock — NO data sync |
+| `collector/first_contact.py` | Safe read-only diagnostics | Reads battery, firmware, device info, sets clock via `set_time_local()` — NO data sync |
 | `collector/test_open_questions.py` | One-shot validation of unknown ring behaviors | Uses a single Client connection with per-test try/except (the ring drops between reconnects) |
 | `collector/test_sync_readonly.py` | Verifies read-only vs read-and-clear behavior | Two scenarios: within-connection + across-disconnect; confirmed READ-ONLY on R09 3.10.21 |
-| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | **RESTORED 2026-07-10** — watches `sync_requests` table every 30s, runs `collector-wrapper.py` for any pending row. Safe to run continuously: no BLE connection between syncs. Old `--interval 2` caused issues only because `sync_ring.py` was hanging (now fixed). |
+| `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Watches `sync_requests` table every 30s, runs `collector-wrapper.py` for any pending row. Safe to run continuously: no BLE connection between syncs. |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
-| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; endpoints: `/api/raw/{heart-rate,steps,stress,temperature}`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/hrv-trends`, `/api/circadian-hr`, `/api/stress`, `/api/sync-log`, `/api/admin/{ring-status,health,sync-log,sync,sync-requests}` |
-| `dashboard/index.html` | Single-page Alpine.js + CSS bars UI, **two tabs: Dashboard + Admin** | No build step needed; 4 conic-gradient dials for Today's Activity; no chart.js (pure CSS); Sync Now in nav bar; raw data tables in Admin tab |
+| `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; endpoints: `/api/raw/{heart-rate,steps,stress,temperature,spo2,hrv}`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/circadian-hr`, `/api/stress`, `/api/sync-log`, `/api/admin/{ring-status,health,sync-log,sync,sync-requests,clock-alert}` |
+| `dashboard/index.html` | Single-page Alpine.js + Tailwind CSS UI, **two tabs: Dashboard + Admin** | No build step; pure SVG charts with Catmull-Rom smoothing + hover tooltips + entrance animations; Vitals chart (HR + SpO₂ + Temp triple-axis); Circadian HR line graph; sleep donut; 4 activity dials; `clipFuture` filter hides phantom buffer entries; clock drift alert banner; dark mode; sync log in Admin tab only |
 | `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue; `raw_steps` now includes `calories` + `distance`; `raw_stress` + `ring_goals` tables added |
 
 ---
@@ -510,7 +510,11 @@ python3 collector/sync_ring.py --forget
 - [ ] Add Prometheus/metrics endpoint for monitoring
 - [ ] Consider Cloudflare tunnel for remote dashboard access
 - [x] Use Gadgetbridge sleep/HRV commands (0xBC sleep, 0x39 HRV) instead of wrong cmd 68/57 — HRV DONE (0x39), sleep ALSO DONE (0xBC) in 2026-07-10(d)
+- [x] Fix ring time sync encoding to match Gadgetbridge — done 2026-07-11: `set_time_local()` sends BCD local time (6 bytes, no language byte), 2s post-connect delay
+- [x] Add clock drift tracking to sync_log — done 2026-07-11: `_compute_clock_drift_ms()` measures per sync, color-coded in Admin tab
 - [ ] Investigate 0x80-bit async packets (probably sleep/HRV/temperature historical push)
+- [ ] Consider reducing sync history window (currently 7-8 days every sync) to speed up sync time (~5 min → ~2 min)
+- [ ] Set up auto-sync via systemd timer once BLE path proven stable over multiple days
 
 ### 2026-07-10 (c) — HRV Protocol Alignment (cmd 0x39)
 
@@ -626,6 +630,63 @@ DB changes:
 - `dashboard/index.html` — donut, SVG line, dark mode, stat cards, health coding
 - `RESEARCH.md` — validated formula documentation with citations
 - `AGENTS.md` — this entry
+
+---
+
+### 2026-07-11 — Ring Time Sync Fix + Vitals Chart + Dashboard Polish
+
+**Task:** Fix ring clock drift, redesign Stress & Vitals section, polish all charts, consolidate sync log.
+
+**Ring time sync — root cause and fix:**
+
+The `colmi_r02_client` library's `set_time_packet()` converts to UTC before BCD-encoding the time bytes. Gadgetbridge's `ColmiR0xDeviceSupport.setDateTime()` sends **local** BCD time directly. The R09 firmware reads the BCD bytes as local wall-clock values. Sending UTC hour bytes therefore shifts the ring's "midnight" by the host's UTC offset, accumulating drift across syncs.
+
+Additionally, the library includes a 7th data byte (language=1) that Gadgetbridge doesn't send. This extra byte may cause the R09 firmware to misinterpret the packet.
+
+**Fix applied:**
+- `ring_client.py`: `set_time_local()` now sends 6 BCD data bytes (year, month, day, hour-local, minute, second) — matches Gadgetbridge byte-for-byte. Packet hex verified: `01260711164300000000000000000098` (byte 7=0x00, checksum=0x98).
+- `sync_ring.py`: Re-enabled time sync with `set_time_local()`, added 2s post-connect delay (Gadgetbridge also waits 2s in `postConnectInitialization()`).
+- `first_contact.py`: Switched to `set_time_local()`.
+
+**Clock drift tracking:**
+- `_compute_clock_drift_ms()` in `sync_ring.py`: measures `max(ts) - now()` from `raw_heart_rate` (24h scope). Stored in `sync_log.clock_drift_ms` (column existed but was never populated).
+- Per-day drift logging in `fetch_hr_history`: logs `drift TODAY: +5s OK` or `drift day-N: +21600s WARN` per day.
+- `log_sync_complete()` now populates `clock_drift_ms` and warns if `|drift| > 60s`.
+
+**Dashboard — Stress & Vitals redesign:**
+- Replaced old Stress + HRV dual-axis chart with **Vitals chart**: triple-axis SVG showing HR (blue line), SpO₂ (teal dots), Temp (orange dots) over 24h window. Smooth Catmull-Rom curves, gradient fills, hover crosshair + tooltip showing all 3 values at cursor hour.
+- Removed old "Stress & Vitals" section. Stress daily avg + trend moved to Recovery panel (already had stress classification there).
+- Fixed dot/stat colors to be consistent across chart, crosshair, tooltip, and stat row.
+
+**Dashboard — chart polish (all SVG charts):**
+- Catmull-Rom spline smoothing (replaces linear polylines)
+- Gradient fills (stress area, circadian HR area)
+- Hover crosshair + tooltips with exact values
+- Entrance animations (`chartIn` keyframe, respects `prefers-reduced-motion`)
+- CSS transitions on path/area elements
+- Sleep donut: inner shadow + radial sheen for depth
+- Dark mode re-renders charts so axis/grid colors track theme
+- 12h am/pm x-axis labels on Vitals chart
+
+**Dashboard — sync log consolidation:**
+- Removed "Recent Syncs" collapsible table from Dashboard tab (was duplicate of Admin tab's sync log).
+- Admin tab "Sync Log" is now the single source of truth — full 7-column layout (Started, Completed, Records, Battery, Clock Drift, Status, Error).
+- `clock_drift_ms` color-coded in Admin sync log (red=ring ahead, green=near-zero, amber=behind).
+- Fixed dark mode text colors in sync log table.
+- Removed `renderSyncTable()` JS function, `showRecentSyncs` state, and `syncTable` element.
+
+**Dashboard — clock alert system:**
+- `GET /api/admin/clock-alert` endpoint: returns `future_rows` count + `latest_drift_ms`.
+- Blue ℹ️ banner on Admin tab when ring buffer contains old shifted entries or drift > 60s.
+- `loadClockAlert()` added to 5s polling loop for live updates.
+
+**Files changed:**
+- `collector/ring_client.py` — `set_time_local()` rewritten (6 BCD bytes, no language byte)
+- `collector/sync_ring.py` — re-enabled time sync with 2s delay; added `_compute_clock_drift_ms()`; per-day drift logging; `log_sync_complete()` populates `clock_drift_ms`
+- `collector/first_contact.py` — switched to `set_time_local()`
+- `api/main.py` — added `/api/admin/clock-alert` endpoint
+- `dashboard/index.html` — Vitals chart, chart polish, sync log consolidation, clock alert, dark mode fixes
+- `AGENTS.md` — this entry; updated Key Source Files table
 
 ---
 
