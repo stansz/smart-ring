@@ -140,6 +140,25 @@ def get_stress(days: int = 30):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/resting-hr")
+def get_resting_hr(days: int = 30):
+    """Daily resting HR: average bpm between 1:00–5:00 AM local time."""
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT
+                (ts AT TIME ZONE 'America/Vancouver')::date AS day,
+                ROUND(AVG(bpm))::int AS resting_hr,
+                COUNT(*) AS samples
+            FROM raw_heart_rate
+            WHERE
+                EXTRACT(HOUR FROM ts AT TIME ZONE 'America/Vancouver') BETWEEN 1 AND 5
+                AND ts >= NOW() - INTERVAL ':days days'
+            GROUP BY 1
+            ORDER BY 1 DESC
+        """), {"days": days}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/raw/heart-rate")
 def get_raw_hr(hours: int = 48, limit: int = 1000):
     with SessionLocal() as db:

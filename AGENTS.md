@@ -71,7 +71,7 @@ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
 | `collector/sync_request_poller.py` | Host-side poller for admin-triggered syncs | Watches `sync_requests` table every 30s, runs `collector-wrapper.py` for any pending row. Safe to run continuously: no BLE connection between syncs. |
 | `collector/analytics.py` | Computes HRV, sleep, recovery metrics | `detect_sleep_stages()` infers duration since cmd 68 lacks timestamps |
 | `api/main.py` | FastAPI with metric + admin endpoints | Serves dashboard static files from `../dashboard/`; endpoints: `/api/raw/{heart-rate,steps,stress,temperature,spo2,hrv}`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/circadian-hr`, `/api/stress`, `/api/sync-log`, `/api/admin/{ring-status,health,sync-log,sync,sync-requests,clock-alert}` |
-| `dashboard/index.html` | Single-page Alpine.js + Tailwind CSS UI, **two tabs: Dashboard + Admin** | No build step; pure SVG charts with Catmull-Rom smoothing + hover tooltips + entrance animations; Vitals chart (HR + SpO₂ + Temp triple-axis); Circadian HR line graph; sleep donut; 4 activity dials; `clipFuture` filter hides phantom buffer entries; clock drift alert banner; dark mode; sync log in Admin tab only |
+| `dashboard/index.html` | Single-page Alpine.js + Tailwind CSS UI, **three tabs: Dashboard + Analytics + Admin** | No build step; pure SVG charts with Catmull-Rom smoothing + hover tooltips + entrance animations; Vitals chart (HR + SpO₂ + Temp triple-axis); Circadian HR line graph; sleep donut; 4 activity dials; `clipFuture` filter hides phantom buffer entries; Analytics tab with data pipeline reference + score breakdowns + 4 trend charts (HRV/sleep/stress/resting-HR); clock drift alert banner; dark mode; sync log in Admin tab only |
 | `db/init.sql` | Postgres schema | `circadian_hr` uses `PRIMARY KEY (day, hour)`; `sync_requests` is the admin job queue; `raw_steps` now includes `calories` + `distance`; `raw_stress` + `ring_goals` tables added |
 
 ---
@@ -686,6 +686,26 @@ Additionally, the library includes a 7th data byte (language=1) that Gadgetbridg
 - `collector/first_contact.py` — switched to `set_time_local()`
 - `api/main.py` — added `/api/admin/clock-alert` endpoint
 - `dashboard/index.html` — Vitals chart, chart polish, sync log consolidation, clock alert, dark mode fixes
+- `AGENTS.md` — this entry; updated Key Source Files table
+
+---
+
+### 2026-07-11 (b) — Analytics Tab + Trend Charts
+
+**Task:** Add a third "Analytics" tab between Dashboard and Admin to document the data pipeline and surface trend visualizations.
+
+**What was built:**
+- **Data Pipeline reference table** — 7 metrics showing ring-measured vs ring-computed vs our-validated-score with DB table names
+- **Score breakdown cards** (Recovery, Sleep Quality, Stress, Resting HR) each with current value + classification + expandable formula explanation
+- **4 trend charts** (HRV z-score, sleep quality, stress daily avg, resting HR) — SVG with Catmull-Rom curves, hover crosshair tooltips, gradient fills, entrance animations
+- **Date range selector** — 7d / 14d / 30d / 90d buttons
+- **Research references** — peer-reviewed citations (Ohayon 2004, Altini 2021, Garmin/Firstbeat, Chheda/Oura)
+
+**New API endpoint:** `GET /api/resting-hr?days=N` — daily overnight HR average (1-5 AM local time)
+
+**Files changed:**
+- `dashboard/index.html` — Analytics tab HTML + `loadAnalytics()` + `loadAnalyticsTrends()` + `renderAnalyticsTrendChart()` + `_attachTrendTooltip()` methods
+- `api/main.py` — added `/api/resting-hr` endpoint
 - `AGENTS.md` — this entry; updated Key Source Files table
 
 ---

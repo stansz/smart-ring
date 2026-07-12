@@ -60,6 +60,11 @@
                                 :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
                             Dashboard
                         </button>
+                        <button @click="switchTab('analytics')"
+                                class="px-3 py-1.5 text-sm rounded-md transition"
+                                :class="tab === 'analytics' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
+                            Analytics
+                        </button>
                         <button @click="switchTab('admin')"
                                 class="px-3 py-1.5 text-sm rounded-md transition"
                                 :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
@@ -271,6 +276,218 @@
                 </h2>
                 <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
                 <div id="circadianBars" class="chart-host"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- ============= ANALYTICS TAB ============= -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8" x-show="tab === 'analytics'" x-cloak>
+        <!-- Data Sources Reference -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Data Pipeline</h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                The ring's firmware computes some values internally; our analytics layer adds validated health scores on top.
+            </p>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                            <th class="pb-2 pr-4">Metric</th>
+                            <th class="pb-2 pr-4">Source</th>
+                            <th class="pb-2 pr-4">Ring Computes</th>
+                            <th class="pb-2 pr-4">We Compute</th>
+                            <th class="pb-2 pr-4">Table</th>
+                        </tr>
+                    </thead>
+                    <tbody class="text-gray-700 dark:text-gray-300">
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <td class="py-2 pr-4 font-medium">Heart Rate</td>
+                            <td class="py-2 pr-4"><span class="text-xs px-2 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Ring measured</span></td>
+                            <td class="py-2 pr-4">BPM from PPG sensor</td>
+                            <td class="py-2 pr-4">Resting HR (overnight avg), Circadian HR</td>
+                            <td class="py-2 pr-4 font-mono text-xs">raw_heart_rate</td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <td class="py-2 pr-4 font-medium">SpO₂</td>
+                            <td class="py-2 pr-4"><span class="text-xs px-2 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Ring measured</span></td>
+                            <td class="py-2 pr-4">Blood oxygen %</td>
+                            <td class="py-2 pr-4">—</td>
+                            <td class="py-2 pr-4 font-mono text-xs">raw_spo2</td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <td class="py-2 pr-4 font-medium">Skin Temp</td>
+                            <td class="py-2 pr-4"><span class="text-xs px-2 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Ring measured</span></td>
+                            <td class="py-2 pr-4">°C from sensor</td>
+                            <td class="py-2 pr-4">Overnight temp drop (for sleep context)</td>
+                            <td class="py-2 pr-4 font-mono text-xs">raw_temperature</td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <td class="py-2 pr-4 font-medium">Steps</td>
+                            <td class="py-2 pr-4"><span class="text-xs px-2 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300">Ring measured</span></td>
+                            <td class="py-2 pr-4">Step count, calories, distance</td>
+                            <td class="py-2 pr-4">Active time (≥150 steps/15min)</td>
+                            <td class="py-2 pr-4 font-mono text-xs">raw_steps</td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <td class="py-2 pr-4 font-medium">HRV</td>
+                            <td class="py-2 pr-4"><span class="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">Ring computed</span></td>
+                            <td class="py-2 pr-4">Composite ms value (single byte)</td>
+                            <td class="py-2 pr-4"><strong>Recovery score</strong> — z-score vs 7-day baseline (Plews/Altini)</td>
+                            <td class="py-2 pr-4 font-mono text-xs">raw_hrv → daily_recovery</td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <td class="py-2 pr-4 font-medium">Sleep</td>
+                            <td class="py-2 pr-4"><span class="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">Ring computed</span></td>
+                            <td class="py-2 pr-4">Deep/REM/light/awake stages</td>
+                            <td class="py-2 pr-4"><strong>Sleep quality score</strong> — 5-component formula (Ohayon 2004)</td>
+                            <td class="py-2 pr-4 font-mono text-xs">raw_sleep → sleep_quality</td>
+                        </tr>
+                        <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <td class="py-2 pr-4 font-medium">Stress</td>
+                            <td class="py-2 pr-4"><span class="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">Ring computed</span></td>
+                            <td class="py-2 pr-4">0-99 scale (unknown algorithm)</td>
+                            <td class="py-2 pr-4"><strong>Classification</strong> — Garmin/Firstbeat thresholds + weighted daily score</td>
+                            <td class="py-2 pr-4 font-mono text-xs">raw_stress → stress_classification</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Score Breakdown Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <!-- Recovery -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Recovery</p>
+                <p class="text-2xl font-bold mt-1 text-gray-900 dark:text-gray-100">
+                    <span x-text="analyticsRecovery.z_score != null ? (analyticsRecovery.z_score > 0 ? '+' : '') + analyticsRecovery.z_score.toFixed(2) : '—'"></span>
+                </p>
+                <p class="text-sm font-semibold mt-1"
+                   :class="analyticsRecovery.readiness_text?.includes('Excellent') || analyticsRecovery.readiness_text?.includes('Good') ? 'text-green-600' : analyticsRecovery.readiness_text?.includes('Fair') ? 'text-amber-600' : 'text-red-500'"
+                   x-text="analyticsRecovery.readiness_text || '—'"></p>
+                <details class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <summary class="cursor-pointer">How this works</summary>
+                    <p class="mt-1 pl-3 border-l-2 border-gray-200 dark:border-gray-600">HRV values are ln-transformed to normalize distribution. Z-score = (today − 7-day mean) / 7-day SD. Readiness labels follow Altini/Plews thresholds: Excellent &gt;1.0, Good &gt;0.5, Fair &gt;−0.5, Poor &gt;−1.0, Very Poor below −1.0.</p>
+                </details>
+            </div>
+            <!-- Sleep Quality -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Sleep Quality</p>
+                <p class="text-2xl font-bold mt-1"
+                   :class="analyticsSleep.score >= 80 ? 'text-green-600 dark:text-green-400' : analyticsSleep.score >= 60 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'"
+                   x-text="analyticsSleep.score != null ? Math.round(analyticsSleep.score) + '/100' : '—'"></p>
+                <div class="mt-2 space-y-1 text-xs text-gray-500 dark:text-gray-400">
+                    <div class="flex justify-between"><span>Duration</span><span class="font-mono" x-text="analyticsSleep.total_hours ? analyticsSleep.total_hours + 'h' : '—'"></span></div>
+                    <div class="flex justify-between"><span>Deep sleep</span><span class="font-mono" x-text="analyticsSleep.deep_pct != null ? Math.round(analyticsSleep.deep_pct) + '%' : '—'"></span></div>
+                    <div class="flex justify-between"><span>REM sleep</span><span class="font-mono" x-text="analyticsSleep.rem_pct != null ? Math.round(analyticsSleep.rem_pct) + '%' : '—'"></span></div>
+                </div>
+                <details class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <summary class="cursor-pointer">How this works</summary>
+                    <p class="mt-1 pl-3 border-l-2 border-gray-200 dark:border-gray-600">5-component score (0-100): 30% Duration (7-9h optimal), 25% Efficiency, 25% Architecture (deep 13-23%, REM 20-25% per Ohayon 2004 norms), 15% Continuity, 5% Latency. Trapezoidal scoring — full credit in optimal range, linear decline outside.</p>
+                </details>
+            </div>
+            <!-- Stress -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Stress</p>
+                <p class="text-2xl font-bold mt-1"
+                   :class="analyticsStress.classification === 'relaxed' ? 'text-green-600 dark:text-green-400' : analyticsStress.classification === 'low' ? 'text-gray-600 dark:text-gray-300' : analyticsStress.classification === 'medium' ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'"
+                   x-text="analyticsStress.daily_score != null ? Math.round(analyticsStress.daily_score) : '—'"></p>
+                <p class="text-sm font-semibold mt-1 capitalize"
+                   :class="analyticsStress.classification === 'relaxed' ? 'text-green-600' : analyticsStress.classification === 'low' ? 'text-gray-500' : analyticsStress.classification === 'medium' ? 'text-amber-600' : 'text-red-600'"
+                   x-text="analyticsStress.classification || '—'"></p>
+                <details class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <summary class="cursor-pointer">How this works</summary>
+                    <p class="mt-1 pl-3 border-l-2 border-gray-200 dark:border-gray-600">Weighted daily score: 0.5×daytime avg + 0.3×peak sustained (2h) + 0.2×overnight avg. Classified with Garmin/Firstbeat thresholds: 0-25 relaxed, 26-50 low, 51-75 medium, 76-100 high.</p>
+                </details>
+            </div>
+            <!-- Resting HR -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
+                <p class="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Resting HR</p>
+                <p class="text-2xl font-bold mt-1 text-blue-600 dark:text-blue-400" x-text="analyticsRestingHr != null ? analyticsRestingHr + ' bpm' : '—'"></p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Overnight avg (1-5 AM)</p>
+                <p class="text-xs text-gray-400 dark:text-gray-500 mt-1" x-show="analyticsRestingHrDate" x-text="analyticsRestingHrDate"></p>
+                <details class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    <summary class="cursor-pointer">How this works</summary>
+                    <p class="mt-1 pl-3 border-l-2 border-gray-200 dark:border-gray-600">Average of all raw HR readings between 1:00 AM and 5:00 AM local time. Falls back to the most recent day with overnight data if today has none.</p>
+                </details>
+            </div>
+        </div>
+
+        <!-- Trends Section -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Trends</h2>
+                <div class="flex space-x-1">
+                    <button @click="analyticsRange = 7; loadAnalyticsTrends()"
+                            :class="analyticsRange === 7 ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                            class="px-3 py-1 text-xs rounded transition">7d</button>
+                    <button @click="analyticsRange = 14; loadAnalyticsTrends()"
+                            :class="analyticsRange === 14 ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                            class="px-3 py-1 text-xs rounded transition">14d</button>
+                    <button @click="analyticsRange = 30; loadAnalyticsTrends()"
+                            :class="analyticsRange === 30 ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                            class="px-3 py-1 text-xs rounded transition">30d</button>
+                    <button @click="analyticsRange = 90; loadAnalyticsTrends()"
+                            :class="analyticsRange === 90 ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'"
+                            class="px-3 py-1 text-xs rounded transition">90d</button>
+                </div>
+            </div>
+            <div class="space-y-6">
+                <!-- HRV Trend Chart -->
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">HRV Recovery Trend</h3>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">Z-score vs 7-day baseline. Positive = recovering well. Negative = under strain.</p>
+                    <div id="analyticsHrvChart" class="chart-host" style="min-height:140px">
+                        <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <!-- Sleep Trend Chart -->
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Sleep Quality Trend</h3>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">5-component score (0-100). Higher = better sleep.</p>
+                    <div id="analyticsSleepChart" class="chart-host" style="min-height:140px">
+                        <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <!-- Stress Trend Chart -->
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Stress Trend</h3>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">Weighted daily score. Lower = more relaxed.</p>
+                    <div id="analyticsStressChart" class="chart-host" style="min-height:140px">
+                        <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <!-- Resting HR Trend Chart -->
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Resting HR Trend</h3>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">Overnight average (1-5 AM). Lower = better recovery.</p>
+                    <div id="analyticsRestingHrChart" class="chart-host" style="min-height:140px">
+                        <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Research References -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Research References</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-gray-600 dark:text-gray-400">
+                <div>
+                    <p class="font-semibold text-gray-700 dark:text-gray-300">Sleep Quality</p>
+                    <p>Ohayon, M. M., et al. (2004). "Meta-analysis of quantitative sleep parameters." <em>Sleep</em>, 27(7), 1255-1273. (3,327 citations)</p>
+                </div>
+                <div>
+                    <p class="font-semibold text-gray-700 dark:text-gray-300">HRV Recovery</p>
+                    <p>Plews, D. J., et al. (2017). "Monitoring training with HRV." <em>Frontiers in Physiology</em>. Altini, M. (2021). <em>Sensors</em>, 21(7). (9M measurements)</p>
+                </div>
+                <div>
+                    <p class="font-semibold text-gray-700 dark:text-gray-300">Stress Classification</p>
+                    <p>Garmin/Firstbeat thresholds (0-25/26-50/51-75/76-100). <em>Frontiers in Physiology</em>, 2025, for circadian stress patterns.</p>
+                </div>
+                <div>
+                    <p class="font-semibold text-gray-700 dark:text-gray-300">Trapezoidal Scoring</p>
+                    <p>Inspired by Oura's reverse-engineered algorithms (Chheda). R²=0.846 correlation with Oura sleep scores.</p>
+                </div>
             </div>
         </div>
     </main>
@@ -498,6 +715,13 @@
                 syncQueueBusy: false,
                 syncQueueStatus: '',
                 clockAlert: { future_rows: 0, latest_drift_ms: null },
+                // Analytics tab state
+                analyticsRange: 7,
+                analyticsRecovery: {},
+                analyticsSleep: {},
+                analyticsStress: {},
+                analyticsRestingHr: null,
+                analyticsRestingHrDate: '',
                 _pollTimer: null,
 
                 init() {
@@ -560,6 +784,7 @@
                 switchTab(t) {
                     this.tab = t;
                     if (t === 'admin') this.loadAdmin();
+                    if (t === 'analytics') this.$nextTick(() => this.loadAnalytics());
                     if (t === 'dashboard') this.$nextTick(() => this.loadDashboard());
                 },
 
@@ -598,6 +823,206 @@
                         const res = await fetch('/api/admin/clock-alert');
                         if (res.ok) this.clockAlert = await res.json();
                     } catch (e) { console.error('clock-alert', e); }
+                },
+
+                async loadAnalytics() {
+                    const [recoveryRes, sleepRes, stressRes] = await Promise.allSettled([
+                        fetch('/api/recovery?days=1'),
+                        fetch('/api/sleep?days=1'),
+                        fetch('/api/stress?days=1')
+                    ]);
+                    if (recoveryRes.status === 'fulfilled') {
+                        const d = await recoveryRes.value.json();
+                        if (d.length) this.analyticsRecovery = d[d.length - 1];
+                    }
+                    if (sleepRes.status === 'fulfilled') {
+                        const d = await sleepRes.value.json();
+                        if (d.length) {
+                            const s = d[d.length - 1];
+                            const h = Math.floor((s.total_sleep_minutes || 0) / 60);
+                            const m = (s.total_sleep_minutes || 0) % 60;
+                            s.total_hours = m ? `${h}h ${m}m` : `${h}h`;
+                            this.analyticsSleep = s;
+                        }
+                    }
+                    if (stressRes.status === 'fulfilled') {
+                        const d = await stressRes.value.json();
+                        if (d.length) {
+                            const s = d[d.length - 1];
+                            const vals = [s.morning_rmssd, s.noon_rmssd, s.evening_rmssd].filter(v => v != null);
+                            this.analyticsStress = { ...s, daily_score: vals.length ? Math.round(vals.reduce((a,b) => a+b, 0) / vals.length) : null };
+                        }
+                    }
+                    // Resting HR from overnight data
+                    try {
+                        const hrRes = await fetch('/api/raw/heart-rate?hours=24&limit=500');
+                        const hrAll = await hrRes.json();
+                        const selKey = this.dateKey(this.selectedDate || new Date());
+                        const hrDay = hrAll.filter(d => this.dateKey(new Date(d.ts)) === selKey);
+                        const hrSource = hrDay.length ? hrDay : hrAll;
+                        const nightHR = hrSource.filter(d => {
+                            const h = new Date(d.ts).getHours();
+                            return h >= 1 && h <= 5;
+                        });
+                        if (nightHR.length > 0) {
+                            this.analyticsRestingHr = Math.round(nightHR.reduce((a,b) => a + b.bpm, 0) / nightHR.length);
+                            this.analyticsRestingHrDate = this.formatSelectedDate();
+                        } else { this.analyticsRestingHr = null; this.analyticsRestingHrDate = ''; }
+                    } catch (e) { console.error('analytics resting hr', e); }
+                    this.loadAnalyticsTrends();
+                },
+
+                async loadAnalyticsTrends() {
+                    const days = this.analyticsRange || 7;
+                    const [recoveryRes, sleepRes, stressRes, rhrRes] = await Promise.allSettled([
+                        fetch('/api/recovery?days=' + days),
+                        fetch('/api/sleep?days=' + days),
+                        fetch('/api/stress?days=' + days),
+                        fetch('/api/resting-hr?days=' + days)
+                    ]);
+                    let recovery = [], sleep = [], stress = [], restingHr = [];
+                    if (recoveryRes.status === 'fulfilled') recovery = await recoveryRes.value.json();
+                    if (sleepRes.status === 'fulfilled') sleep = await sleepRes.value.json();
+                    if (stressRes.status === 'fulfilled') {
+                        stress = await stressRes.value.json();
+                        // Compute daily_score from morning/noon/evening avg (not stored in DB)
+                        stress = stress.map(s => {
+                            const vals = [s.morning_rmssd, s.noon_rmssd, s.evening_rmssd].filter(v => v != null);
+                            return { ...s, daily_score: vals.length ? Math.round(vals.reduce((a,b) => a+b, 0) / vals.length) : null };
+                        });
+                    }
+                    if (rhrRes.status === 'fulfilled') restingHr = await rhrRes.value.json();
+                    this.renderAnalyticsTrendChart('analyticsHrvChart', recovery, 'z_score',
+                        'Recovery (z-score)', -3, 3, '#3b82f6', false);
+                    this.renderAnalyticsTrendChart('analyticsSleepChart', sleep, 'score',
+                        'Sleep Quality', 0, 100, '#10b981', true);
+                    this.renderAnalyticsTrendChart('analyticsStressChart', stress, 'daily_score',
+                        'Stress', 0, 100, '#f59e0b', true);
+                    this.renderAnalyticsTrendChart('analyticsRestingHrChart', restingHr, 'resting_hr',
+                        'Resting HR', 40, 80, '#6366f1', true);
+                },
+
+                renderAnalyticsTrendChart(elId, data, key, label, yMin, yMax, color, fillArea) {
+                    const el = document.getElementById(elId);
+                    if (!el) return;
+                    if (!data || !data.length) {
+                        el.innerHTML = `<p class="text-sm text-gray-400 dark:text-gray-500">No ${label.toLowerCase()} data yet</p>`;
+                        return;
+                    }
+                    const dark = this.darkMode;
+                    const axisColor = dark ? '#9ca3af' : '#6b7280';
+                    const gridColor = dark ? '#374151' : '#e5e7eb';
+                    const pad = 8, w = 720, h = 175;
+                    const plotW = w - 80, plotH = h - pad * 2 - 24;
+                    const x0 = 55;
+                    const xScale = data.length > 1 ? plotW / (data.length - 1) : plotW;
+                    const yScale = (yMax - yMin) ? plotH / (yMax - yMin) : 1;
+                    const yOf = v => pad + plotH - ((v - yMin) * yScale);
+
+                    const pts = [];
+                    const xLabels = [];
+                    for (let i = 0; i < data.length; i++) {
+                        const v = data[i][key];
+                        const x = x0 + i * xScale;
+                        if (v != null) pts.push([x, yOf(v)]);
+                        if (i % Math.ceil(data.length / 8) === 0) {
+                            xLabels.push(`<text x="${x.toFixed(1)}" y="${h - 2}" text-anchor="middle" font-size="10" fill="${axisColor}">${data[i].day.substring(5)}</text>`);
+                        }
+                    }
+                    const linePath = this.smoothPath(pts);
+                    const areaPath = pts.length && fillArea
+                        ? this.smoothPath(pts) + ` L${(x0 + (data.length-1) * xScale).toFixed(1)},${pad + plotH} L${x0},${pad + plotH} Z`
+                        : '';
+                    // Grid
+                    let grid = '';
+                    for (let i = 0; i <= 4; i++) {
+                        const v = yMin + (yMax - yMin) / 4 * i;
+                        const y = yOf(v);
+                        grid += `<line x1="${x0}" y1="${y.toFixed(1)}" x2="${(w - 40).toFixed(1)}" y2="${y.toFixed(1)}" stroke="${gridColor}" stroke-dasharray="2,2"/>`;
+                        grid += `<text x="${x0 - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="${color}" opacity="0.8">${typeof v === 'number' ? (key === 'z_score' ? v.toFixed(1) : Math.round(v)) : v}</text>`;
+                    }
+                    // Zero line for z-score chart
+                    if (key === 'z_score') {
+                        const zY = yOf(0);
+                        grid += `<line x1="${x0}" y1="${zY.toFixed(1)}" x2="${(w - 40).toFixed(1)}" y2="${zY.toFixed(1)}" stroke="${gridColor}" stroke-width="1.5"/>`;
+                    }
+
+                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="chart-svg w-full" style="max-height:200px">
+                        <defs>
+                            <linearGradient id="${elId}Grad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="${color}" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="${color}" stop-opacity="0.02"/>
+                            </linearGradient>
+                        </defs>
+                        ${grid}
+                        ${xLabels.join('')}
+                        ${areaPath ? `<path class="chart-area" d="${areaPath}" fill="url(#${elId}Grad)"/>` : ''}
+                        <path class="chart-line" d="${linePath}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        ${pts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2" fill="${color}" opacity="0.7"/>`).join('')}
+                        <g id="${elId}Cross" opacity="0">
+                            <line id="${elId}Line" x1="${x0}" x2="${x0}" y1="${pad}" y2="${pad + plotH}" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+                            <circle id="${elId}Dot" r="3.5" fill="${color}" opacity="0"/>
+                            <text id="${elId}Txt" text-anchor="middle" font-size="9" font-weight="bold" fill="${color}"></text>
+                        </g>
+                        <rect id="${elId}Overlay" x="${x0}" y="${pad}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor:crosshair"/>
+                    </svg>`;
+                    this._attachTrendTooltip(elId, data, key, label);
+                },
+
+                _attachTrendTooltip(elId, data, key, label) {
+                    const el = document.getElementById(elId);
+                    if (!el) return;
+                    const svg = el.querySelector('svg');
+                    const overlay = el.querySelector('#' + elId + 'Overlay');
+                    const cross = el.querySelector('#' + elId + 'Cross');
+                    if (!svg || !overlay || !cross) return;
+                    const pad = 8, w = 720, h = 175;
+                    const plotW = w - 80, plotH = h - pad * 2 - 24;
+                    const x0 = 55;
+                    const xScale = data.length > 1 ? plotW / (data.length - 1) : plotW;
+                    let tip = el.querySelector('.chart-tooltip');
+                    if (!tip) { tip = document.createElement('div'); tip.className = 'chart-tooltip'; el.appendChild(tip); }
+                    const yMin = key === 'z_score' ? -3 : 0;
+                    const yMax = key === 'z_score' ? 3 : 100;
+                    const yScale = plotH / (yMax - yMin || 1);
+                    const yOf = v => pad + plotH - ((v - yMin) * yScale);
+                    const move = (e) => {
+                        const pt = svg.createSVGPoint();
+                        pt.x = e.clientX; pt.y = e.clientY;
+                        const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+                        let i = Math.round((loc.x - x0) / xScale);
+                        i = Math.max(0, Math.min(data.length - 1, i));
+                        const x = x0 + i * xScale;
+                        const v = data[i] && data[i][key] != null ? data[i][key] : null;
+                        cross.setAttribute('opacity', '1');
+                        cross.querySelector('#' + elId + 'Line').setAttribute('x1', x);
+                        cross.querySelector('#' + elId + 'Line').setAttribute('x2', x);
+                        if (v != null) {
+                            const y = yOf(v);
+                            cross.querySelector('#' + elId + 'Dot').setAttribute('cx', x);
+                            cross.querySelector('#' + elId + 'Dot').setAttribute('cy', y);
+                            cross.querySelector('#' + elId + 'Dot').setAttribute('opacity', '1');
+                            cross.querySelector('#' + elId + 'Txt').setAttribute('x', x);
+                            cross.querySelector('#' + elId + 'Txt').setAttribute('y', y - 9);
+                            cross.querySelector('#' + elId + 'Txt').textContent = key === 'z_score' ? v.toFixed(2) : Math.round(v);
+                        } else {
+                            cross.querySelector('#' + elId + 'Dot').setAttribute('opacity', '0');
+                            cross.querySelector('#' + elId + 'Txt').textContent = '';
+                        }
+                        let html = `<div style="font-weight:600;margin-bottom:2px">${data[i] ? data[i].day : ''}</div>`;
+                        if (v != null) html += `<div style="color:#93c5fd">${label}: ${key === 'z_score' ? v.toFixed(2) : Math.round(v)}</div>`;
+                        else html += '<div style="color:#cbd5e1">no data</div>';
+                        tip.innerHTML = html;
+                        const rect = el.getBoundingClientRect();
+                        tip.style.left = (e.clientX - rect.left) + 'px';
+                        tip.style.top = (e.clientY - rect.top) + 'px';
+                        tip.classList.add('show');
+                    };
+                    overlay.addEventListener('mousemove', move);
+                    overlay.addEventListener('mouseleave', () => {
+                        cross.setAttribute('opacity', '0');
+                        tip.classList.remove('show');
+                    });
                 },
 
                 async loadRecovery() {
