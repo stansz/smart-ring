@@ -479,6 +479,55 @@ Home Network
 > The previous multi-option comparison (All-Local vs OVH Hybrid vs Read-Only Mirror) has been removed. Local-first is the confirmed starting point. If a VPS component is needed later, it will be added as a remote mirror, not a hybrid backend.
 
 
+---
+
+## Value Add: Our Analytics vs Ring/Gadgetbridge Raw Data
+
+The ring and Gadgetbridge provide **raw measurements** — single data points without context. A composite HRV of 42ms or 7h sleep duration has no inherent meaning without comparison to **your own baseline** and **population norms**. Our analytics layer adds clinical interpretation with peer-reviewed formulas.
+
+### What the Ring Provides (Measurements Only)
+
+| Data Type | Ring Output | Limitation |
+|-----------|-------------|-------------|
+| HR | 30-min BPM | Point value, no context |
+| Steps | 15-min slot counts | Raw count, no goal context |
+| SpO₂ | Hourly % | Isolated reading |
+| Temp | 30-min °C | Single value |
+| Sleep stages | Light/deep/REM/awake + durations | Raw stage totals |
+| HRV | Single-byte composite (ms) | Ambiguous number — 42ms could be excellent or poor, unknown without baseline |
+| Stress | 1-99 scale, 30-min | Ambiguous — 55 could be "medium" or "high" depending on context |
+| Goals | Target steps/cal/distance | Static targets |
+
+### What Our Analytics Adds (Interpretation + Clinical Context)
+
+| Our Metric | Ring Data Used | Key Value Add |
+|------------|----------------|---------------|
+| **Recovery/Readiness** | HRV composite | Log-transform → 7-day rolling baseline (mean + SD) → z-score → actionable classification (Excellent/Good/Fair/Poor/Very Poor) + confidence flag. **Longitudinal context is 90% of the value.** |
+| **Sleep Quality (0-100)** | Sleep stages + duration + temp | 5-component validated score (Duration 30% + Efficiency 25% + Architecture 25% + Continuity 15% + Latency 5%) using Ohayon 2004 meta-analysis norms (3,327 subjects). Weighted, norm-referenced, transparent. |
+| **Stress Classification** | Stress 1-99 | Garmin/Firstbeat clinical thresholds + daily weighted score (daytime + peak sustained + overnight) + morning/noon/evening breakdown. **Converts ambiguous 1-99 scale to meaningful clinical categories.** |
+| **Circadian HR / Resting HR** | Hourly HR | 24h pattern visualization + overnight 1-5 AM average. **Trend detection + clinical reference (elevated RHR = illness/overtraining signal).** |
+
+### Key Differentiators
+
+1. **Transparency** — Every formula cited (Ohayon 2004, Altini 2021, Plews, Garmin/Firstbeat). Gadgetbridge algorithms are opaque black boxes.
+
+2. **Personalized baselines** — 7-day rolling mean/SD for HRV is *essential*. A raw HRV of 42ms means nothing without "your baseline is 38±5". All commercial rings do this internally — we make it transparent.
+
+3. **Validated population norms** — Sleep architecture targets from 3,327-subject meta-analysis (Ohayon 2004: deep 13-23%, REM 20-25%), not arbitrary thresholds.
+
+4. **Customizability** — Weights and thresholds adjustable for personal physiology (e.g., shift worker circadian norms, athlete recovery windows).
+
+5. **Auditability** — All SQL/Python, reproducible. Gadgetbridge's health scores are compiled Java — good luck tweaking them.
+
+6. **Divergence detection** — RHR + HRV together form a stronger signal than either alone. Altini: "HRV is more sensitive, HR is more specific." When they diverge (HRV drops but RHR holds), it confirms fatigue vs illness.
+
+### Bottom Line
+
+The ring gives **measurements** — ~10% of the health-tracking value. Our analytics give **clinical interpretation with validated baselines** — the other ~90%.
+
+**Worth the complexity?** Yes if you want to track trends and understand *why* your readiness changed. No if you just want "slept 7h, HRV 42ms" — Gadgetbridge already shows that. The difference between "my HRV is 42ms" and "my HRV is 42ms, baseline is 38±5, z-score is +0.8, readiness is Good" is the difference between data and actionable insight.
+
+
 ## Quick Oura Comparison (for context)
 
 - Oura Ring 5: ~$530 CAD + $8/month subscription forever
