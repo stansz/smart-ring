@@ -354,16 +354,15 @@ def _parse_spo2_data(data: bytes) -> list[dict]:
 
     Gadgetbridge: per-day blocks with daysAgo byte + 24 hours ×
     (min_byte, max_byte) pairs. Averaged to a single SpO2% per hour.
-    Stops when daysAgo == 0.
+    daysAgo == 0 means today (valid data), NOT a terminator — the loop
+    ends naturally when we've read all bytes indicated by the length field.
     """
     length = struct.unpack_from("<H", data, 2)[0]
     records: list[dict] = []
     idx = 6
     local_now = datetime.now()
-    while idx - 6 < length:
+    while idx + 49 <= 6 + length and idx + 49 <= len(data):
         days_ago = data[idx]; idx += 1
-        if days_ago == 0:
-            break
         target_date = (local_now - timedelta(days=days_ago)).date()
         for hour in range(24):
             spo2_min = data[idx]; idx += 1
@@ -371,8 +370,6 @@ def _parse_spo2_data(data: bytes) -> list[dict]:
             if spo2_min > 0 and spo2_max > 0:
                 ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour)).astimezone()
                 records.append({"ts": ts, "spo2_pct": round((spo2_min + spo2_max) / 2.0)})
-            if idx - 6 >= length:
-                break
     return records
 
 
@@ -382,6 +379,8 @@ def _parse_temperature_data(data: bytes) -> list[dict]:
     Gadgetbridge: per-day blocks with daysAgo byte + 0x1e skip byte +
     48 bytes (temp_00, temp_30 pairs for 24 hours).
     Each raw byte → °C = (raw / 10) + 20.
+    daysAgo == 0 means today (valid data), NOT a terminator.
+    Each day block is 50 bytes (1 daysAgo + 1 skip + 48 data).
     """
     length = struct.unpack_from("<H", data, 2)[0]
     if length < 50:
@@ -389,10 +388,8 @@ def _parse_temperature_data(data: bytes) -> list[dict]:
     records: list[dict] = []
     idx = 6
     local_now = datetime.now()
-    while idx - 6 < length:
+    while idx + 50 <= 6 + length and idx + 50 <= len(data):
         days_ago = data[idx]; idx += 1
-        if days_ago == 0:
-            break
         idx += 1  # skip extra byte (observed as 0x1e)
         target_date = (local_now - timedelta(days=days_ago)).date()
         for hour in range(24):
@@ -406,8 +403,6 @@ def _parse_temperature_data(data: bytes) -> list[dict]:
                 temp_c = (t30 / 10.0) + 20
                 ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=30)).astimezone()
                 records.append({"ts": ts, "temp_c": round(temp_c, 1)})
-            if idx - 6 >= length:
-                break
     return records
 
 

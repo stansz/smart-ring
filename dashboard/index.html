@@ -284,7 +284,7 @@
                     <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Vitals</h2>
                     <span class="text-xs text-gray-400 dark:text-gray-500" x-text="selectedDate && !isToday() ? new Date(selectedDate).toLocaleDateString() : ''"></span>
                 </div>
-                <p id="vitalsSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
+                <p id="vitalsSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3" x-text="vitalsSubtitleText"></p>
                 <div id="vitalsChart" class="chart-host mb-3" style="min-height:120px">
                     <p class="text-sm text-gray-400 dark:text-gray-500">Syncing vitals data from ring...</p>
                 </div>
@@ -305,12 +305,30 @@
             </div>
             <!-- Circadian HR Pattern -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Circadian HR Pattern</h2>
-                <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
-                <div id="circadianBars" class="chart-host"></div>
-                <p class="text-xs text-gray-400 dark:text-gray-500 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 leading-relaxed">
-                    Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.
-                </p>
+                <div class="flex justify-between items-baseline mb-1">
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Circadian HR Pattern</h2>
+                </div>
+                <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3" x-text="circadianSubtitleText"></p>
+                <div id="circadianBars" class="chart-host mb-3" style="min-height:120px">
+                    <p class="text-sm text-gray-400 dark:text-gray-500">Loading circadian data...</p>
+                </div>
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div class="text-center">
+                        <p class="text-gray-400 dark:text-gray-500">Min HR</p>
+                        <p class="font-bold text-sm mt-0.5 text-blue-600" x-text="circadianMin != null ? circadianMin + ' bpm' : '—'"></p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-gray-400 dark:text-gray-500">Max HR</p>
+                        <p class="font-bold text-sm mt-0.5 text-orange-500 dark:text-orange-400" x-text="circadianMax != null ? circadianMax + ' bpm' : '—'"></p>
+                    </div>
+                    <div class="text-center relative group">
+                        <p class="text-gray-400 dark:text-gray-500">Avg HR <span class="cursor-help text-gray-300 dark:text-gray-600">ⓘ</span></p>
+                        <p class="font-bold text-sm mt-0.5 text-teal-500 dark:text-teal-400" x-text="circadianAvg != null ? circadianAvg + ' bpm' : '—'"></p>
+                        <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 px-3 py-2 bg-gray-800 dark:bg-gray-700 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 leading-relaxed">
+                            Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
@@ -610,10 +628,10 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <template x-for="s in adminSyncLog" :key="s.id">
+                        <template x-for="s in syncLogPaged" :key="s.id">
                             <tr class="border-b border-gray-100 dark:border-gray-700 text-gray-700 dark:text-gray-300">
-                                <td class="py-2 pr-4" x-text="s.started_at ? new Date(s.started_at).toLocaleString() : '—'"></td>
-                                <td class="py-2 pr-4" x-text="s.completed_at ? new Date(s.completed_at).toLocaleString() : '—'"></td>
+                                <td class="py-2 pr-4 whitespace-nowrap text-xs" x-text="s.started_at ? new Date(s.started_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'"></td>
+                                <td class="py-2 pr-4 whitespace-nowrap text-xs" x-text="s.completed_at ? new Date(s.completed_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'"></td>
                                 <td class="py-2 pr-4" x-text="s.records_synced ?? 0"></td>
                                 <td class="py-2 pr-4" x-text="s.battery_pct != null ? s.battery_pct + '%' : '—'"></td>
                                 <td class="py-2 pr-4">
@@ -632,11 +650,35 @@
                                 <td class="py-2 pr-4 text-red-600 dark:text-red-400 text-xs" x-text="s.error || ''"></td>
                             </tr>
                         </template>
-                        <tr x-show="adminSyncLog.length === 0">
+                        <tr x-show="syncLogPaged.length === 0">
                             <td colspan="7" class="py-6 text-center text-gray-400 dark:text-gray-500">No syncs yet. Ring hasn't been paired.</td>
                         </tr>
                     </tbody>
                 </table>
+            </div>
+            <!-- Pagination -->
+            <div class="flex items-center justify-between mt-4" x-show="adminSyncLog.length > syncLogPerPage">
+                <span class="text-sm text-gray-500 dark:text-gray-400"
+                      x-text="`Showing ${(syncLogPage-1)*syncLogPerPage+1}–${Math.min(syncLogPage*syncLogPerPage, adminSyncLog.length)} of ${adminSyncLog.length}`"></span>
+                <div class="flex items-center gap-1">
+                    <button @click="syncLogPage = 1" :disabled="syncLogPage === 1"
+                            class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300">&laquo;</button>
+                    <button @click="syncLogPage--" :disabled="syncLogPage === 1"
+                            class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300">&lsaquo;</button>
+                    <template x-for="(p, i) in syncLogPageRange" :key="i">
+                        <button @click="typeof p === 'number' && (syncLogPage = p)"
+                                x-text="p"
+                                :class="p === syncLogPage
+                                    ? 'px-3 py-1 text-sm rounded border border-blue-500 bg-blue-500 text-white font-semibold cursor-pointer'
+                                    : (typeof p === 'number'
+                                        ? 'px-3 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer text-gray-700 dark:text-gray-300'
+                                        : 'px-2 py-1 text-sm text-gray-400 cursor-default')"></button>
+                    </template>
+                    <button @click="syncLogPage++" :disabled="syncLogPage === syncLogTotalPages"
+                            class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300">&rsaquo;</button>
+                    <button @click="syncLogPage = syncLogTotalPages" :disabled="syncLogPage === syncLogTotalPages"
+                            class="px-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300">&raquo;</button>
+                </div>
             </div>
         </div>
 
@@ -717,6 +759,11 @@
                 stressEvening: null,
                 stressTrendText: '',
                 restingHr: null,
+                circadianMin: null,
+                circadianMax: null,
+                circadianAvg: null,
+                circadianSubtitleText: 'Loading circadian data...',
+                vitalsSubtitleText: '',
                 stressLevel: null,
                 stressLabel: '',
                 rawHrCount: 0,
@@ -742,6 +789,8 @@
                 lastSyncSummary: {},
                 health: {},
                 adminSyncLog: [],
+                syncLogPage: 1,
+                syncLogPerPage: 10,
                 syncRequests: [],
                 syncQueueBusy: false,
                 syncQueueStatus: '',
@@ -797,6 +846,21 @@
                     if (!Array.isArray(rows)) return rows;
                     const nowMs = Date.now();
                     return rows.filter(r => { const t = new Date(r.ts); return !isNaN(t) && t.getTime() <= nowMs; });
+                },
+                get syncLogTotalPages() {
+                    return Math.max(1, Math.ceil(this.adminSyncLog.length / this.syncLogPerPage));
+                },
+                get syncLogPaged() {
+                    const start = (this.syncLogPage - 1) * this.syncLogPerPage;
+                    return this.adminSyncLog.slice(start, start + this.syncLogPerPage);
+                },
+                get syncLogPageRange() {
+                    const total = this.syncLogTotalPages;
+                    const cur = this.syncLogPage;
+                    if (total <= 7) return Array.from({length: total}, (_, i) => i + 1);
+                    if (cur <= 4) return [1, 2, 3, 4, 5, '…', total];
+                    if (cur >= total - 3) return [1, '…', total - 4, total - 3, total - 2, total - 1, total];
+                    return [1, '…', cur - 1, cur, cur + 1, '…', total];
                 },
                 formatSelectedDate() {
                     const d = this.selectedDate;
@@ -1268,12 +1332,17 @@
                             labels.push(`${h}:00`);
                             values.push(byHour[h] ? byHour[h].sum / byHour[h].n : null);
                         }
-                        this.renderCircadianLine(labels, values);
-                        // Show date range subtitle
-                        const subtitle = document.getElementById('circadianSubtitle');
-                        if (subtitle && range && range.min_day) {
-                            subtitle.textContent = range.min_day + ' – ' + range.max_day;
+                        // Set subtitle BEFORE rendering chart (in case render throws)
+                        const fmtDay = (s) => {
+                            const d = new Date(s + 'T00:00:00');
+                            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        };
+                        if (range && range.min_day) {
+                            this.circadianSubtitleText = fmtDay(range.min_day) + ' – ' + fmtDay(range.max_day) + ' — 7-day hourly averages';
+                        } else {
+                            this.circadianSubtitleText = '7-day hourly averages';
                         }
+                        this.renderCircadianLine(labels, values);
                     } catch (e) { console.error('loadCircadian', e); }
                 },
 
@@ -1610,9 +1679,12 @@
                         const tempAll = this.clipFuture(await tempRes.json());
                         const selKey = this.dateKey(this.selectedDate);
                         const byDate = (arr) => arr.filter(d => this.dateKey(new Date(d.ts)) === selKey);
-                        const hrDay = byDate(hrAll).length ? byDate(hrAll) : (this.isToday() ? hrAll : []);
-                        const spo2Day = byDate(spo2All).length ? byDate(spo2All) : (this.isToday() ? spo2All : []);
-                        const tempDay = byDate(tempAll).length ? byDate(tempAll) : (this.isToday() ? tempAll : []);
+                        const hrDay = byDate(hrAll);
+                        const spo2Day = byDate(spo2All);
+                        const tempDay = byDate(tempAll);
+                        if (this.selectedDate) {
+                            this.vitalsSubtitleText = this.formatSelectedDate() + ' — hourly averages';
+                        }
                         this.renderVitalsChart(hrDay, spo2Day, tempDay);
                     } catch (e) { console.error('loadVitalsChart', e); }
                 },
@@ -1742,10 +1814,6 @@
                         </g>
                         <rect id="vitalsOverlay" x="${x0}" y="${pad}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor:crosshair"/>
                     </svg>`;
-                    const subtitle = document.getElementById('vitalsSubtitle');
-                    if (subtitle && this.selectedDate) {
-                        subtitle.textContent = this.formatSelectedDate() + ' — hourly averages';
-                    }
                     this._attachVitalsTooltip(hrAvg, spo2Avg, tempAvg);
                 },
 
@@ -1810,11 +1878,18 @@
                     if (!el) return;
                     const validVals = values.filter(v => v != null);
                     if (!validVals.length) {
-                        el.innerHTML = '<p class="text-gray-400 dark:text-gray-500">No circadian data yet</p>';
+                        el.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-500">No circadian data yet</p>';
+                        this.circadianMin = null;
+                        this.circadianMax = null;
+                        this.circadianAvg = null;
                         return;
                     }
                     const max = Math.max(...validVals);
                     const min = Math.min(...validVals);
+                    const avg = Math.round(validVals.reduce((a, b) => a + b, 0) / validVals.length);
+                    this.circadianMin = Math.round(min);
+                    this.circadianMax = Math.round(max);
+                    this.circadianAvg = avg;
                     const range = max - min || 1;
                     const pad = 5;
                     const w = 520, h = 160, plotW = w - 70, plotH = h - 30;
@@ -1905,6 +1980,7 @@
                     try {
                         const res = await fetch('/api/admin/sync-log?limit=50');
                         this.adminSyncLog = await res.json();
+                        if (this.syncLogPage > this.syncLogTotalPages) this.syncLogPage = this.syncLogTotalPages;
                     } catch (e) { console.error('admin sync-log', e); }
                 },
 
