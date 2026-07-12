@@ -60,6 +60,7 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 | `dashboard/index.html` | Single-page UI (3 tabs) | Pure SVG charts (no Chart.js); Catmull-Rom smoothing + hover tooltips + entrance animations; Vitals chart (HR+SpO2+Temp triple-axis); sleep donut; 4 activity dials; Analytics tab (pipeline ref + trend charts); sync button (spinner + elapsed timer + progress badge + auto-refresh + error banner); battery indicator; circadian inline explainer; dark mode; `clipFuture` filter |
 | `db/init.sql` | Postgres schema | ~15 tables (8 raw + 5 computed + sync_log + sync_requests + ring_status + ring_goals) |
 | `RESEARCH.md` | Reference knowledge | BLE quirks & reconnect bug; protocol command mapping; validated score formulas; value-add analysis (our analytics vs ring/Gadgetbridge raw data) |
+| `ROADMAP.md` | Planned future work | Mobile sync design (WebBluetooth PWA + Gadgetbridge fork options); not yet implemented |
 
 ---
 
