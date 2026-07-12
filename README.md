@@ -42,7 +42,7 @@ Home Network
        └─ python3 collector/sync_ring.py  (run manually, no cron)
 ```
 
-Dashboard: single-page Alpine.js + Tailwind CSS app with two tabs — **Dashboard** (sleep donut, circadian HR line graph, activity dials, health-coded stat cards with emoji icons, dark mode toggle) and **Admin** (ring status, manual sync controls, sync log, system health, raw data tables). No build step.
+Dashboard: single-page Alpine.js + Tailwind CSS app with two tabs — **Dashboard** (sleep donut, circadian HR line graph, vitals chart with HR + SpO₂ + Temp triple-axis, activity dials, health-coded stat cards with emoji icons, dark mode toggle) and **Admin** (ring status, manual sync controls, full sync log with clock drift tracking, clock alert banner, system health, raw data tables). No build step.
 
 ## Usage
 
@@ -59,8 +59,8 @@ bluetoothctl disconnect <ring_address>
 
 # Daily operations
 python3 collector/first_contact.py     # read-only diagnostic (battery, fw, clock)
-python3 collector/sync_ring.py         # full sync to Postgres
-# Or use Gadgetbridge on your phone for quick checks
+python3 collector/sync_ring.py --forget  # full sync to Postgres (with R09 reconnect workaround)
+# Or use the dashboard: click "Sync Now" in the Admin tab
 ```
 
 ## Research
@@ -105,12 +105,13 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ **HRV trends** — 7-day and 28-day rolling averages
 
 ### Dashboard
+- Vitals chart (HR line + SpO₂ dots + Temp dots triple-axis SVG with hover tooltips + smooth Catmull-Rom curves)
 - Sleep donut ring (concentric conic-gradient with stage breakdown)
 - Circadian HR SVG line graph with date range + tooltip
-- 5 health-coded stat cards (Sleep, SpO2, Skin Temp, Recovery, Resting HR) with emoji icons + color-coded borders
+- Recovery panel (HRV, readiness, z-score, baseline, stress classification, resting HR)
 - Today's Activity dials (Steps, HR, Active Time, Calories)
 - Dark mode toggle (persisted to localStorage)
-- Admin tab with Sync Now, ring status, sync log, raw data tables
+- Admin tab with Sync Now, ring status, sync log with clock drift tracking, clock alert banner, raw data tables
 
 ### How it works
 ```
