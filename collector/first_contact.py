@@ -107,8 +107,8 @@ async def first_contact(address: str, *, attempts: int = 5, wake_ping: bool = Tr
         print("\n[3/3] Setting clock...")
         try:
             now = datetime.now()
-            await client.set_time(now)
-            print(f"  Clock synced: {now.strftime('%Y-%m-%d %H:%M:%S')}")
+            await client.set_time_local(now)
+            print(f"  Clock synced (local BCD): {now.strftime('%Y-%m-%d %H:%M:%S')}")
         except Exception as e:
             print(f"  WARNING: clock sync failed: {e}")
 

@@ -302,6 +302,32 @@ def admin_sync_log(limit: int = 50):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/admin/clock-alert")
+def admin_clock_alert():
+    """Clock health: future rows count + latest sync drift."""
+    with SessionLocal() as db:
+        future_hr = db.execute(text(
+            "SELECT count(*) FROM raw_heart_rate WHERE ts > now()"
+        )).scalar() or 0
+        future_steps = db.execute(text(
+            "SELECT count(*) FROM raw_steps WHERE ts > now()"
+        )).scalar() or 0
+        future_spo2 = db.execute(text(
+            "SELECT count(*) FROM raw_spo2 WHERE ts > now()"
+        )).scalar() or 0
+        future_temp = db.execute(text(
+            "SELECT count(*) FROM raw_temperature WHERE ts > now()"
+        )).scalar() or 0
+        latest_drift = db.execute(text(
+            "SELECT clock_drift_ms FROM sync_log ORDER BY started_at DESC LIMIT 1"
+        )).scalar()
+    return {
+        "future_rows": future_hr + future_steps + future_spo2 + future_temp,
+        "future_hr": future_hr,
+        "latest_drift_ms": latest_drift,
+    }
+
+
 class SyncRequest(BaseModel):
     requested_by: str = "admin-ui"
 
