@@ -66,6 +66,9 @@ COMMAND_HANDLERS: dict[int, Callable[[bytearray], Any]] = dict(_BASE_COMMAND_HAN
 
 # Register commands that the colmi_r02_client library doesn't know about
 # but that the R09 firmware supports (documented in Gadgetbridge).
+# Also override the library's empty_parse for CMD_SET_TIME (0x01) so the
+# ring's capability response lands in the queue — the library discards it.
+COMMAND_HANDLERS[0x01] = _pass_through   # CMD_SET_TIME (override empty_parse)
 COMMAND_HANDLERS[0x21] = _pass_through   # CMD_GOALS
 COMMAND_HANDLERS[0x37] = _pass_through   # CMD_SYNC_STRESS
 COMMAND_HANDLERS[0x39] = _pass_through   # CMD_SYNC_HRV

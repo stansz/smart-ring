@@ -70,8 +70,7 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 - All 8 data types collecting: HR, steps, HRV, sleep, SpO2, temperature, stress, goals
 - All 5 health scores computing: sleep quality, HRV recovery, stress classification, circadian HR, resting HR
 - Sync button: spinner + elapsed timer + 12-phase progress badge + auto-refresh on completion + inline error banner
-- Clock sync: Gadgetbridge-compatible BCD local (no more drift)
-- Clock drift tracking per sync (color-coded in Admin)
+- Clock sync: Gadgetbridge-compatible BCD local (6 data bytes, no language flag). Ack-based verification — ring responds to set_time cmd, response confirms command was processed
 - Analytics tab: pipeline reference, score cards, 4 trend charts (7d/14d/30d/90d)
 - Battery indicator in nav bar (green/amber/red)
 
@@ -86,6 +85,15 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 ---
 
 ## Recent Work Log (Jul 2026)
+
+### 2026-07-12 — Time Sync Ack Verification (replaces drift metric)
+- **Problem:** `_compute_clock_drift_ms()` measured `max(HR ts) - now()` from raw_heart_rate. With 30-min HR sampling, this always showed -10 to -30 min "drift" — just sampling lag, not clock error. False alarms on every sync. Couldn't distinguish ring-off-finger from genuine clock issues.
+- **R09 time sync findings (Gadgetbridge source-verified):**
+  - Gadgetbridge `setDateTime()`: 6 BCD data bytes, LOCAL time (GregorianCalendar.getInstance), no language flag. Our `set_time_local` matches byte-for-byte.
+  - Library `set_time_packet()`: 7 bytes, UTC, language flag = 0x01. Wrong for R09 — firmware reads bytes as local wall-clock.
+  - Library `client.py` registers `empty_parse` for CMD_SET_TIME (0x01) — silently discards the ring's capability response. Overrode with `_pass_through` so the ack reaches the queue.
+- **Fix:** After `set_time_local()`, wait 3s for ring's response on `client.queues[0x01]`. Store `1` (acked) / `0` (no ack) in `sync_log.clock_drift_ms` (column reused). Dashboard sync log shows "OK" (green) / "No ack" (red). Removed drift alert banner (kept future_rows ring buffer warning).
+- **Files:** `collector/ring_client.py` (override 0x01 handler), `collector/sync_ring.py` (ack wait, remove drift), `api/main.py` (simplify clock-alert), `dashboard/index.html` (Time Sync column)
 
 ### 2026-07-11 (c) — Sync Button: Spinner, Progress Stages, Auto-Refresh
 - DB: `current_step TEXT` on `sync_log`. Collector writes 12 phases (Connected → … → Fetching goals).

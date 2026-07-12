@@ -323,7 +323,13 @@ def admin_sync_log(limit: int = 50):
 
 @app.get("/api/admin/clock-alert")
 def admin_clock_alert():
-    """Clock health: future rows count + latest sync drift."""
+    """Clock health: future rows count (ring buffer phantom entries).
+
+    The old drift metric was removed — it measured max(HR ts) - now(),
+    which conflated sampling lag with clock error. Time sync is now
+    verified via the ring's ack to the set_time command (stored as
+    clock_drift_ms: 1=acked, 0=no ack, NULL=unknown). See sync log.
+    """
     with SessionLocal() as db:
         future_hr = db.execute(text(
             "SELECT count(*) FROM raw_heart_rate WHERE ts > now()"
@@ -337,13 +343,9 @@ def admin_clock_alert():
         future_temp = db.execute(text(
             "SELECT count(*) FROM raw_temperature WHERE ts > now()"
         )).scalar() or 0
-        latest_drift = db.execute(text(
-            "SELECT clock_drift_ms FROM sync_log ORDER BY started_at DESC LIMIT 1"
-        )).scalar()
     return {
         "future_rows": future_hr + future_steps + future_spo2 + future_temp,
         "future_hr": future_hr,
-        "latest_drift_ms": latest_drift,
     }
 
 
