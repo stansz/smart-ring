@@ -8,12 +8,43 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script>tailwind.config={darkMode:'class'}</script>
     <style>
+        .chart-host { position: relative; }
         .chart-container { position: relative; height: 300px; width: 100%; }
         .chart-container canvas { display: block; }
         @media (max-width: 768px) { .chart-container { height: 250px; } }
         .stat-card { transition: transform: 0.2s; }
         .stat-card:hover { transform: translateY(-2px); }
         .loading { opacity: 0.6; pointer-events: none; }
+        /* Chart polish: entrance, hover tooltip, crosshair */
+        .chart-svg { animation: chartIn 0.55s cubic-bezier(0.22,1,0.36,1) both; }
+        .chart-line, .chart-area { transition: d 0.4s ease, opacity 0.4s ease; }
+        @keyframes chartIn {
+            from { opacity: 0; transform: translateY(8px) scaleY(0.96); }
+            to   { opacity: 1; transform: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .chart-svg { animation: none; }
+            .chart-line, .chart-area { transition: none; }
+        }
+        .chart-tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(17,24,39,0.92);
+            color: #fff;
+            font-size: 11px;
+            line-height: 1.4;
+            padding: 6px 9px;
+            border-radius: 7px;
+            transform: translate(-50%, calc(-100% - 12px));
+            white-space: nowrap;
+            z-index: 20;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.30);
+            opacity: 0;
+            transition: opacity 0.12s ease;
+        }
+        .chart-tooltip.show { opacity: 1; }
+        .chart-legend-dot { transition: transform 0.15s ease; }
+        .chart-legend-row:hover .chart-legend-dot { transform: scale(1.25); }
     </style>
 </head>
 <body class="bg-gray-50 dark:bg-gray-900 min-h-screen" x-data="dashboard()" x-init="init()">
@@ -181,9 +212,15 @@
                         </div>
                         <div class="flex justify-between text-sm" x-show="stressClass">
                             <span class="text-gray-500 dark:text-gray-400">Stress</span>
-                            <span class="font-medium capitalize"
-                                  :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'"
-                                  x-text="stressClass || '—'"></span>
+                            <span>
+                                <span class="font-bold"
+                                      :class="stressDailyAvg <= 25 ? 'text-green-600' : stressDailyAvg <= 50 ? 'text-gray-600 dark:text-gray-300' : stressDailyAvg <= 75 ? 'text-amber-600' : 'text-red-600'"
+                                      x-text="stressDailyAvg != null ? Math.round(stressDailyAvg) : ''"></span>
+                                <span class="font-medium capitalize ml-1"
+                                      :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'"
+                                      x-text="stressClass"></span>
+                                <span class="text-xs text-gray-400 dark:text-gray-500 ml-1" x-text="stressTrendText || ''"></span>
+                            </span>
                         </div>
                         <div class="flex justify-between text-sm" x-show="restingHr">
                             <span class="text-gray-500 dark:text-gray-400">Resting HR</span>
@@ -202,38 +239,28 @@
                     <p class="text-sm text-gray-400 dark:text-gray-500">No sleep data yet — sync the ring to pull sleep history</p>
                 </div>
             </div>
-            <!-- Stress + Body Metrics -->
+            <!-- Vitals -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
                 <div class="flex justify-between items-baseline mb-1">
-                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">💪 Stress &amp; Vitals</h2>
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Vitals</h2>
                     <span class="text-xs text-gray-400 dark:text-gray-500" x-text="selectedDate && !isToday() ? new Date(selectedDate).toLocaleDateString() : ''"></span>
                 </div>
-                <div class="flex items-center gap-3 mb-3">
-                    <p class="text-3xl font-bold"
-                       :class="stressDailyAvg <= 25 ? 'text-green-600' : stressDailyAvg <= 50 ? 'text-gray-600 dark:text-gray-300' : stressDailyAvg <= 75 ? 'text-amber-600' : 'text-red-600'"
-                       x-text="stressDailyAvg != null ? Math.round(stressDailyAvg) : '—'"></p>
-                    <div>
-                        <span class="text-xs font-medium capitalize px-2 py-0.5 rounded"
-                              :class="stressClass === 'relaxed' ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300' : stressClass === 'low' ? 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300' : stressClass === 'medium' ? 'bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300' : 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'"
-                              x-text="stressClass || '—'"></span>
-                        <span class="text-xs text-gray-400 dark:text-gray-500 ml-2" x-show="stressTrendText" x-text="stressTrendText"></span>
-                    </div>
+                <p id="vitalsSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
+                <div id="vitalsChart" class="chart-host mb-3" style="min-height:120px">
+                    <p class="text-sm text-gray-400 dark:text-gray-500">Syncing vitals data from ring...</p>
                 </div>
-                <div id="stressChart" class="mb-3" style="min-height:120px">
-                    <p class="text-sm text-gray-400 dark:text-gray-500">Syncing stress data from ring...</p>
-                </div>
-                <div class="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-2 gap-2 text-xs">
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-3 gap-2 text-xs">
                     <div class="text-center">
                         <p class="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
-                        <p class="font-bold text-sm mt-0.5"
-                           :class="spo2Latest >= 95 ? 'text-green-600' : spo2Latest >= 90 ? 'text-amber-600' : 'text-red-600'"
-                           x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></p>
+                        <p class="font-bold text-sm mt-0.5 text-teal-500 dark:text-teal-400" x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></p>
                     </div>
                     <div class="text-center">
                         <p class="text-gray-400 dark:text-gray-500">🌡️ Temp</p>
-                        <p class="font-bold text-sm mt-0.5"
-                           :class="tempLatest >= 38 ? 'text-red-600' : tempLatest >= 37 ? 'text-amber-600' : 'text-green-600'"
-                           x-text="tempLatest != null ? tempLatest + '°C' : '—'"></p>
+                        <p class="font-bold text-sm mt-0.5 text-orange-500 dark:text-orange-400" x-text="tempLatest != null ? tempLatest + '°C' : '—'"></p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-gray-400 dark:text-gray-500">Resting HR</p>
+                        <p class="font-bold text-sm mt-0.5 text-blue-600" x-text="restingHr != null ? restingHr + ' bpm' : '—'"></p>
                     </div>
                 </div>
             </div>
@@ -243,30 +270,7 @@
                     <span class="text-xs font-normal text-gray-400 dark:text-gray-500 cursor-help" title="Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.">ⓘ</span>
                 </h2>
                 <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3"></p>
-                <div id="circadianBars"></div>
-            </div>
-        </div>
-
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
-            <div class="flex justify-between items-center mb-4">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Syncs</h2>
-                <button @click="showRecentSyncs = !showRecentSyncs" class="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition">
-                    <span x-text="showRecentSyncs ? '▲ Hide' : '▼ Show'"></span>
-                </button>
-            </div>
-            <div class="overflow-x-auto" x-show="showRecentSyncs" x-cloak>
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
-                            <th class="pb-2 pr-4">Time</th>
-                            <th class="pb-2 pr-4">Records</th>
-                            <th class="pb-2 pr-4">Battery</th>
-                            <th class="pb-2 pr-4">Clock Drift</th>
-                            <th class="pb-2 pr-4">Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="syncTable" class="text-gray-700 dark:text-gray-300"></tbody>
-                </table>
+                <div id="circadianBars" class="chart-host"></div>
             </div>
         </div>
     </main>
@@ -302,6 +306,22 @@
             </div>
         </div>
 
+        <!-- Ring buffer / drift status -->
+        <div x-show="clockAlert.future_rows > 0 || (clockAlert.latest_drift_ms != null && Math.abs(clockAlert.latest_drift_ms) > 60000)"
+             x-transition.opacity
+             class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6 flex items-start gap-3">
+            <span class="text-xl">ℹ️</span>
+            <div>
+                <p class="text-sm font-semibold text-blue-800 dark:text-blue-200" x-text="clockAlert.future_rows > 0
+                    ? 'Ring buffer still contains old records'
+                    : 'Ring clock drift detected'"></p>
+                <p class="text-xs text-blue-700 dark:text-blue-300 mt-0.5"
+                   x-text="clockAlert.future_rows > 0
+                       ? `${clockAlert.future_rows} record(s) from before the time-fix still in ring's buffer. Will clear naturally in 2−3 days as the ring fills with fresh data.`
+                       : `Latest sync drift: ${(clockAlert.latest_drift_ms/1000).toFixed(1)}s.`"></p>
+            </div>
+        </div>
+
         <!-- System health -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-6">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">System Health</h2>
@@ -334,33 +354,38 @@
                         <tr class="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                             <th class="pb-2 pr-4">Started</th>
                             <th class="pb-2 pr-4">Completed</th>
-                            <th class="pb-2 pr-4">Records</th>
-                            <th class="pb-2 pr-4">Battery</th>
-                            <th class="pb-2 pr-4">Status</th>
+                             <th class="pb-2 pr-4">Records</th>
+                             <th class="pb-2 pr-4">Battery</th>
+                             <th class="pb-2 pr-4">Clock Drift</th>
+                             <th class="pb-2 pr-4">Status</th>
                             <th class="pb-2 pr-4">Error</th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-for="s in adminSyncLog" :key="s.id">
-                            <tr class="border-b border-gray-100 dark:border-gray-700">
+                            <tr class="border-b border-gray-100 dark:border-gray-700 text-gray-700 dark:text-gray-300">
                                 <td class="py-2 pr-4" x-text="s.started_at ? new Date(s.started_at).toLocaleString() : '—'"></td>
                                 <td class="py-2 pr-4" x-text="s.completed_at ? new Date(s.completed_at).toLocaleString() : '—'"></td>
                                 <td class="py-2 pr-4" x-text="s.records_synced ?? 0"></td>
                                 <td class="py-2 pr-4" x-text="s.battery_pct != null ? s.battery_pct + '%' : '—'"></td>
                                 <td class="py-2 pr-4">
+                                    <span x-text="s.clock_drift_ms != null ? (s.clock_drift_ms/1000).toFixed(1) + 's' : '—'"
+                                          :class="s.clock_drift_ms == null ? '' : s.clock_drift_ms > 60000 ? 'text-red-600 font-semibold' : s.clock_drift_ms < -60000 ? 'text-amber-600' : 'text-green-600'"></span>
+                                </td>
+                                <td class="py-2 pr-4">
                                     <span class="px-2 py-0.5 text-xs rounded"
                                           :class="{
-                                              'bg-green-100 text-green-800': s.status === 'completed',
-                                              'bg-yellow-100 text-yellow-800': s.status === 'running',
-                                              'bg-red-100 text-red-800': s.status === 'error'
+                                              'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': s.status === 'completed',
+                                              'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': s.status === 'running',
+                                              'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': s.status === 'error'
                                           }"
                                           x-text="s.status"></span>
                                 </td>
-                                <td class="py-2 pr-4 text-red-600 text-xs" x-text="s.error || ''"></td>
+                                <td class="py-2 pr-4 text-red-600 dark:text-red-400 text-xs" x-text="s.error || ''"></td>
                             </tr>
                         </template>
                         <tr x-show="adminSyncLog.length === 0">
-                            <td colspan="6" class="py-6 text-center text-gray-400 dark:text-gray-500">No syncs yet. Ring hasn't been paired.</td>
+                            <td colspan="7" class="py-6 text-center text-gray-400 dark:text-gray-500">No syncs yet. Ring hasn't been paired.</td>
                         </tr>
                     </tbody>
                 </table>
@@ -448,7 +473,6 @@
                 stressLabel: '',
                 rawHrCount: 0,
                 rawStepsCount: 0,
-                showRecentSyncs: false,
                 // Today's activity dials
                 stepsToday: 0,
                 stepsPct: 0,
@@ -473,6 +497,7 @@
                 syncRequests: [],
                 syncQueueBusy: false,
                 syncQueueStatus: '',
+                clockAlert: { future_rows: 0, latest_drift_ms: null },
                 _pollTimer: null,
 
                 init() {
@@ -490,6 +515,11 @@
                     this.darkMode = !this.darkMode;
                     localStorage.setItem('darkMode', this.darkMode);
                     document.documentElement.classList.toggle('dark', this.darkMode);
+                    // Re-render charts so axis/grid colors track the theme
+                    this.$nextTick(() => {
+                        this.loadCircadian();
+                        this.loadVitalsChart();
+                    });
                 },
 
                 dateKey(d) {
@@ -497,6 +527,13 @@
                 },
                 isToday() {
                     return this.dateKey(this.selectedDate) === this.dateKey(new Date());
+                },
+                // Drop readings stamped in the future (ring clock can run ahead).
+                // Vitals from the future can't exist, so they're never shown.
+                clipFuture(rows) {
+                    if (!Array.isArray(rows)) return rows;
+                    const nowMs = Date.now();
+                    return rows.filter(r => { const t = new Date(r.ts); return !isNaN(t) && t.getTime() <= nowMs; });
                 },
                 formatSelectedDate() {
                     const d = this.selectedDate;
@@ -536,7 +573,7 @@
                         this.loadPersistedScores(),
                         this.loadSleepStages(),
                         this.loadHealthMetrics(),
-                        this.loadStressChart(),
+                        this.loadVitalsChart(),
                         this.loadCircadian(),
                         this.loadSyncLog(),
                         this.loadDialsData(),
@@ -550,9 +587,17 @@
                         this.loadHealth(),
                         this.loadAdminSyncLog(),
                         this.loadSyncRequests(),
-                        this.loadRawTables()
+                        this.loadRawTables(),
+                        this.loadClockAlert(),
                     ]);
                     this.startPolling();
+                },
+
+                async loadClockAlert() {
+                    try {
+                        const res = await fetch('/api/admin/clock-alert');
+                        if (res.ok) this.clockAlert = await res.json();
+                    } catch (e) { console.error('clock-alert', e); }
                 },
 
                 async loadRecovery() {
@@ -684,9 +729,9 @@
                             fetch('/api/raw/temperature?hours=168&limit=100'),
                             fetch('/api/raw/hrv?hours=168&limit=200')
                         ]);
-                        const spo2All = spo2.status === 'fulfilled' ? await spo2.value.json() : [];
-                        const tempAll = temp.status === 'fulfilled' ? await temp.value.json() : [];
-                        const hrvAll = hrv.status === 'fulfilled' ? await hrv.value.json() : [];
+                        const spo2All = spo2.status === 'fulfilled' ? this.clipFuture(await spo2.value.json()) : [];
+                        const tempAll = temp.status === 'fulfilled' ? this.clipFuture(await temp.value.json()) : [];
+                        const hrvAll = hrv.status === 'fulfilled' ? this.clipFuture(await hrv.value.json()) : [];
 
                         // Filter to selected date
                         const selKey = this.dateKey(this.selectedDate);
@@ -719,7 +764,7 @@
 
                         // Resting HR from overnight data for selected date
                         const hrRes = await fetch('/api/raw/heart-rate?hours=168&limit=500');
-                        const hrAll = await hrRes.json();
+                        const hrAll = this.clipFuture(await hrRes.json());
                         const hrDay = hrAll.filter(d => this.dateKey(new Date(d.ts)) === selKey);
                         const hrSource = hrDay.length ? hrDay : (this.isToday() ? hrAll : []);
                         const nightHR = hrSource.filter(d => {
@@ -774,7 +819,6 @@
                         const data = await res.json();
                         if (data.length > 0) {
                             this.lastSync = new Date(data[0].started_at).toLocaleString();
-                            this.renderSyncTable(data);
                         }
                     } catch (e) { console.error('loadSyncLog', e); }
                 },
@@ -1051,8 +1095,9 @@
 
                     container.innerHTML = `
                         <div class="relative w-44 h-44 flex-shrink-0">
-                            <div class="absolute inset-0 rounded-full" style="${donutStyle}"></div>
-                            <div class="absolute inset-3 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
+                            <div class="absolute inset-0 rounded-full" style="${donutStyle}; box-shadow: inset 0 2px 6px rgba(0,0,0,0.18);"></div>
+                            <div class="absolute inset-[3px] rounded-full" style="background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.35), rgba(255,255,255,0) 55%); mix-blend-mode: screen;"></div>
+                            <div class="absolute inset-3 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center" style="box-shadow: inset 0 4px 14px rgba(0,0,0,0.10);">
                                 <span class="text-2xl font-bold text-gray-900 dark:text-gray-100">${totalHours}h ${remMin}m</span>
                                 <span class="text-xs text-gray-400 dark:text-gray-500">${bedFmt} – ${wakeFmt}</span>
                             </div>
@@ -1089,100 +1134,211 @@
                     return { min: dataMin, max: dataMax, trendDir };
                 },
 
-                async loadStressChart() {
+                async loadVitalsChart() {
                     try {
-                        const [stressRes, hrvRes] = await Promise.all([
-                            fetch('/api/raw/stress?hours=168&limit=100'),
-                            fetch('/api/raw/hrv?hours=168&limit=200')
+                        const [hrRes, spo2Res, tempRes] = await Promise.all([
+                            fetch('/api/raw/heart-rate?hours=168&limit=500'),
+                            fetch('/api/raw/spo2?hours=168&limit=200'),
+                            fetch('/api/raw/temperature?hours=168&limit=200')
                         ]);
-                        const stressAll = await stressRes.json();
-                        const hrvAll = await hrvRes.json();
+                        const hrAll = this.clipFuture(await hrRes.json());
+                        const spo2All = this.clipFuture(await spo2Res.json());
+                        const tempAll = this.clipFuture(await tempRes.json());
                         const selKey = this.dateKey(this.selectedDate);
                         const byDate = (arr) => arr.filter(d => this.dateKey(new Date(d.ts)) === selKey);
-                        const stressDay = byDate(stressAll).length ? byDate(stressAll) : (this.isToday() ? stressAll : []);
-                        const hrvDay = byDate(hrvAll).length ? byDate(hrvAll) : (this.isToday() ? hrvAll : []);
-                        this.renderStressChart(stressDay, hrvDay);
-                    } catch (e) { console.error('loadStressChart', e); }
+                        const hrDay = byDate(hrAll).length ? byDate(hrAll) : (this.isToday() ? hrAll : []);
+                        const spo2Day = byDate(spo2All).length ? byDate(spo2All) : (this.isToday() ? spo2All : []);
+                        const tempDay = byDate(tempAll).length ? byDate(tempAll) : (this.isToday() ? tempAll : []);
+                        this.renderVitalsChart(hrDay, spo2Day, tempDay);
+                    } catch (e) { console.error('loadVitalsChart', e); }
                 },
 
-                renderStressChart(stressData, hrvData) {
-                    const el = document.getElementById('stressChart');
+                // Smooth Catmull-Rom -> cubic Bézier path for a list of [x,y] points
+                smoothPath(pts) {
+                    if (!pts || pts.length === 0) return '';
+                    if (pts.length === 1) return `M${pts[0][0]},${pts[0][1]}`;
+                    let d = `M${pts[0][0]},${pts[0][1]}`;
+                    for (let i = 0; i < pts.length - 1; i++) {
+                        const p0 = pts[i - 1] || pts[i];
+                        const p1 = pts[i];
+                        const p2 = pts[i + 1];
+                        const p3 = pts[i + 2] || p2;
+                        const c1x = p1[0] + (p2[0] - p0[0]) / 6;
+                        const c1y = p1[1] + (p2[1] - p0[1]) / 6;
+                        const c2x = p2[0] - (p3[0] - p1[0]) / 6;
+                        const c2y = p2[1] - (p3[1] - p1[1]) / 6;
+                        d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+                    }
+                    return d;
+                },
+
+                renderVitalsChart(hrData, spo2Data, tempData) {
+                    const el = document.getElementById('vitalsChart');
                     if (!el) return;
-                    if (!stressData.length && !hrvData.length) {
-                        el.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-500">No stress data for this day</p>';
+                    if (!hrData.length && !spo2Data.length && !tempData.length) {
+                        el.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-500">No vitals data for this day</p>';
                         return;
                     }
                     // Aggregate by hour
                     const byHour = {};
-                    for (let h = 0; h < 24; h++) byHour[h] = { stress: [], hrv: [] };
-                    for (const s of stressData) {
-                        const h = new Date(s.ts).getHours();
-                        if (byHour[h]) byHour[h].stress.push(s.stress_value);
-                    }
-                    for (const r of hrvData) {
+                    for (let h = 0; h < 24; h++) byHour[h] = { hr: [], spo2: [], temp: [] };
+                    for (const r of hrData) {
                         const h = new Date(r.ts).getHours();
-                        if (byHour[h]) byHour[h].hrv.push(r.hrv_value);
+                        if (byHour[h]) byHour[h].hr.push(r.bpm);
                     }
-                    const stressAvg = [], hrvAvg = [];
+                    for (const s of spo2Data) {
+                        const h = new Date(s.ts).getHours();
+                        if (byHour[h]) byHour[h].spo2.push(s.spo2_pct);
+                    }
+                    for (const t of tempData) {
+                        const h = new Date(t.ts).getHours();
+                        if (byHour[h]) byHour[h].temp.push(Number(t.temp_c));
+                    }
+                    const hrAvg = [], spo2Avg = [], tempAvg = [];
                     for (let h = 0; h < 24; h++) {
-                        stressAvg.push(byHour[h].stress.length ? byHour[h].stress.reduce((a,b)=>a+b,0)/byHour[h].stress.length : null);
-                        hrvAvg.push(byHour[h].hrv.length ? byHour[h].hrv.reduce((a,b)=>a+b,0)/byHour[h].hrv.length : null);
+                        const hrs = byHour[h].hr;
+                        hrAvg.push(hrs.length ? hrs.reduce((a, b) => a + b, 0) / hrs.length : null);
+                        const sps = byHour[h].spo2;
+                        spo2Avg.push(sps.length ? sps.reduce((a, b) => a + b, 0) / sps.length : null);
+                        const tps = byHour[h].temp;
+                        tempAvg.push(tps.length ? tps.reduce((a, b) => a + b, 0) / tps.length : null);
                     }
 
-                    const stressMin = 0, stressMax = 100;
-                    const hrvMin = 20, hrvMax = 60;
+                    const hrMin = 40, hrMax = 160;
+                    const spo2Min = 88, spo2Max = 100;
+                    const tempMin = 34.5, tempMax = 38.5;
                     const dark = this.darkMode;
                     const axisColor = dark ? '#9ca3af' : '#6b7280';
                     const gridColor = dark ? '#374151' : '#e5e7eb';
-                    const pad = 8, w = 480, h = 130;
-                    const plotW = w - 90, plotH = h - pad * 2;
+                    const pad = 10, w = 520, h = 165;
+                    const plotW = w - 170, plotH = h - pad * 2;
                     const xScale = plotW / 23;
+                    const x0 = 63;
+                    const syHr = v => pad + plotH - ((v - hrMin) / (hrMax - hrMin)) * plotH;
+                    const sySp = v => pad + plotH - ((v - spo2Min) / (spo2Max - spo2Min)) * plotH;
+                    const syTp = v => pad + plotH - ((v - tempMin) / (tempMax - tempMin)) * plotH;
 
-                    // Stress fill area (red, left axis)
-                    let areaPts = '', linePts = '';
-                    let firstValid = true;
+                    const hrPts = [], spPts = [], tpPts = [];
                     for (let i = 0; i < 24; i++) {
-                        if (stressAvg[i] != null) {
-                            const x = 55 + i * xScale;
-                            const y = pad + plotH - ((stressAvg[i] - stressMin) / (stressMax - stressMin)) * plotH;
-                            if (firstValid) { areaPts += `M${x},${pad+plotH} L${x},${y} `; firstValid = false; }
-                            else areaPts += `L${x},${y} `;
-                            linePts += `${x},${y} `;
-                        }
+                        if (hrAvg[i] != null) hrPts.push([x0 + i * xScale, syHr(hrAvg[i])]);
+                        if (spo2Avg[i] != null) spPts.push([x0 + i * xScale, sySp(spo2Avg[i])]);
+                        if (tempAvg[i] != null) tpPts.push([x0 + i * xScale, syTp(tempAvg[i])]);
                     }
-                    const stressPoly = areaPts ? `<path d="${areaPts} L${55+23*xScale},${pad+plotH} Z" fill="#fca5a5" opacity="0.6"/><polyline points="${linePts.trim()}" fill="none" stroke="#ef4444" stroke-width="1.5" stroke-linejoin="round"/>` : '';
+                    const hrPath = this.smoothPath(hrPts);
 
-                    // HRV line (green, right axis)
-                    let hrvPts = '';
-                    for (let i = 0; i < 24; i++) {
-                        if (hrvAvg[i] != null) {
-                            const x = 55 + i * xScale;
-                            const y = pad + plotH - ((hrvAvg[i] - hrvMin) / (hrvMax - hrvMin)) * plotH;
-                            hrvPts += `${x},${y} `;
-                        }
-                    }
-                    const hrvLine = hrvPts ? `<polyline points="${hrvPts.trim()}" fill="none" stroke="#10b981" stroke-width="2" stroke-linejoin="round"/>` : '';
-
-                    // Grid lines + labels
+                    // Grid + HR labels (left axis)
                     let grid = '';
                     for (let i = 0; i <= 4; i++) {
-                        const sv = stressMin + (stressMax - stressMin) / 4 * i;
-                        const hv = hrvMin + (hrvMax - hrvMin) / 4 * i;
-                        const y = pad + plotH - ((sv - stressMin) / (stressMax - stressMin)) * plotH;
-                        grid += `<line x1="55" y1="${y}" x2="${w}" y2="${y}" stroke="${gridColor}" stroke-dasharray="2,2"/>`;
-                        grid += `<text x="50" y="${y+3}" text-anchor="end" font-size="9" fill="#ef4444" opacity="0.7">${sv}</text>`;
-                        grid += `<text x="${w-4}" y="${y+3}" text-anchor="start" font-size="9" fill="#10b981" opacity="0.7">${hv}</text>`;
+                        const v = hrMin + (hrMax - hrMin) / 4 * i;
+                        const y = syHr(v);
+                        grid += `<line x1="${x0}" y1="${y.toFixed(1)}" x2="${w - 110}" y2="${y.toFixed(1)}" stroke="${gridColor}" stroke-dasharray="2,2"/>`;
+                        grid += `<text x="${x0 - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#3b82f6" opacity="0.8">${v}</text>`;
                     }
-                    // Hour labels
-                    for (let h = 0; h < 24; h += 3) {
-                        grid += `<text x="${55 + h*xScale}" y="${h-4}" text-anchor="middle" font-size="9" fill="${axisColor}">${h}h</text>`;
+                    // Right-axis labels (SpO₂ inner, Temp outer)
+                    for (let i = 0; i <= 2; i++) {
+                        const v = spo2Min + (spo2Max - spo2Min) / 2 * i;
+                        const y = sySp(v);
+                        grid += `<text x="${w - 100}" y="${(y + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="#14b8a6" opacity="0.8">${v}%</text>`;
+                    }
+                    for (let i = 0; i <= 3; i++) {
+                        const v = tempMin + (tempMax - tempMin) / 3 * i;
+                        const y = syTp(v);
+                        grid += `<text x="${w - 58}" y="${(y + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="#f97316" opacity="0.8">${v.toFixed(1)}°</text>`;
+                    }
+                    // Hour labels (12h am/pm)
+                    const fmtHour = (hr) => hr === 0 ? '12a' : hr === 12 ? '12p' : hr < 12 ? hr + 'a' : (hr - 12) + 'p';
+                    for (let h2 = 0; h2 < 24; h2 += 3) {
+                        grid += `<text x="${(x0 + h2 * xScale).toFixed(1)}" y="${h - 2}" text-anchor="middle" font-size="9" fill="${axisColor}">${fmtHour(h2)}</text>`;
                     }
 
-                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h+8}" class="w-full" style="max-height:160px">
+                    // SpO₂ dots + optional faint connecting line
+                    const spDots = spPts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#14b8a6" opacity="0.9"/>`).join('');
+                    const spLine = spPts.length >= 2 ? `<path d="${this.smoothPath(spPts)}" fill="none" stroke="#14b8a6" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>` : '';
+                    // Temp dots + faint connecting line
+                    const tpDots = tpPts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="#f97316" opacity="0.85"/>`).join('');
+                    const tpLine = tpPts.length >= 2 ? `<path d="${this.smoothPath(tpPts)}" fill="none" stroke="#f97316" stroke-width="1" stroke-dasharray="3,3" opacity="0.45"/>` : '';
+
+                    const hrLineEl = hrPath ? `<path class="chart-line" d="${hrPath}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+
+                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="chart-svg w-full" style="max-height:200px">
                         ${grid}
-                        ${stressPoly}
-                        ${hrvLine}
+                        ${hrLineEl}
+                        ${tpLine}
+                        ${spLine}
+                        ${tpDots}
+                        ${spDots}
+                        <g id="vitalsCross" opacity="0">
+                            <line id="vcLine" x1="${x0}" x2="${x0}" y1="${pad}" y2="${pad + plotH}" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+                            <circle id="vcHr" r="3.5" fill="#3b82f6" opacity="0"/>
+                            <circle id="vcSp" r="3.5" fill="#14b8a6" opacity="0"/>
+                            <circle id="vcTp" r="2.5" fill="#f97316" opacity="0"/>
+                            <text id="vcHrT" text-anchor="middle" font-size="9" font-weight="bold" fill="#3b82f6"></text>
+                            <text id="vcSpT" text-anchor="middle" font-size="9" font-weight="bold" fill="#14b8a6"></text>
+                            <text id="vcTpT" text-anchor="middle" font-size="9" font-weight="bold" fill="#f97316"></text>
+                        </g>
+                        <rect id="vitalsOverlay" x="${x0}" y="${pad}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor:crosshair"/>
                     </svg>`;
+                    const subtitle = document.getElementById('vitalsSubtitle');
+                    if (subtitle && this.selectedDate) {
+                        subtitle.textContent = this.formatSelectedDate() + ' — hourly averages';
+                    }
+                    this._attachVitalsTooltip(hrAvg, spo2Avg, tempAvg);
+                },
+
+                _attachVitalsTooltip(hrAvg, spo2Avg, tempAvg) {
+                    const el = document.getElementById('vitalsChart');
+                    if (!el) return;
+                    const svg = el.querySelector('svg');
+                    const overlay = el.querySelector('#vitalsOverlay');
+                    const cross = el.querySelector('#vitalsCross');
+                    if (!svg || !overlay || !cross) return;
+                    const pad = 10, w = 520, h = 165;
+                    const plotW = w - 170, plotH = h - pad * 2;
+                    const x0 = 63;
+                    const xScale = plotW / 23;
+                    const hrMin = 40, hrMax = 160, spo2Min = 88, spo2Max = 100, tempMin = 34.5, tempMax = 38.5;
+                    const syHr = v => pad + plotH - ((v - hrMin) / (hrMax - hrMin)) * plotH;
+                    const sySp = v => pad + plotH - ((v - spo2Min) / (spo2Max - spo2Min)) * plotH;
+                    const syTp = v => pad + plotH - ((v - tempMin) / (tempMax - tempMin)) * plotH;
+                    let tip = el.querySelector('.chart-tooltip');
+                    if (!tip) { tip = document.createElement('div'); tip.className = 'chart-tooltip'; el.appendChild(tip); }
+                    const move = (e) => {
+                        const pt = svg.createSVGPoint();
+                        pt.x = e.clientX; pt.y = e.clientY;
+                        const loc = pt.matrixTransform(svg.getScreenCTM().inverse());
+                        let i = Math.round((loc.x - x0) / xScale);
+                        i = Math.max(0, Math.min(23, i));
+                        const x = x0 + i * xScale;
+                        cross.setAttribute('opacity', '1');
+                        cross.querySelector('#vcLine').setAttribute('x1', x);
+                        cross.querySelector('#vcLine').setAttribute('x2', x);
+                        const setDot = (dotId, txtId, v, sy, unit) => {
+                            const dot = cross.querySelector(dotId), txt = cross.querySelector(txtId);
+                            if (v != null) {
+                                const y = sy(v);
+                                dot.setAttribute('cx', x); dot.setAttribute('cy', y); dot.setAttribute('opacity', '1');
+                                txt.setAttribute('x', x); txt.setAttribute('y', y - 9); txt.textContent = (typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(1)) : v) + (unit || '');
+                            } else { dot.setAttribute('opacity', '0'); txt.textContent = ''; }
+                        };
+                        setDot('#vcHr', '#vcHrT', hrAvg[i], syHr, '');
+                        setDot('#vcSp', '#vcSpT', spo2Avg[i], sySp, '%');
+                        setDot('#vcTp', '#vcTpT', tempAvg[i], syTp, '°');
+                        let html = `<div style="font-weight:600;margin-bottom:2px">${i}:00</div>`;
+                        if (hrAvg[i] != null) html += `<div style="color:#93c5fd">HR ${Math.round(hrAvg[i])} bpm</div>`;
+                        if (spo2Avg[i] != null) html += `<div style="color:#14b8a6">SpO₂ ${Math.round(spo2Avg[i])}%</div>`;
+                        if (tempAvg[i] != null) html += `<div style="color:#f97316">Temp ${tempAvg[i].toFixed(1)}°C</div>`;
+                        if (hrAvg[i] == null && spo2Avg[i] == null && tempAvg[i] == null) html += '<div style="color:#cbd5e1">no data</div>';
+                        tip.innerHTML = html;
+                        const rect = el.getBoundingClientRect();
+                        tip.style.left = (e.clientX - rect.left) + 'px';
+                        tip.style.top = (e.clientY - rect.top) + 'px';
+                        tip.classList.add('show');
+                    };
+                    overlay.addEventListener('mousemove', move);
+                    overlay.addEventListener('mouseleave', () => {
+                        cross.setAttribute('opacity', '0');
+                        tip.classList.remove('show');
+                    });
                 },
 
                 renderCircadianLine(labels, values) {
@@ -1203,58 +1359,62 @@
                     const dark = this.darkMode;
                     const axisColor = dark ? '#9ca3af' : '#6b7280';
                     const gridColor = dark ? '#374151' : '#e5e7eb';
+                    const x0 = 60;
+                    const xOf = i => x0 + i * xScale;
+                    const yOf = v => pad + plotH - (v - min) * yScale;
 
-                    const points = [];
+                    const pts = [];
                     const validIndices = [];
                     for (let i = 0; i < values.length; i++) {
                         if (values[i] != null) {
                             validIndices.push(i);
-                            const x = 60 + i * xScale;
-                            const y = pad + plotH - (values[i] - min) * yScale;
-                            points.push(`${x},${y}`);
+                            pts.push([xOf(i), yOf(values[i])]);
                         }
                     }
+                    const linePath = this.smoothPath(pts);
+                    const areaPath = pts.length
+                        ? this.smoothPath(pts) + ` L${pts[pts.length - 1][0].toFixed(1)},${pad + plotH} L${x0},${pad + plotH} Z`
+                        : '';
 
-                    const xLabels = [];
-                    for (let i = 0; i < labels.length; i += 3) {
-                        xLabels.push(`<text x="${60 + i * xScale}" y="${h - 4}" text-anchor="middle" font-size="10" fill="${axisColor}">${labels[i]}</text>`);
-                    }
-                    const yTicks = 4;
+                    // Y-axis grid + labels
                     const yLabels = [];
+                    const yTicks = 4;
                     for (let i = 0; i <= yTicks; i++) {
                         const val = Math.round(min + (range / yTicks) * i);
-                        const y = pad + plotH - (val - min) * yScale;
-                        yLabels.push(`<text x="52" y="${y + 3}" text-anchor="end" font-size="10" fill="${axisColor}">${val}</text>`);
-                        yLabels.push(`<line x1="56" y1="${y}" x2="${w}" y2="${y}" stroke="${gridColor}" stroke-dasharray="2,2"/>`);
+                        const y = yOf(val);
+                        yLabels.push(`<text x="52" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="10" fill="${axisColor}">${val}</text>`);
+                        yLabels.push(`<line x1="56" y1="${y.toFixed(1)}" x2="${w}" y2="${y.toFixed(1)}" stroke="${gridColor}" stroke-dasharray="2,2"/>`);
                     }
+                    // X-axis labels every 3 hours
+                    const xLabels = [];
+                    for (let i = 0; i < labels.length; i += 3) {
+                        xLabels.push(`<text x="${xOf(i).toFixed(1)}" y="${h - 4}" text-anchor="middle" font-size="10" fill="${axisColor}">${labels[i]}</text>`);
+                    }
+                    // Data point markers
+                    const dots = validIndices.map(i =>
+                        `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(values[i]).toFixed(1)}" r="2.5" fill="#3b82f6"/>`
+                    ).join('');
 
-                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="w-full" style="max-height:200px">
+                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="chart-svg w-full" style="max-height:200px">
+                        <defs>
+                            <linearGradient id="hrGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.02"/>
+                            </linearGradient>
+                        </defs>
                         ${yLabels.join('')}
                         ${xLabels.join('')}
-                        <polyline points="${points.join(' ')}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linejoin="round"/>
-                        ${validIndices.map(i => {
-                            const x = 60 + i * xScale;
-                            const y = pad + plotH - (values[i] - min) * yScale;
-                            return `<circle cx="${x}" cy="${y}" r="2.5" fill="#3b82f6"/>`;
-                        }).join('')}
+                        ${areaPath ? `<path class="chart-area" d="${areaPath}" fill="url(#hrGrad)"/>` : ''}
+                        <path class="chart-line" d="${linePath}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        ${dots}
+                        <g id="circCross" opacity="0">
+                            <line id="ccLine" x1="${x0}" x2="${x0}" y1="${pad}" y2="${pad + plotH}" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
+                            <circle id="ccDot" r="3.5" fill="#3b82f6" opacity="0"/>
+                            <text id="ccT" text-anchor="middle" font-size="9" font-weight="bold" fill="#3b82f6"></text>
+                        </g>
+                        <rect id="circOverlay" x="${x0}" y="${pad}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor:crosshair"/>
                     </svg>`;
-                },
-
-                renderSyncTable(data) {
-                    const tbody = document.getElementById('syncTable');
-                    tbody.innerHTML = data.map(d => `
-                        <tr class="border-b border-gray-100 dark:border-gray-700">
-                            <td class="py-2 pr-4">${new Date(d.started_at).toLocaleString()}</td>
-                            <td class="py-2 pr-4">${d.records_synced || 0}</td>
-                            <td class="py-2 pr-4">${d.battery_pct ? d.battery_pct + '%' : '—'}</td>
-                            <td class="py-2 pr-4">${d.clock_drift_ms ? d.clock_drift_ms + 'ms' : '—'}</td>
-                            <td class="py-2 pr-4">
-                                <span class="px-2 py-0.5 text-xs rounded ${d.status === 'completed' ? 'bg-green-100 text-green-800' : d.status === 'error' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}">
-                                    ${d.status}
-                                </span>
-                            </td>
-                        </tr>
-                    `).join('');
+                    this._attachCircadianTooltip(values);
                 },
 
                 // ---------------- Admin methods ----------------
@@ -1330,6 +1490,7 @@
                         await this.loadSyncRequests();
                         await this.loadAdminSyncLog();
                         await this.loadRingStatus();
+                        await this.loadClockAlert();
                         // Stop polling once nothing is active AND we're not seeing changes
                         const active = this.syncRequests.find(r => r.status === 'pending' || r.status === 'running');
                         if (!active) {

@@ -347,6 +347,29 @@ class Client:
     async def set_time(self, ts: datetime) -> None:
         await self.send_packet(set_time.set_time_packet(ts))
 
+    async def set_time_local(self, ts: datetime) -> None:
+        """Set ring time using LOCAL hour/minute/second components.
+
+        The upstream ``set_time_packet`` always converts to UTC before
+        encoding, but the R09 firmware reads the BCD bytes as local
+        wall-clock values. Sending UTC components therefore shifts the
+        ring's "midnight" by the host's UTC offset, which accumulates
+        drift across syncs. This bypasses the UTC conversion and sends
+        the host's local time directly.
+
+        Matches Gadgetbridge's ``ColmiR0xDeviceSupport.setDateTime()``
+        byte-for-byte: 6 BCD-encoded data bytes, no language flag.
+        """
+        local = ts.replace(tzinfo=None) if ts.tzinfo is None else ts.astimezone().replace(tzinfo=None)
+        data = bytearray(6)
+        data[0] = set_time.byte_to_bcd(local.year % 2000)
+        data[1] = set_time.byte_to_bcd(local.month)
+        data[2] = set_time.byte_to_bcd(local.day)
+        data[3] = set_time.byte_to_bcd(local.hour)
+        data[4] = set_time.byte_to_bcd(local.minute)
+        data[5] = set_time.byte_to_bcd(local.second)
+        await self.send_packet(packet.make_packet(set_time.CMD_SET_TIME, data))
+
     async def blink_twice(self) -> None:
         await self.send_packet(blink_twice.BLINK_TWICE_PACKET)
 
