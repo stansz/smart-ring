@@ -42,7 +42,7 @@ Home Network
        └─ python3 collector/sync_ring.py  (run manually, no cron)
 ```
 
-Dashboard: single-page Alpine.js + Tailwind CSS app with two tabs — **Dashboard** (sleep donut, circadian HR line graph, vitals chart with HR + SpO₂ + Temp triple-axis, activity dials, health-coded stat cards with emoji icons, dark mode toggle) and **Admin** (ring status, manual sync controls, full sync log with clock drift tracking, clock alert banner, system health, raw data tables). No build step.
+Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashboard** (sleep donut, circadian HR line graph, vitals chart with HR + SpO₂ + Temp triple-axis, activity dials, health-coded stat cards with emoji icons, dark mode toggle), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, trend charts for HRV/sleep/stress/resting-HR with 7d/14d/30d/90d range selector), and **Admin** (ring status, manual sync controls, full sync log with clock drift tracking, clock alert banner, system health, raw data tables). No build step.
 
 ## Usage
 
@@ -105,13 +105,9 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ **HRV trends** — 7-day and 28-day rolling averages
 
 ### Dashboard
-- Vitals chart (HR line + SpO₂ dots + Temp dots triple-axis SVG with hover tooltips + smooth Catmull-Rom curves)
-- Sleep donut ring (concentric conic-gradient with stage breakdown)
-- Circadian HR SVG line graph with date range + tooltip
-- Recovery panel (HRV, readiness, z-score, baseline, stress classification, resting HR)
-- Today's Activity dials (Steps, HR, Active Time, Calories)
-- Dark mode toggle (persisted to localStorage)
-- Admin tab with Sync Now, ring status, sync log with clock drift tracking, clock alert banner, raw data tables
+- **Dashboard tab**: Vitals chart (HR line + SpO₂ dots + Temp dots triple-axis SVG with hover tooltips + smooth Catmull-Rom curves), sleep donut ring, circadian HR SVG line graph, recovery panel, today's activity dials, dark mode toggle
+- **Analytics tab**: Data pipeline reference (ring-measured vs ring-computed vs our-validated-score), score breakdown cards with expandable formula explanations, 4 trend charts (HRV recovery, sleep quality, stress, resting HR) with 7d/14d/30d/90d range selector + hover crosshair tooltips
+- **Admin tab**: Sync Now, ring status, full sync log with clock drift tracking (color-coded), clock alert banner, system health, raw data tables
 
 ### How it works
 ```
