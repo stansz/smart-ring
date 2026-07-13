@@ -348,6 +348,9 @@ class Client:
         return await self._poll_real_time_reading(reading_type)
 
     async def set_time(self, ts: datetime) -> None:
+        logger.warning("set_time() is deprecated — use set_time_local() instead. "
+                       "The library's set_time_packet sends UTC BCD bytes but "
+                       "the R09 firmware reads them as local wall-clock values.")
         await self.send_packet(set_time.set_time_packet(ts))
 
     async def set_time_local(self, ts: datetime) -> None:
@@ -422,14 +425,13 @@ class Client:
         )
 
     async def get_steps(self, target: datetime, today: Optional[datetime] = None):
-        from datetime import timezone
-
         if today is None:
-            today = datetime.now(timezone.utc)
-
-        if target.tzinfo != timezone.utc:
-            target = target.astimezone(tz=timezone.utc)
-
+            today = datetime.now()
+        # Compute days offset — both target and today should use the same
+        # timezone basis. The caller passes naive local datetimes; strip
+        # any tzinfo to avoid astimezone() ValueError on naive inputs.
+        target = target.replace(tzinfo=None)
+        today = today.replace(tzinfo=None)
         days = (today.date() - target.date()).days
         await self.send_packet(steps.read_steps_packet(days))
         return await asyncio.wait_for(

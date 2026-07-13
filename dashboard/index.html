@@ -11,7 +11,14 @@
         .chart-host { position: relative; }
         .chart-container { position: relative; height: 300px; width: 100%; }
         .chart-container canvas { display: block; }
-        @media (max-width: 768px) { .chart-container { height: 250px; } }
+        @media (max-width: 640px) {
+            .chart-svg text { font-size: 7px !important; }
+            .chart-svg .axis text { font-size: 7px !important; }
+            .chart-svg .chart-line { stroke-width: 1.5; }
+        }
+        @media (max-width: 640px) {
+            .chart-container { height: 220px; }
+        }
         .stat-card { transition: transform: 0.2s; }
         .stat-card:hover { transform: translateY(-2px); }
         .loading { opacity: 0.6; pointer-events: none; }
@@ -60,26 +67,39 @@
     </div>
     <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16">
-                <div class="flex items-center space-x-8">
-                    <h1 class="text-xl font-semibold text-gray-900 dark:text-gray-100">Smart Ring</h1>
+            <div class="flex items-center justify-between h-12 sm:h-12 gap-2">
+                <div class="flex items-center space-x-2 sm:space-x-4 min-w-0">
+                    <h1 class="text-base sm:text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">Stan's Smart Ring</h1>
                     <!-- Tabs -->
-                    <div class="flex space-x-1">
+                    <div class="hidden sm:flex space-x-1" role="tablist">
                         <button @click="switchTab('dashboard')"
                                 class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
+                                :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'"
+                                role="tab" :aria-selected="tab === 'dashboard'">
                             Dashboard
                         </button>
                         <button @click="switchTab('analytics')"
                                 class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'analytics' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
+                                :class="tab === 'analytics' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'"
+                                role="tab" :aria-selected="tab === 'analytics'">
                             Analytics
                         </button>
                         <button @click="switchTab('admin')"
                                 class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">
+                                :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'"
+                                role="tab" :aria-selected="tab === 'admin'">
                             Admin
                         </button>
+                    </div>
+                    <!-- Mobile tab dropdown -->
+                    <div class="sm:hidden relative">
+                        <select x-model="tab" @change="switchTab($event.target.value)"
+                                class="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                aria-label="Select tab">
+                            <option value="dashboard">Dashboard</option>
+                            <option value="analytics">Analytics</option>
+                            <option value="admin">Admin</option>
+                        </select>
                     </div>
                 </div>
                 <div class="flex items-center space-x-4">
@@ -112,6 +132,10 @@
                         </svg>
                         <span x-show="!syncQueueBusy">Sync Now</span>
                         <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
+                    </button>
+                    <!-- Mobile BLE sync -->
+                    <button @click="window.ringSyncFromPhone()" class="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition">
+                        📱 Sync
                     </button>
                     <!-- Elapsed time -->
                     <span x-show="syncQueueBusy && syncElapsedCount > 0"
@@ -149,7 +173,7 @@
                 <span class="text-xs text-gray-400 dark:text-gray-500"
                       x-text="lastSyncSummary.completed_at ? 'Last synced ' + new Date(lastSyncSummary.completed_at).toLocaleTimeString() : ''"></span>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-6">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <!-- Steps Dial -->
                 <div class="text-center">
                     <div class="relative inline-block w-32 h-32">
@@ -215,7 +239,7 @@
             </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6 mb-8">
             <!-- Recovery Detail -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💓 Recovery</h2>
@@ -285,7 +309,7 @@
                     <span class="text-xs text-gray-400 dark:text-gray-500" x-text="selectedDate && !isToday() ? new Date(selectedDate).toLocaleDateString() : ''"></span>
                 </div>
                 <p id="vitalsSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3" x-text="vitalsSubtitleText"></p>
-                <div id="vitalsChart" class="chart-host mb-3" style="min-height:120px">
+                <div id="vitalsChart" class="chart-host mb-3 w-full" style="min-height:120px">
                     <p class="text-sm text-gray-400 dark:text-gray-500">Syncing vitals data from ring...</p>
                 </div>
                 <div class="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-3 gap-2 text-xs">
@@ -309,7 +333,7 @@
                     <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Circadian HR Pattern</h2>
                 </div>
                 <p id="circadianSubtitle" class="text-xs text-gray-400 dark:text-gray-500 mb-3" x-text="circadianSubtitleText"></p>
-                <div id="circadianBars" class="chart-host mb-3" style="min-height:120px">
+                <div id="circadianBars" class="chart-host mb-3 w-full" style="min-height:120px">
                     <p class="text-sm text-gray-400 dark:text-gray-500">Loading circadian data...</p>
                 </div>
                 <div class="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-3 gap-2 text-xs">
@@ -517,14 +541,14 @@
                     <div id="analyticsRestingHrChart" class="chart-host" style="min-height:140px">
                         <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
                     </div>
-                </div>
-            </div>
+</div>
+        </div>
         </div>
 
         <!-- Research References -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Research References</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-gray-600 dark:text-gray-400">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-gray-600 dark:text-gray-400">
                 <div>
                     <p class="font-semibold text-gray-700 dark:text-gray-300">Sleep Quality</p>
                     <p>Ohayon, M. M., et al. (2004). "Meta-analysis of quantitative sleep parameters." <em>Sleep</em>, 27(7), 1255-1273. (3,327 citations)</p>
@@ -683,7 +707,7 @@
         </div>
 
         <!-- Raw Data Tables -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Heart Rate Log
                     <span class="text-sm font-normal text-gray-400 dark:text-gray-500" x-text="rawHrCount + ' records'"></span>
@@ -1746,7 +1770,9 @@
                     const dark = this.darkMode;
                     const axisColor = dark ? '#9ca3af' : '#6b7280';
                     const gridColor = dark ? '#374151' : '#e5e7eb';
-                    const pad = 10, w = 520, h = 165;
+                    // Use CSS variables for responsive sizing
+                    const pad = 10;
+                    const w = 520, h = 165;
                     const plotW = w - 170, plotH = h - pad * 2;
                     const xScale = plotW / 23;
                     const x0 = 63;
@@ -1796,7 +1822,7 @@
 
                     const hrLineEl = hrPath ? `<path class="chart-line" d="${hrPath}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : '';
 
-                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="chart-svg w-full" style="max-height:200px">
+                    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="chart-svg w-full" preserveAspectRatio="xMidYMid meet" style="max-height:200px; height:auto;">
                         ${grid}
                         ${hrLineEl}
                         ${tpLine}
@@ -2110,6 +2136,268 @@
             }
         }
     </script>
+
+    <!-- Web Bluetooth Phone Sync -->
+    <script>
+    function showToast(msg, type='info') {
+        const t = document.createElement('div');
+        t.className = `fixed bottom-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-white text-sm ${type==='error'?'bg-red-600':type==='success'?'bg-green-600':'bg-blue-600'}`;
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 5000);
+    }
+
+    (() => {
+        if (!navigator.bluetooth) {
+            window.ringSyncFromPhone = () => alert('Web Bluetooth requires Android Chrome. Not available on this device.');
+            return;
+        }
+
+        // Timestamp helpers — produce local-time ISO strings matching Python collector
+        const pad2 = n => String(n).padStart(2, '0');
+        const tzOffset = -new Date().getTimezoneOffset();
+        const tzSign = tzOffset >= 0 ? '+' : '-';
+        const tzStr = `${tzSign}${pad2(Math.floor(Math.abs(tzOffset)/60))}:${pad2(Math.abs(tzOffset)%60)}`;
+        function localISO(y, mo, d, h, mi = 0) {
+            return `${y}-${pad2(mo)}-${pad2(d)}T${pad2(h)}:${pad2(mi)}:00${tzStr}`;
+        }
+        function localDateISO(d, h = 0, mi = 0) {
+            return localISO(d.getFullYear(), d.getMonth()+1, d.getDate(), h, mi);
+        }
+        function localDayStr(d) {
+            return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
+        }
+
+        const SVC = {
+            UART: '6e40fff0-b5a3-f393-e0a9-e50e24dcca9e',
+            RX: '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+            TX: '6e400003-b5a3-f393-e0a9-e50e24dcca9e',
+            BIG: 'de5bf728-d711-4e47-af26-65e3012a5dc7',
+            CMD: 'de5bf72a-d711-4e47-af26-65e3012a5dc7',
+            NOTIFY: 'de5bf729-d711-4e47-af26-65e3012a5dc7',
+        };
+
+        function make16(cmd, data=[]) {
+            const p = new Uint8Array(16);
+            p[0] = cmd; p.set(data, 1);
+            let c = cmd; for (const b of data) c = (c + b) & 0xff;
+            p[15] = c; return p;
+        }
+
+        function makeBig(cmd, type) {
+            return new Uint8Array([0xbc, type, 0x01, 0x00, 0xff, 0x00, 0xff]);
+        }
+
+        async function connect() {
+            const dev = await navigator.bluetooth.requestDevice({
+                filters: [{ namePrefix: 'R09' }],
+                optionalServices: [SVC.UART, SVC.BIG]
+            });
+            const srv = await dev.gatt.connect();
+            const uart = await srv.getPrimaryService(SVC.UART);
+            const rx = await uart.getCharacteristic(SVC.RX);
+            const tx = await uart.getCharacteristic(SVC.TX);
+            await tx.startNotifications();
+            const big = await srv.getPrimaryService(SVC.BIG);
+            const cmd = await big.getCharacteristic(SVC.CMD);
+            const notify = await big.getCharacteristic(SVC.NOTIFY);
+            await notify.startNotifications();
+
+            // Response queues
+            const queues = {};
+            const bdBuf = { d: null, len: 0 };
+
+            tx.addEventListener('characteristicvaluechanged', e => {
+                const d = new Uint8Array(e.target.value.buffer);
+                const q = queues[d[0]];
+                if (q && q.length) q.shift()(d);
+            });
+
+            notify.addEventListener('characteristicvaluechanged', e => {
+                const d = new Uint8Array(e.target.value.buffer);
+                bdBuf.d = bdBuf.d ? new Uint8Array([...bdBuf.d, ...d]) : new Uint8Array(d);
+                if (bdBuf.d.length < 6) return;
+                const len = new DataView(bdBuf.d.buffer).getUint16(2, true);
+                if (bdBuf.d.length >= len + 6) {
+                    const done = bdBuf.d.slice(0, len + 6);
+                    bdBuf.d = null;
+                    const type = done[1];
+                    const q = queues[type];
+                    if (q && q.length) q.shift()(done);
+                }
+            });
+
+            async function sendCmd(c, data=[]) {
+                return new Promise((resolve, reject) => {
+                    const q = queues[c] = queues[c] || [];
+                    q.push(resolve);
+                    rx.writeValue(make16(c, data)).catch(reject);
+                    setTimeout(() => reject(new Error('Timeout')), 8000);
+                });
+            }
+
+            async function sendBig(type) {
+                return new Promise((resolve, reject) => {
+                    const q = queues[type] = queues[type] || [];
+                    q.push(resolve);
+                    cmd.writeValue(makeBig(0xbc, type)).catch(reject);
+                    setTimeout(() => reject(new Error('Timeout')), 20000);
+                });
+            }
+
+            // Set time (6 BCD bytes, local)
+            const now = new Date();
+            const y = now.getFullYear() % 2000;
+            const tbytes = [
+                ((y/10)<<4)|(y%10), ((now.getMonth()+1)/10<<4)|((now.getMonth()+1)%10),
+                ((now.getDate()/10)<<4)|(now.getDate()%10), ((now.getHours()/10)<<4)|(now.getHours()%10),
+                ((now.getMinutes()/10)<<4)|(now.getMinutes()%10), ((now.getSeconds()/10)<<4)|(now.getSeconds()%10)
+            ];
+            await sendCmd(0x01, tbytes);
+
+            // Fetch temp (types 0x25-0x29 = 5 days)
+            const tempRecs = [];
+            for (let t = 0x25; t <= 0x29; t++) {
+                const d = await sendBig(t);
+                if (!d || d.length < 6) continue;
+                const len = new DataView(d.buffer).getUint16(2, true);
+                let i = 6;
+                while (i + 50 <= 6 + len && i + 50 <= d.length) {
+                    const da = d[i++]; i++; // days_ago + skip
+                    const td = new Date(); td.setDate(td.getDate() - da);
+                    for (let h = 0; h < 24; h++) {
+                        const t00 = d[i] & 0xFF; i++;
+                        const t30 = d[i] & 0xFF; i++;
+                        if (t00 > 0) tempRecs.push({ts: localDateISO(td, h, 0), temp_c: +(t00/10+20).toFixed(1)});
+                        if (t30 > 0) tempRecs.push({ts: localDateISO(td, h, 30), temp_c: +(t30/10+20).toFixed(1)});
+                    }
+                }
+            }
+
+            // Fetch SpO2 (type 0x2A)
+            const spo2Recs = [];
+            const spo2Data = await sendBig(0x2a);
+            if (spo2Data && spo2Data.length >= 6) {
+                let i = 6;
+                const len = new DataView(spo2Data.buffer).getUint16(2, true);
+                while (i + 49 <= 6 + len && i + 49 <= spo2Data.length) {
+                    const da = spo2Data[i++];
+                    const td = new Date(); td.setDate(td.getDate() - da);
+                    for (let h = 0; h < 24; h++) {
+                        const mn = spo2Data[i++] & 0xFF;
+                        const mx = spo2Data[i++] & 0xFF;
+                        if (mn > 0 && mx > 0) spo2Recs.push({ts: localDateISO(td, h), spo2_pct: Math.round((mn+mx)/2)});
+                    }
+                }
+            }
+
+            // Fetch HR (cmd 0x15, 8 days back)
+            const hrRecs = [];
+            for (let da = 0; da <= 7; da++) {
+                const td = new Date(); td.setDate(td.getDate() - da);
+                td.setHours(0,0,0,0);
+                const ts = Math.floor(td.getTime() / 1000);
+                const buf = new ArrayBuffer(4);
+                new DataView(buf).setUint32(0, ts, true);
+                const resp = await sendCmd(0x15, [...new Uint8Array(buf)]);
+                if (!resp || resp.length < 4) continue;
+                const td2 = new Date(td);
+                for (let i = 1; i < resp.length - 1; i++) {
+                    const bpm = resp[i] & 0xFF;
+                    if (bpm > 0) {
+                        hrRecs.push({ts: localISO(td2.getFullYear(), td2.getMonth()+1, td2.getDate(), td2.getHours(), td2.getMinutes()), bpm});
+                    }
+                    td2.setMinutes(td2.getMinutes() + 5);
+                }
+            }
+
+            // Fetch sleep (type 0x27)
+            const sleepRecs = [];
+            const sleepData = await sendBig(0x27);
+            if (sleepData && sleepData.length >= 6) {
+                let i = 7;
+                const len = new DataView(sleepData.buffer).getUint16(2, true);
+                const days = sleepData[6];
+                for (let d = 0; d < days; d++) {
+                    const da = sleepData[i++];
+                    const dayBytes = sleepData[i++];
+                    const sleepStart = new DataView(sleepData.buffer).getUint16(i, true); i += 2;
+                    const sleepEnd = new DataView(sleepData.buffer).getUint16(i, true); i += 2;
+                    const td = new Date(); td.setDate(td.getDate() - da);
+                    const dt = localDayStr(td);
+                    const ss = new Date(td); ss.setHours(0,0,0,0);
+                    if (sleepStart > sleepEnd) ss.setMinutes(sleepStart - 1440);
+                    else ss.setMinutes(sleepStart);
+                    for (let j = 4; j < dayBytes; j += 2) {
+                        const st = {2:'light',3:'deep',4:'rem',5:'awake'}[sleepData[i]] || 'unknown';
+                        const dur = sleepData[i+1];
+                        i += 2;
+                        if (dur > 0) {
+                            const se = new Date(ss.getTime() + dur*60000);
+                            const startTs = localISO(ss.getFullYear(), ss.getMonth()+1, ss.getDate(), ss.getHours(), ss.getMinutes());
+                            const endTs = localISO(se.getFullYear(), se.getMonth()+1, se.getDate(), se.getHours(), se.getMinutes());
+                            sleepRecs.push({day: dt, stage: st, start_ts: startTs, end_ts: endTs, duration_minutes: dur});
+                            ss = new Date(se);
+                        }
+                    }
+                    }
+                }
+            }
+
+            // Fetch HRV (cmd 0x39, 7 days)
+            const hrvRecs = [];
+            for (let da = 0; da < 7; da++) {
+                const buf2 = new ArrayBuffer(4);
+                new DataView(buf2).setUint32(0, da, true);
+                const resp = await sendCmd(0x39, [...new Uint8Array(buf2)]);
+                if (!resp || resp.length < 2) continue;
+                const td = new Date(); td.setDate(td.getDate() - da);
+                td.setHours(0,0,0,0);
+                let m = 0;
+                for (let p = 3; p < 15; p++) {
+                    const v = resp[p] & 0xFF;
+                    if (v > 0) hrvRecs.push({ts: new Date(td.getTime() + m*30000).toISOString(), hrv_value: v, hrv_type: 'composite'});
+                    m += 30;
+                }
+            }
+
+            // Fetch stress (cmd 0x37)
+            // ... (can add later if needed)
+
+            // POST all data to API
+            const payload = {
+                device_id: 'phone',
+                synced_at: new Date().toISOString(),
+                records: {
+                    heart_rate: hrRecs,
+                    spo2: spo2Recs,
+                    temperature: tempRecs,
+                    sleep: sleepRecs,
+                    hrv: hrvRecs,
+                }
+            };
+
+            const res = await fetch('/api/mobile/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await res.json();
+            showToast(`Synced! ${result.accepted} new, ${result.skipped} skipped. ${result.errors?.length ? result.errors[0] : ''}`, 'success');
+        }
+
+        // Expose to Alpine
+        window.ringSyncFromPhone = async function() {
+            try {
+                await connect();
+            } catch (e) {
+                console.error('Phone sync:', e);
+                showToast('Sync failed: ' + (e.message || e), 'error');
+            }
+        };
+    })();
+    </script>
+
     <style>[x-cloak] { display: none !important; }</style>
 </body>
 </html>
