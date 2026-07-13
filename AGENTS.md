@@ -86,7 +86,9 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 
 ## Recent Work Log (Jul 2026)
 
-### 2026-07-12 — Time Sync Ack Verification (replaces drift metric)
+### 2026-07-12 — Temperature Big-Data Fix + Time Sync Ack Verification
+- **Temperature fix:** Ring stores 5 days of temperature across big-data types 0x25-0x29 (one type per day, oldest to newest). Previous code only queried 0x25 (4 days ago), missing 4 days of data. Fix: `fetch_temperature_history()` now loops 0x25-0x29. 142 records synced (5 nights, 30-min intervals, overnight skin temp).
+- **Time sync:** Same as below — ack-based verification replaces drift metric.
 - **Problem:** `_compute_clock_drift_ms()` measured `max(HR ts) - now()` from raw_heart_rate. With 30-min HR sampling, this always showed -10 to -30 min "drift" — just sampling lag, not clock error. False alarms on every sync. Couldn't distinguish ring-off-finger from genuine clock issues.
 - **R09 time sync findings (Gadgetbridge source-verified):**
   - Gadgetbridge `setDateTime()`: 6 BCD data bytes, LOCAL time (GregorianCalendar.getInstance), no language flag. Our `set_time_local` matches byte-for-byte.

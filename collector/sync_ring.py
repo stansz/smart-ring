@@ -423,11 +423,17 @@ async def fetch_spo2_history(client: Client) -> list[dict]:
 
 
 async def fetch_temperature_history(client: Client) -> list[dict]:
-    """Fetch temperature data via CMD_BIG_DATA_V2 (type 0x25)."""
-    data = await _big_data_request(client, 0x25)
-    if data is None:
-        return []
-    return _parse_temperature_data(data)
+    """Fetch temperature data via CMD_BIG_DATA_V2 (types 0x25-0x29).
+
+    The ring stores 5 days of temperature history split across
+    big-data types 0x25-0x29 (one type per day, oldest to newest).
+    """
+    records = []
+    for data_type in range(0x25, 0x2A):  # 0x25 through 0x29 inclusive
+        data = await _big_data_request(client, data_type)
+        if data:
+            records.extend(_parse_temperature_data(data))
+    return records
 
 
 # ----------------------------------------------------------------
@@ -594,7 +600,7 @@ def upsert_steps(records: List[Dict]) -> int:
                     INSERT INTO raw_steps (ts, steps, calories, distance, source)
                     VALUES (%s, %s, %s, %s, 'ring')
                     ON CONFLICT (ts, source) DO NOTHING
-                """, (r.get("ts", datetime.now(tz=timezone.utc)),
+                """, (r.get("ts", datetime.now()),
                       r.get("steps", 0),
                       r.get("calories"),
                       r.get("distance")))

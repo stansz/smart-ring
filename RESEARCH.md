@@ -113,7 +113,7 @@ RMSSD and pNN50 (which require RR intervals) are **NOT available** from this rin
 | Sleep | `CMD_BIG_DATA_V2` (0xBC) + type 0x27 | ✅ Implemented — per-session stages via V2 BLE characteristic |
 | HRV | `CMD_SYNC_HRV` (0x39) with per-day offset | ✅ Implemented — composite ms values at 30-min intervals |
 | SpO2 | `CMD_BIG_DATA_V2` (0xBC) + type 0x2A | ✅ Implemented — hourly min/max averaged |
-| Temperature | `CMD_BIG_DATA_V2` (0xBC) + type 0x25 | ✅ Implemented — 30-min intervals, temp = (raw/10)+20°C |
+| Temperature | `CMD_BIG_DATA_V2` (0xBC) + types 0x25-0x29 | ✅ Implemented — 30-min intervals, temp = (raw/10)+20°C. **5 days of history** split across big-data types 0x25-0x29 (one type per day, oldest to newest). Each type holds 1 day of 30-min interval readings. R09 exclusive. |
 | Stress | `CMD_SYNC_STRESS` (0x37) | ✅ Implemented — 30-min interval readings (0-99) |
 | Heart Rate | cmd 21 (0x15) | ✅ Same as library |
 | Steps | cmd 67 (0x43) | ✅ Same as library |
@@ -248,7 +248,7 @@ Both options share the same components — they differ in WHERE things run.
 - **HRV** (cmd 0x39) ✅ — composite ms values at 30-minute intervals. Ring's buffer is ~3 days. NOT true RR intervals — the ring computes a single-byte composite HRV internally.
 - **Sleep** (cmd 0xBC + type 0x27) ✅ — per-session sleep data via V2 BLE characteristic: sleepStart/sleepEnd (minutes after midnight) + per-stage entries (type: 2=light, 3=deep, 4=rem, 5=awake + duration in minutes).
 - **SpO2** (cmd 0xBC + type 0x2A) ✅ — per-day hourly min/max blood oxygen, averaged to single value.
-- **Temperature** (cmd 0xBC + type 0x25) ✅ — skin temperature at 30-min intervals: `temp_c = (raw / 10) + 20`. R09 exclusive.
+- **Temperature** (cmd 0xBC + types 0x25-0x29) ✅ — skin temperature at 30-min intervals: `temp_c = (raw / 10) + 20`. **5 days of history** split across big-data types 0x25-0x29 (one type per day, oldest to newest). R09 exclusive.
 - **Stress** (cmd 0x37) ✅ — stress values 0-99 at 30-min intervals. Multi-packet protocol (pkt 0=header, pkts 1-4=data).
 - **Goals** (cmd 0x21) ✅ — daily step/calorie/distance/sport/sleep targets.
 

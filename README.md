@@ -92,7 +92,7 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ HRV (cmd 0x39) — composite ms values at 30-min intervals (3-day buffer)
 - ✅ Sleep stages (cmd 0xBC + type 0x27) — per-session deep/REM/light/awake with timestamps
 - ✅ SpO2 (cmd 0xBC + type 0x2A) — hourly blood oxygen %
-- ✅ Temperature (cmd 0xBC + type 0x25) — skin temp at 30-min intervals (R09 exclusive)
+- ✅ Temperature (cmd 0xBC + types 0x25-0x29) — skin temp at 30-min intervals, 5-day history (R09 exclusive)
 - ✅ Stress (cmd 0x37) — 30-min interval readings (0-99 scale)
 - ✅ Ring goals (cmd 0x21) — steps/calorie/distance targets
 

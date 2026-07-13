@@ -143,15 +143,23 @@ def get_stress(days: int = 30):
 @app.get("/api/resting-hr")
 def get_resting_hr(days: int = 30):
     """Daily resting HR: average bpm between 1:00–5:00 AM local time."""
+    # Timezone from env var or system /etc/timezone, fallback to America/Vancouver
+    tz = os.getenv("TZ", "")
+    if not tz:
+        try:
+            with open("/etc/timezone") as f:
+                tz = f.read().strip()
+        except Exception:
+            tz = "America/Vancouver"
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT
-                (ts AT TIME ZONE 'America/Vancouver')::date AS day,
+                (ts AT TIME ZONE '{tz}')::date AS day,
                 ROUND(AVG(bpm))::int AS resting_hr,
                 COUNT(*) AS samples
             FROM raw_heart_rate
             WHERE
-                EXTRACT(HOUR FROM ts AT TIME ZONE 'America/Vancouver') BETWEEN 1 AND 5
+                EXTRACT(HOUR FROM ts AT TIME ZONE '{tz}') BETWEEN 1 AND 5
                 AND ts >= NOW() - INTERVAL ':days days'
             GROUP BY 1
             ORDER BY 1 DESC
@@ -234,6 +242,174 @@ def get_raw_hrv(hours: int = 168, limit: int = 500):
             ORDER BY ts DESC LIMIT :limit
         """), {"hours": hours, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
+
+
+@app.get("/api/raw/temperature")
+def get_raw_temp(hours: int = 48, limit: int = 1000):
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, temp_c FROM raw_temperature
+            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            ORDER BY ts DESC LIMIT :limit
+        """), {"hours": hours, "limit": limit}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+# Web Bluetooth mobile sync endpoint
+class MobileSyncRequest(BaseModel):
+    device_id: str
+    records: dict  # {heart_rate: [...], spo2: [...], hrv: [...], sleep: [...], temperature: [...], steps: [...], stress: [...], goals: {...}}
+    synced_at: datetime
+
+
+@app.post("/api/mobile/sync")
+def mobile_sync(req: MobileSyncRequest):
+    """Receive ring data from phone via Web Bluetooth and store it."""
+    with SessionLocal() as db:
+        accepted = 0
+        skipped = 0
+        errors = []
+
+        # Heart rate
+        for r in req.records.get("heart_rate", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_heart_rate (ts, bpm, source)
+                    VALUES (:ts, :bpm, 'phone')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """), {"ts": r["ts"], "bpm": r["bpm"]})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"hr: {e}")
+                skipped += 1
+
+        # SpO2
+        for r in req.records.get("spo2", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_spo2 (ts, spo2_pct, source)
+                    VALUES (:ts, :spo2_pct, 'phone')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """), {"ts": r["ts"], "spo2_pct": r["spo2_pct"]})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"spo2: {e}")
+                skipped += 1
+
+        # HRV
+        for r in req.records.get("hrv", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_hrv (ts, hrv_value, hrv_type, source)
+                    VALUES (:ts, :hrv_value, :hrv_type, 'phone')
+                    ON CONFLICT (ts, hrv_type, source) DO NOTHING
+                """), {"ts": r["ts"], "hrv_value": r["hrv_value"], "hrv_type": r.get("hrv_type", "composite")})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"hrv: {e}")
+                skipped += 1
+
+        # Sleep
+        for r in req.records.get("sleep", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_sleep (day, stage, start_ts, end_ts, duration_minutes, source)
+                    VALUES (:day, :stage, :start_ts, :end_ts, :duration_minutes, 'phone')
+                    ON CONFLICT (start_ts, stage, source) DO NOTHING
+                """), {"day": r["day"], "stage": r["stage"], "start_ts": r["start_ts"],
+                       "end_ts": r["end_ts"], "duration_minutes": r["duration_minutes"]})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"sleep: {e}")
+                skipped += 1
+
+        # SpO2
+        for r in req.records.get("spo2", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_spo2 (ts, spo2_pct, source)
+                    VALUES (:ts, :spo2_pct, 'phone')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """), {"ts": r["ts"], "spo2_pct": r["spo2_pct"]})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"spo2: {e}")
+                skipped += 1
+
+        # Temperature
+        for r in req.records.get("temperature", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_temperature (ts, temp_c, source)
+                    VALUES (:ts, :temp_c, 'phone')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """), {"ts": r["ts"], "temp_c": r["temp_c"]})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"temp: {e}")
+                skipped += 1
+
+        # Stress
+        for r in req.records.get("stress", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_stress (ts, stress_value, source)
+                    VALUES (:ts, :stress_value, 'phone')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """), {"ts": r["ts"], "stress_value": r["stress_value"]})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"stress: {e}")
+                skipped += 1
+
+        # Steps
+        for r in req.records.get("steps", []):
+            try:
+                db.execute(text("""
+                    INSERT INTO raw_steps (ts, steps, calories, distance, source)
+                    VALUES (:ts, :steps, :calories, :distance, 'phone')
+                    ON CONFLICT (ts, source) DO NOTHING
+                """), {"ts": r["ts"], "steps": r["steps"], "calories": r.get("calories"), "distance": r.get("distance")})
+                accepted += 1
+            except Exception as e:
+                errors.append(f"steps: {e}")
+                skipped += 1
+
+        # Goals
+        goals = req.records.get("goals")
+        if goals:
+            try:
+                db.execute(text("""
+                    INSERT INTO ring_goals (steps_goal, calories_goal, distance_m_goal, sport_min_goal, sleep_min_goal)
+                    VALUES (:steps, :calories, :distance, :sport, :sleep)
+                """), {
+                    "steps": goals.get("steps_goal"),
+                    "calories": goals.get("calories_goal"),
+                    "distance": goals.get("distance_m_goal"),
+                    "sport": goals.get("sport_min_goal"),
+                    "sleep": goals.get("sleep_min_goal"),
+                })
+                accepted += 1
+            except Exception as e:
+                errors.append(f"goals: {e}")
+                skipped += 1
+
+        db.commit()
+
+        # Trigger analytics recomputation
+        try:
+            import subprocess
+            subprocess.Popen(["venv/bin/python3", "collector/analytics.py"], 
+                           cwd="/home/sz/code/smart-ring",
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+        return {
+            "accepted": accepted,
+            "skipped": skipped,
+            "errors": errors[:10],
+        }
 
 
 @app.get("/api/raw/temperature")
