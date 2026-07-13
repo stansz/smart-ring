@@ -66,82 +66,79 @@
         <span class="ml-2 opacity-50 text-xs">(click to dismiss)</span>
     </div>
     <nav class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex items-center justify-between h-12 sm:h-12 gap-2">
+        <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+            <!-- Row 1: title + tabs + dark toggle -->
+            <div class="flex items-center justify-between h-10 sm:h-12">
                 <div class="flex items-center space-x-2 sm:space-x-4 min-w-0">
-                    <h1 class="text-base sm:text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">Stan's Smart Ring</h1>
-                    <!-- Tabs -->
-                    <div class="hidden sm:flex space-x-1" role="tablist">
-                        <button @click="switchTab('dashboard')"
-                                class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'"
-                                role="tab" :aria-selected="tab === 'dashboard'">
-                            Dashboard
-                        </button>
-                        <button @click="switchTab('analytics')"
-                                class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'analytics' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'"
-                                role="tab" :aria-selected="tab === 'analytics'">
-                            Analytics
-                        </button>
-                        <button @click="switchTab('admin')"
-                                class="px-3 py-1.5 text-sm rounded-md transition"
-                                :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'"
-                                role="tab" :aria-selected="tab === 'admin'">
-                            Admin
-                        </button>
+                    <h1 class="text-sm sm:text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">Stan's Ring</h1>
+                    <div class="hidden sm:flex space-x-1">
+                        <button @click="switchTab('dashboard')" class="px-3 py-1.5 text-sm rounded-md transition"
+                                :class="tab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">Dashboard</button>
+                        <button @click="switchTab('analytics')" class="px-3 py-1.5 text-sm rounded-md transition"
+                                :class="tab === 'analytics' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">Analytics</button>
+                        <button @click="switchTab('admin')" class="px-3 py-1.5 text-sm rounded-md transition"
+                                :class="tab === 'admin' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100'">Admin</button>
                     </div>
-                    <!-- Mobile tab dropdown -->
-                    <div class="sm:hidden relative">
-                        <select x-model="tab" @change="switchTab($event.target.value)"
-                                class="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                aria-label="Select tab">
-                            <option value="dashboard">Dashboard</option>
-                            <option value="analytics">Analytics</option>
-                            <option value="admin">Admin</option>
-                        </select>
-                    </div>
+                    <select x-model="tab" @change="switchTab($event.target.value)"
+                            class="sm:hidden px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                        <option value="dashboard">Dashboard</option>
+                        <option value="analytics">Analytics</option>
+                        <option value="admin">Admin</option>
+                    </select>
                 </div>
-                <div class="flex items-center space-x-4">
-                    <button @click="toggleDark()" class="text-lg leading-none px-1 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition" title="Toggle dark mode">
+                <div class="flex items-center space-x-1 sm:space-x-4">
+                    <button @click="toggleDark()" class="text-base sm:text-lg px-1 py-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition">
                         <span x-text="darkMode ? '☀️' : '🌙'"></span>
                     </button>
-                    <span class="text-sm text-gray-500 dark:text-gray-400" x-text="lastSync"></span>
-                    <!-- Battery indicator -->
-                    <span x-show="ringStatus.battery_pct != null" class="flex items-center gap-1 text-sm"
-                          :class="ringStatus.battery_pct >= 50 ? 'text-green-600 dark:text-green-400' : ringStatus.battery_pct >= 20 ? 'text-amber-600 dark:text-amber-400' : 'text-red-500 dark:text-red-400'"
-                          :title="'Ring battery: ' + ringStatus.battery_pct + '%'">
-                        <svg class="w-5 h-4" viewBox="0 0 24 24" fill="currentColor">
-                            <!-- Battery outline -->
-                            <rect x="1" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
-                            <rect x="20" y="9" width="2" height="6" rx="1" fill="currentColor"/>
-                            <!-- Fill level -->
-                            <rect x="3" y="7" :width="Math.round(ringStatus.battery_pct * 14 / 100)" height="10" rx="1" fill="currentColor"/>
-                        </svg>
-                        <span x-text="ringStatus.battery_pct + '%'"></span>
-                    </span>
-                    <!-- Sync progress badge -->
-                    <span x-show="syncProgress" x-text="syncProgress"
-                          class="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-full animate-pulse"></span>
-                    <button @click="queueSync()"
-                            :disabled="syncQueueBusy"
-                            class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed inline-flex items-center gap-1.5 transition">
-                        <svg x-show="syncQueueBusy" class="animate-spin h-3.5 w-3.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <span class="hidden sm:inline text-sm text-gray-500 dark:text-gray-400" x-text="lastSync"></span>
+                </div>
+            </div>
+            <!-- Row 2 (mobile): battery + sync buttons -->
+            <div class="flex sm:hidden items-center justify-between h-7 text-xs">
+                <span x-show="ringStatus.battery_pct != null" class="flex items-center gap-1"
+                      :class="ringStatus.battery_pct >= 50 ? 'text-green-600' : ringStatus.battery_pct >= 20 ? 'text-amber-600' : 'text-red-500'">
+                    <svg class="w-4 h-3" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="1" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+                        <rect x="20" y="9" width="2" height="6" rx="1" fill="currentColor"/>
+                        <rect x="3" y="7" :width="Math.round(ringStatus.battery_pct * 14 / 100)" height="10" rx="1" fill="currentColor"/>
+                    </svg>
+                    <span x-text="ringStatus.battery_pct + '%'"></span>
+                </span>
+                <div class="flex items-center gap-1">
+                    <button @click="syncFromPhone()" class="px-2 py-0.5 text-xs bg-green-600 text-white rounded">📱 BLE</button>
+                    <button @click="queueSync()" :disabled="syncQueueBusy"
+                            class="px-2 py-0.5 text-xs bg-blue-600 text-white rounded disabled:bg-gray-300 inline-flex items-center gap-1">
+                        <svg x-show="syncQueueBusy" class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span x-show="!syncQueueBusy">Sync Now</span>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        <span x-show="!syncQueueBusy">Sync</span>
                         <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
                     </button>
-                    <!-- Mobile BLE sync -->
-                    <button @click="window.ringSyncFromPhone()" class="px-3 py-1.5 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition">
-                        📱 Sync
-                    </button>
-                    <!-- Elapsed time -->
-                    <span x-show="syncQueueBusy && syncElapsedCount > 0"
-                          class="text-xs text-gray-400 dark:text-gray-500 tabular-nums"
-                          x-text="'[' + Math.floor(syncElapsedCount / 60) + ':' + String(syncElapsedCount % 60).padStart(2, '0') + ']'"></span>
                 </div>
+            </div>
+            <!-- Row 2 (desktop): battery + sync in one row -->
+            <div class="hidden sm:flex items-center justify-between h-7 text-xs">
+                <span x-show="ringStatus.battery_pct != null" class="flex items-center gap-1"
+                      :class="ringStatus.battery_pct >= 50 ? 'text-green-600' : ringStatus.battery_pct >= 20 ? 'text-amber-600' : 'text-red-500'">
+                    <svg class="w-4 h-3" viewBox="0 0 24 24" fill="currentColor">
+                        <rect x="1" y="5" width="18" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+                        <rect x="20" y="9" width="2" height="6" rx="1" fill="currentColor"/>
+                        <rect x="3" y="7" :width="Math.round(ringStatus.battery_pct * 14 / 100)" height="10" rx="1" fill="currentColor"/>
+                    </svg>
+                    <span x-text="ringStatus.battery_pct + '%'"></span>
+                </span>
+                <div class="flex items-center gap-1">
+                    <button @click="syncFromPhone()" class="px-2 py-0.5 text-xs bg-green-600 text-white rounded">📱 BLE</button>
+                    <button @click="queueSync()" :disabled="syncQueueBusy"
+                            class="px-2 py-0.5 text-xs bg-blue-600 text-white rounded disabled:bg-gray-300 inline-flex items-center gap-1">
+                        <svg x-show="syncQueueBusy" class="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                        <span x-show="!syncQueueBusy">Sync</span>
+                        <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
+                    </button>
+                </div>
+            </div>
             </div>
         </div>
     </nav>
@@ -600,18 +597,6 @@
             </div>
         </div>
 
-        <!-- Ring buffer status (phantom future entries from old clock) -->
-        <div x-show="clockAlert.future_rows > 0"
-             x-transition.opacity
-             class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6 flex items-start gap-3">
-            <span class="text-xl">ℹ️</span>
-            <div>
-                <p class="text-sm font-semibold text-blue-800 dark:text-blue-200">Ring buffer still contains old records</p>
-                <p class="text-xs text-blue-700 dark:text-blue-300 mt-0.5"
-                   x-text="`${clockAlert.future_rows} record(s) from before the time-fix still in ring's buffer. Will clear naturally in 2−3 days as the ring fills with fresh data.`"></p>
-            </div>
-        </div>
-
         <!-- System health -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-6">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">System Health</h2>
@@ -822,7 +807,6 @@
                 syncElapsedCount: 0,
                 syncProgress: '',
                 syncError: null,
-                clockAlert: { future_rows: 0 },
                 // Analytics tab state
                 analyticsRange: 7,
                 analyticsRecovery: {},
@@ -940,16 +924,8 @@
                         this.loadAdminSyncLog(),
                         this.loadSyncRequests(),
                         this.loadRawTables(),
-                        this.loadClockAlert(),
                     ]);
                     this.startPolling();
-                },
-
-                async loadClockAlert() {
-                    try {
-                        const res = await fetch('/api/admin/clock-alert');
-                        if (res.ok) this.clockAlert = await res.json();
-                    } catch (e) { console.error('clock-alert', e); }
                 },
 
                 async loadAnalytics() {
@@ -2091,6 +2067,18 @@
                     }
                 },
 
+                syncFromPhone() {
+                    if (!navigator.bluetooth) {
+                        alert('Web Bluetooth requires Android Chrome. Not available on this device.');
+                        return;
+                    }
+                    if (typeof window.ringSyncFromPhone !== 'function') {
+                        alert('Sync module not loaded. Try refreshing the page.');
+                        return;
+                    }
+                    window.ringSyncFromPhone();
+                },
+
                 async queueSync() {
                     this.syncError = null;
                     try {
@@ -2130,7 +2118,6 @@
                         if (this.syncQueueBusy) await this.loadSyncProgress();
                         await this.loadAdminSyncLog();
                         await this.loadRingStatus();
-                        await this.loadClockAlert();
                     }, 5000);
                 }
             }
@@ -2325,7 +2312,7 @@
                     const sleepEnd = new DataView(sleepData.buffer).getUint16(i, true); i += 2;
                     const td = new Date(); td.setDate(td.getDate() - da);
                     const dt = localDayStr(td);
-                    const ss = new Date(td); ss.setHours(0,0,0,0);
+                    let ss = new Date(td); ss.setHours(0,0,0,0);
                     if (sleepStart > sleepEnd) ss.setMinutes(sleepStart - 1440);
                     else ss.setMinutes(sleepStart);
                     for (let j = 4; j < dayBytes; j += 2) {
