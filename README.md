@@ -42,7 +42,7 @@ Home Network
        └─ python3 collector/sync_ring.py  (run manually, no cron)
 ```
 
-Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashboard** (sleep donut, circadian HR line graph, vitals chart with HR + SpO₂ + Temp triple-axis, activity dials, health-coded stat cards with emoji icons, dark mode toggle), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, trend charts for HRV/sleep/stress/resting-HR with 7d/14d/30d/90d range selector), and **Admin** (ring status, manual sync controls, full sync log with clock drift tracking, clock alert banner, system health, raw data tables). No build step.
+Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; sleep donut; circadian HR line graph; vitals chart with HR + SpO₂ + Temp triple-axis; dark mode toggle), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, trend charts for HRV/sleep/stress/resting-HR with 7d/14d/30d/90d range selector), and **Admin** (ring status, manual sync controls, full sync log, system health, raw data tables). No build step.
 
 ## Usage
 
@@ -97,6 +97,7 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ Ring goals (cmd 0x21) — steps/calorie/distance targets
 
 ### Health scores (server-side, persisted after each sync)
+- ✅ **Readiness Score** — Unified 0-100 Oura-style composite (HRV 35% + Sleep 30% + Activity 20% + RHR 15%). Per-day with contributors and sub-scores via `/api/readiness`.
 - ✅ **Sleep quality** — 5-component score (0-100): duration, efficiency, architecture, continuity, latency. Trapezoidal scoring with Ohayon 2004 norms.
 - ✅ **Recovery** — ln(HRV) z-score vs 7-day baseline (Altini/Plews framework), readiness text, confidence flags
 - ✅ **Stress** — Garmin/Firstbeat thresholds + weighted daily score (daytime + peak sustained + overnight)
@@ -105,9 +106,10 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ **HRV trends** — 7-day and 28-day rolling averages
 
 ### Dashboard
-- **Dashboard tab**: Vitals chart (HR line + SpO₂ dots + Temp dots triple-axis SVG with hover tooltips + smooth Catmull-Rom curves), sleep donut ring, circadian HR SVG line graph, recovery panel, today's activity dials, dark mode toggle
+- **Dashboard tab**: Unified hero panel (24h activity ring with radial step bars + sleep overlay + tap tooltips along-side Readiness Score 0-100 ring with 4 sub-score cards + contributors), Vitals chart (HR line + SpO₂ dots + Temp dots triple-axis SVG with hover tooltips + smooth Catmull-Rom curves), sleep donut ring (empty state when no data), circadian HR SVG line graph, recovery panel, dark mode toggle
 - **Analytics tab**: Data pipeline reference (ring-measured vs ring-computed vs our-validated-score), score breakdown cards with expandable formula explanations, 4 trend charts (HRV recovery, sleep quality, stress, resting HR) with 7d/14d/30d/90d range selector + hover crosshair tooltips
-- **Admin tab**: Sync Now, ring status, full sync log with clock drift tracking (color-coded), clock alert banner, system health, raw data tables
+- **Admin tab**: Sync Now, ring status, full sync log, system health, raw data tables
+- **Phone sync**: Web Bluetooth ("📱 BLE" button) — syncs ring from Android Chrome, posts to `/api/mobile/sync`, dedup on insert (ring canonical, phone fills gaps)
 
 ### How it works
 ```

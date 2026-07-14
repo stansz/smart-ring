@@ -56,9 +56,9 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 | `collector/sync_request_poller.py` | Host-side poller | Watches `sync_requests` every 30s, claims with `FOR UPDATE SKIP LOCKED`, runs `collector-wrapper.py`, marks complete/failed, runs analytics after sync |
 | `collector/collector-wrapper.py` | Shim for poller | Injects `--forget` into sys.argv for R09 reconnect-bug workaround |
 | `collector/first_contact.py` | Read-only diagnostics | Battery, firmware, device info, `set_time_local()` — NO data sync |
-| `api/main.py` | FastAPI endpoints | `/api/raw/*` (8 types), `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/circadian-hr`, `/api/stress`, `/api/resting-hr`, `/api/admin/{ring-status,health,sync-log,sync,sync-requests,sync-progress,clock-alert}` |
-| `dashboard/index.html` | Single-page UI (3 tabs) | Pure SVG charts (no Chart.js); Catmull-Rom smoothing + hover tooltips + entrance animations; Vitals chart (HR+SpO2+Temp triple-axis); sleep donut; 4 activity dials; Analytics tab (pipeline ref + trend charts); sync button (spinner + elapsed timer + progress badge + auto-refresh + error banner); battery indicator; circadian inline explainer; dark mode; `clipFuture` filter |
-| `db/init.sql` | Postgres schema | ~15 tables (8 raw + 5 computed + sync_log + sync_requests + ring_status + ring_goals) |
+| `api/main.py` | FastAPI endpoints | `/api/raw/*` (8 types), `/api/readiness`, `/api/daily-activity`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/circadian-hr`, `/api/stress`, `/api/resting-hr`, `/api/mobile/sync` (phone Web Bluetooth), `/api/admin/{ring-status,health,sync-log,sync,sync-requests,sync-progress}` |
+| `dashboard/index.html` | Single-page UI (3 tabs) | Pure SVG charts (no Chart.js); Catmull-Rom smoothing + hover tooltips; Hero panel (24h activity ring with radial step bars + sleep overlay + tap tooltips + Readiness Score 0–100 with 4 sub-scores + contributors); Web Bluetooth phone sync (multi-packet HR/HRV handlers, write-without-response, 12-phase progress); Vitals chart (HR+SpO2+Temp triple-axis); sleep donut + empty state; Analytics tab (pipeline ref + trend charts); sync button (spinner + elapsed timer + progress badge + auto-refresh + error banner); battery indicator; dark mode; date navigation; server-computed dials (daily_activity table) |
+| `db/init.sql` | Postgres schema | ~20 tables (8 raw + daily_activity + readiness_score + sleep_quality + daily_recovery + hrv_trends + circadian_hr + stress_classification + sync_log + sync_requests + ring_status + ring_goals) |
 | `RESEARCH.md` | Reference knowledge | BLE quirks & reconnect bug; protocol command mapping; validated score formulas; value-add analysis (our analytics vs ring/Gadgetbridge raw data) |
 | `ROADMAP.md` | Planned future work | Mobile sync design (WebBluetooth PWA + Gadgetbridge fork options); not yet implemented |
 
@@ -68,23 +68,56 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 
 **Working (green):**
 - All 8 data types collecting: HR, steps, HRV, sleep, SpO2, temperature, stress, goals
-- All 5 health scores computing: sleep quality, HRV recovery, stress classification, circadian HR, resting HR
-- Sync button: spinner + elapsed timer + 12-phase progress badge + auto-refresh on completion + inline error banner
-- Clock sync: Gadgetbridge-compatible BCD local (6 data bytes, no language flag). Ack-based verification — ring responds to set_time cmd, response confirms command was processed
+- All 5 health scores + unified Readiness Score (0-100 Oura-style)
+- Web Bluetooth phone sync (Android Chrome → ring → `/api/mobile/sync` → dedup)
+- 24h activity ring (radial step bars + sleep overlay + tap tooltips)
+- Readiness Score hero (big ring, 4 sub-scores, contributors) + Activity Ring in unified panel
+- Server-computed per-day activity + hourly arrays (daily_activity table) — no more flaky client-side calc
+- Source dedup (ring canonical, phone fills gaps) in both container + host
+- Timezone fix: Postgres `ALTER SYSTEM SET TimeZone='America/Vancouver'` + container `$TZ`
+- Phone-sync analytics trigger via `sync_requests` queue (no more broken Popen)
+- Sync button: spinner + elapsed timer + 12-phase progress badge + auto-refresh + inline error banner
+- Clock sync: Gadgetbridge-compatible BCD local (6 data bytes, no language flag). Ack-based verification.
 - Analytics tab: pipeline reference, score cards, 4 trend charts (7d/14d/30d/90d)
 - Battery indicator in nav bar (green/amber/red)
+- Sleep card: empty state when no data (no more stale fallback)
+- Dashboard no-cache header (Cache-Control: no-cache, no-store, must-revalidate)
 
 **Known gaps:**
 - 0x80-bit async packets not investigated (probably sleep/HRV/temp historical push)
 - No auto-sync via systemd timer yet (manual + poller only)
-- No phone sync path (Gadgetbridge → FastAPI) yet
 - HRV is composite single-byte (not true RR intervals) — z-score still works, RMSSD/pNN50 unavailable
+- Steps undercount vs wrist devices (rings inherently register fewer steps)
+- Phone steps not fetched (Web Bluetooth sync doesn't query step data — only HR/SpO2/temp/sleep/HRV)
 
 **See RESEARCH.md for:** BLE quirks & reconnect bug, full protocol command table, validated score formulas (with citations), value-add analysis (our analytics vs ring/Gadgetbridge data), deployment topology, CFW roadmap.
 
 ---
 
 ## Recent Work Log (Jul 2026)
+
+### 2026-07-13 — Dashboard Overhaul: Readiness Score + Activity Ring + Source Dedup + Timezone Fix
+
+**Major dashboard revamp.** Replaced the client-side "Today's Activity" dials with server-computed data and a unified hero panel:
+
+- **Readiness Score (Oura-style 0–100)**: New `daily_activity` and `readiness_score` tables (computed in analytics.py, Pacific tz). Weighted composite: 35% HRV (z-score→0-100) + 30% Sleep (sleep_quality.score) + 20% Activity (steps vs goal) + 15% RHR (vs 30-day baseline). `/api/readiness` endpoint. Hero panel shows big score ring with 4 sub-score cards (Sleep/HRV/Activity/RHR) and contributors (e.g. "+18 HRV · +9 Sleep · -6 Activity · +6 RHR"). Date-aware (toggles with day nav).
+- **24h Activity Ring (Gadgetbridge-style)**: Radial bar chart where each of 24 hours shows wear/sleep/off status (colored baseline) + step count (bar height ∝ steps). Sleep stages (deep/REM/light/awake) overlay the ring. Tap/hover tooltips. Replaces the separate steps timeline graph.
+- **Unified hero panel**: Activity Ring (left) + Readiness Score (right) in one seamless card.
+- **`daily_activity` table**: Server-side per-day aggregates (steps, distance, calories, HR stats, wear time). Includes `hourly_steps` and `hourly_worn` JSONB arrays for the ring. `/api/daily-activity` endpoint. Replaces flaky client-side day filtering.
+- **Timezone fix**: `ALTER SYSTEM SET TimeZone='America/Vancouver'` on Postgres + `TZ=America/Vancouver` on both quadlets. `CURRENT_DATE`/`ts::date` now Pacific. Ring time-setting unaffected (host collector's `set_time_local` still sends Pacific-local BCD).
+- **Source dedup**: Ring canonical, phone fills gaps. `_dedupe_sources()` in `mobile_sync` (container) + `analytics.py` (host). Removes phone rows where ring has same key. Removed 356 duplicates; only 7 phone gap-fills remain. `source` column preserved on all surviving rows.
+- **Sleep card improvement**: No more fallback to older nights (was showing 2-nights-ago data). Shows empty state ("No sleep recorded last night") when no data for selected day.
+- **Phone sync built**: Web Bluetooth JS with multi-packet HR/HRV handlers, write-without-response, temp 0x27 skip (sleep type contamination), phone-analytics queue trigger. Status bar with phase progress.
+
+**Files**: `db/init.sql`, `collector/analytics.py`, `api/main.py`, `dashboard/index.html`, `~/.config/containers/systemd/*.container`, `TASKS.md`
+
+### 2026-07-12 (b) — Web Bluetooth Phone Sync: Multi-Packet Fix
+- **Root cause of "only 6 records":** JS response queue resolved on the *first* 16-byte packet and dropped the rest. But HR (0x15) and HRV (0x39) are **multi-packet** responses. Plus an **extra `}`** in the sleep parser closed `connect()` early so the module only worked partially.
+- **HR protocol** (matches lib `HeartRateLogParser`): pkt[sub0]=header(size@byte2), pkt[sub1]=ts+9 vals, pkts[sub2..N]=13 vals → 288 slots @5-min from local midnight.
+- **HRV protocol** (matches stress 0x37): sub0=header, sub1=12 vals, sub2..4=13 vals @30-min.
+- **Fix:** Replaced queue-of-resolvers with a `handlers` registry supporting `sendCmd` (single) + `sendCmdMulti(c, data, isLast)` (collect until terminal sub_type). Rewrote HR + HRV fetchers. Removed extra brace. Removed duplicate SpO2 insert in `mobile_sync`.
+- **Files:** `dashboard/index.html` (phone-sync script), `api/main.py` (dedup SpO2), `TASKS.md`
+- **Verified:** node --check OK (85/85 braces), `main.py` parses, service restarted, dashboard + `/api/mobile/sync` return 200. **Phone live test pending.**
 
 ### 2026-07-12 — Temperature Big-Data Fix + Time Sync Ack Verification
 - **Temperature fix:** Ring stores 5 days of temperature across big-data types 0x25-0x29 (one type per day, oldest to newest). Previous code only queried 0x25 (4 days ago), missing 4 days of data. Fix: `fetch_temperature_history()` now loops 0x25-0x29. 142 records synced (5 nights, 30-min intervals, overnight skin temp).

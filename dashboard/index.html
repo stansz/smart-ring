@@ -160,78 +160,61 @@
             </button>
         </div>
 
-        <!-- Today's Activity (Gadgetbridge-style dials) -->
-        <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 mb-8">
-            <div class="flex justify-between items-baseline mb-4">
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Today's Activity
-                    <span class="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2"
-                          x-text="new Date().toLocaleDateString()"></span>
-                </h2>
-                <span class="text-xs text-gray-400 dark:text-gray-500"
-                      x-text="lastSyncSummary.completed_at ? 'Last synced ' + new Date(lastSyncSummary.completed_at).toLocaleTimeString() : ''"></span>
-            </div>
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <!-- Steps Dial -->
-                <div class="text-center">
-                    <div class="relative inline-block w-32 h-32">
-                        <div class="absolute inset-0 rounded-full"
-                             :style="`background: conic-gradient(#3b82f6 ${stepsPct}%, #e5e7eb ${stepsPct}%);`">
-                        </div>
-                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="stepsToday || 0"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400">steps</span>
-                        </div>
+        <!-- Hero row: Activity Ring + Readiness Score (one unified panel) -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-100 dark:border-gray-700 mb-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 dark:divide-gray-700">
+                <!-- LEFT: Activity Ring -->
+                <div class="p-6 flex flex-col items-center">
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2 self-start">Activity</h2>
+                    <div class="flex flex-col items-center justify-center gap-4 my-2 w-full">
+                        <div id="dayRing" class="flex justify-center w-full"></div>
+                        <div id="dayRingLegend" class="w-full"></div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Steps</p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500"
-                       x-text="`${stepsPct}% of ${goals?.steps_goal || '10,000'}`"></p>
                 </div>
 
-                <!-- HR Avg Dial -->
-                <div class="text-center">
-                    <div class="relative inline-block w-32 h-32">
-                        <div class="absolute inset-0 rounded-full"
-                             :style="`background: conic-gradient(#ef4444 ${hrPct}%, #e5e7eb ${hrPct}%);`">
-                        </div>
-                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="hrAvg || '—'"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400">bpm avg</span>
+                <!-- RIGHT: Readiness Score -->
+                <div class="p-6">
+                    <div class="flex justify-between items-baseline mb-4">
+                        <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness Score</h2>
+                        <span class="text-xs text-gray-400 dark:text-gray-500" x-text="readinessDay ? new Date(readinessDay + 'T00:00').toLocaleDateString() : ''"></span>
+                    </div>
+                    <!-- Circular progress ring -->
+                    <div class="relative w-36 h-36 mx-auto mb-3">
+                        <svg viewBox="0 0 100 100" class="w-full h-full -rotate-90">
+                            <circle cx="50" cy="50" r="40" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="8" stroke="currentColor"/>
+                            <circle cx="50" cy="50" r="40" fill="none" stroke-width="8" stroke-linecap="round"
+                                :class="readinessScore >= 80 ? 'text-green-500' : readinessScore >= 60 ? 'text-amber-500' : 'text-red-500'"
+                                :style="`stroke-dasharray: 251; stroke-dashoffset: ${251 * (1 - (readinessScore || 0) / 100)}`"
+                                stroke="currentColor"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span class="text-4xl font-bold text-gray-900 dark:text-gray-100" x-text="readinessScore != null ? readinessScore : '—'"></span>
                         </div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Heart Rate</p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500" x-text="hrMinMax + (hrDateLabel !== 'today' ? ' (' + hrDateLabel + ')' : '')"></p>
-                </div>
-
-                <!-- Active Minutes Dial -->
-                <div class="text-center">
-                    <div class="relative inline-block w-32 h-32">
-                        <div class="absolute inset-0 rounded-full"
-                             :style="`background: conic-gradient(#10b981 ${activePct}%, #e5e7eb ${activePct}%);`">
+                    <p class="text-sm font-medium text-center"
+                        :class="readinessScore >= 80 ? 'text-green-600' : readinessScore >= 60 ? 'text-amber-600' : 'text-red-500'"
+                        x-text="readinessLabel || '—'"></p>
+                    <!-- 4 sub-score cards (2x2) -->
+                    <div class="grid grid-cols-2 gap-3 mt-5">
+                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
+                            <p class="text-2xl font-bold text-indigo-600 dark:text-indigo-400" x-text="readinessSleep != null ? readinessSleep : '—'"></p>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">Sleep</p>
                         </div>
-                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="activeMinutes || 0"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400">min</span>
+                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
+                            <p class="text-2xl font-bold text-purple-600 dark:text-purple-400" x-text="readinessHrv != null ? readinessHrv : '—'"></p>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">HRV</p>
                         </div>
-                    </div>
-                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Active Time</p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500"
-                       x-text="`${activeSlotCount} slots ≥ ${activeThreshold} steps`"></p>
-                </div>
-
-                <!-- Calories Dial -->
-                <div class="text-center">
-                    <div class="relative inline-block w-32 h-32">
-                        <div class="absolute inset-0 rounded-full"
-                             :style="`background: conic-gradient(#f59e0b ${caloriesPct}%, #e5e7eb ${caloriesPct}%);`">
+                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
+                            <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" x-text="readinessActivity != null ? readinessActivity : '—'"></p>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">Activity</p>
                         </div>
-                        <div class="absolute inset-2 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
-                            <span class="text-2xl font-bold text-gray-900 dark:text-gray-100" x-text="caloriesToday || '—'"></span>
-                            <span class="text-xs text-gray-500 dark:text-gray-400">kcal</span>
+                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
+                            <p class="text-2xl font-bold text-rose-600 dark:text-rose-400" x-text="readinessRhr != null ? readinessRhr : '—'"></p>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">RHR</p>
                         </div>
                     </div>
-                    <p class="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Calories</p>
-                    <p class="text-xs text-gray-400 dark:text-gray-500"
-                       x-text="`${caloriesPct}% of ${goals?.calories_goal ? Math.round(goals.calories_goal/1000) : '300'} kcal`"></p>
+                    <!-- Contributors -->
+                    <p class="text-xs text-gray-500 dark:text-gray-400 text-center mt-4" x-text="readinessContribText || ''"></p>
                 </div>
             </div>
         </div>
@@ -244,6 +227,9 @@
                     <!-- Big HRV number -->
                     <div class="text-center flex-shrink-0">
                         <p class="text-4xl font-bold"
+
+(Showing lines 227-301 of 2758. Use offset=302 to continue.)
+
                            :class="hrvLatest >= 45 ? 'text-green-600' : hrvLatest >= 30 ? 'text-amber-600' : 'text-red-600'"
                            x-text="hrvLatest != null ? hrvLatest + 'ms' : '—'"></p>
                         <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">latest HRV</p>
@@ -289,7 +275,7 @@
                     </div>
                 </div>
             </div>
-            <!-- Last Night's Sleep — concentric donut ring -->
+            <!-- Last Night's Sleep — concentric donut ring (shows empty state when no sleep for the day) -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Last Night's Sleep
                     <span class="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2"
@@ -748,6 +734,7 @@
                 sleepLabel: '',
                 sleepQualityScore: null,
                 sleepSummary: {},
+                hasSleepData: false,
                 spo2Latest: null,
                 spo2TrendDir: null,
                 spo2Range: null,
@@ -792,6 +779,21 @@
                 caloriesToday: 0,
                 caloriesPct: '0',
                 goals: {},
+                _readinessByDay: {},
+                // Readiness display vars (applied per selected date)
+                readinessScore: null,
+                readinessSleep: null,
+                readinessHrv: null,
+                readinessActivity: null,
+                readinessRhr: null,
+                readinessLabel: null,
+                readinessContribText: '',
+                readinessDay: null,
+
+                // Server-computed per-day activity (replaces flaky client-side calc)
+                dailyActivity: {},
+                _sleepStages: [],
+                dayRingSubtitle: '',
 
                 // Admin state
                 ringStatus: {},
@@ -913,7 +915,13 @@
                         this.loadCircadian(),
                         this.loadSyncLog(),
                         this.loadDialsData(),
+                        this.loadDailyActivity(),
+                        this.loadReadiness(),
                     ]);
+                    // Apply server-computed daily values after raw fallbacks + goals load
+                    this.applyDailyActivity();
+                    this.applyReadiness();
+                    this.renderDayOverview();
                     this.loading = false;
                 },
 
@@ -1205,15 +1213,21 @@
                 },
 
                 async loadSleepStages() {
+                    this._sleepStages = [];
                     try {
                         const res = await fetch('/api/raw/sleep?hours=72&limit=200');
                         const data = await res.json();
                         if (!data.length) {
-                            document.getElementById('sleepDonut').innerHTML =
-                                '<p class="text-sm text-gray-400 dark:text-gray-500">No sleep data yet — sync the ring to pull sleep history</p>';
+                            this.hasSleepData = false;
+                            this._sleepStages = [];
+                            this.sleepSummary = {};
+                            this._renderSleepEmpty('No sleep data yet — sync the ring to pull sleep history');
+                            this.renderDayOverview();
                             return;
                         }
-                        // Find sleep for selected date; fall back to latest for today
+                        // Group by day; show ONLY the selected day's sleep (no fallback
+                        // to older nights — that was showing 2-nights-ago data when the
+                        // ring wasn't worn).
                         const stagesByDay = {};
                         for (const s of data) {
                             if (!stagesByDay[s.day]) stagesByDay[s.day] = [];
@@ -1223,21 +1237,20 @@
                         let lastNight = null;
                         if (stagesByDay[selDay] && stagesByDay[selDay].some(s => s.stage === 'deep' || s.stage === 'rem')) {
                             lastNight = { day: selDay, stages: stagesByDay[selDay].sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts)) };
-                        } else if (this.isToday()) {
-                            const days = Object.keys(stagesByDay).sort().reverse();
-                            for (const day of days) {
-                                if (stagesByDay[day].some(s => s.stage === 'deep' || s.stage === 'rem')) {
-                                    lastNight = { day, stages: stagesByDay[day].sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts)) };
-                                    break;
-                                }
-                            }
                         }
                         if (!lastNight) {
-                            document.getElementById('sleepDonut').innerHTML =
-                                '<p class="text-sm text-gray-400 dark:text-gray-500">No complete sleep cycles found — keep wearing the ring overnight</p>';
+                            this.hasSleepData = false;
+                            this._sleepStages = [];
+                            this.sleepSummary = {};
+                            this._renderSleepEmpty(this.isToday() ? 'No sleep recorded last night' : 'No sleep data for this day');
+                            this.renderDayOverview();
                             return;
                         }
+                        this.hasSleepData = true;
                         this.renderSleepDonut(lastNight);
+                        // Cache for the 24h day ring overlay
+                        this._sleepStages = lastNight ? lastNight.stages : [];
+                        this.renderDayOverview();
                         // Fill legacy stat card
                         const totalMin = lastNight.stages.reduce((s, r) => s + (r.duration_minutes || 0), 0);
                         const h = Math.floor(totalMin / 60);
@@ -1357,7 +1370,8 @@
                 },
 
                 async loadDialsData() {
-                    // Fetch raw HR + steps + stress + goals for Today's Activity dials.
+                    // Fetch goals + raw HR/steps as a fallback; the authoritative per-day
+                    // values come from /api/daily-activity (loadDailyActivity).
                     try {
                         const [hrRes, stepsRes, stressRes, goalsRes] = await Promise.all([
                             fetch('/api/raw/heart-rate?hours=168&limit=500'),
@@ -1527,6 +1541,275 @@
 
                 },
 
+                // ===== Server-computed daily activity (authoritative) =====
+                async loadReadiness() {
+                    try {
+                        const res = await fetch('/api/readiness?days=30');
+                        const data = await res.json();
+                        this._readinessByDay = {};
+                        for (const r of data) this._readinessByDay[r.day] = r;
+                    } catch (e) { console.error('loadReadiness', e); }
+                },
+
+                applyReadiness() {
+                    const sel = this.dateKey(this.selectedDate);
+                    const r = this._readinessByDay[sel];
+                    if (r) {
+                        this.readinessScore = r.score;
+                        this.readinessSleep = r.sleep_score;
+                        this.readinessHrv = r.hrv_score;
+                        this.readinessActivity = r.activity_score;
+                        this.readinessRhr = r.rhr_score;
+                        this.readinessDay = r.day;
+                        this.readinessLabel = r.score >= 80 ? 'Excellent' : r.score >= 60 ? 'Good' : r.score >= 40 ? 'Fair' : 'Low';
+                        const c = r.contributors || {};
+                        const names = { hrv: 'HRV', sleep: 'Sleep', activity: 'Activity', rhr: 'RHR' };
+                        this.readinessContribText = Object.entries(c)
+                            .map(([k, v]) => `${v >= 0 ? '+' : ''}${v} ${names[k] || k}`).join(' · ');
+                    } else {
+                        this.readinessScore = null; this.readinessSleep = null; this.readinessHrv = null;
+                        this.readinessActivity = null; this.readinessRhr = null; this.readinessDay = null;
+                        this.readinessLabel = null; this.readinessContribText = '';
+                    }
+                },
+
+                async loadDailyActivity() {
+                    try {
+                        const res = await fetch('/api/daily-activity?days=14');
+                        const rows = await res.json();
+                        this.dailyActivity = {};
+                        for (const r of rows) this.dailyActivity[r.day] = r;
+                    } catch (e) { console.error('loadDailyActivity', e); }
+                },
+
+                applyDailyActivity() {
+                    // Override the (flaky client-computed) dials with server values.
+                    const sel = this.dateKey(this.selectedDate);
+                    const r = this.dailyActivity[sel];
+                    const g = this.goals || {};
+                    if (!r) {
+                        this.hrDateLabel = 'no data';
+                        return;
+                    }
+                    this.stepsToday = r.steps_total || 0;
+                    this.stepsPct = g.steps_goal ? Math.min(100, Math.round(r.steps_total / g.steps_goal * 100)).toString() : '0';
+                    this.hrAvg = r.hr_avg;
+                    this.hrMinMax = (r.hr_min && r.hr_max) ? `${r.hr_min}–${r.hr_max} bpm` : '';
+                    this.hrPct = r.hr_avg ? Math.min(100, Math.max(0, Math.round((r.hr_avg - 40) / 1.2))).toString() : '0';
+                    this.hrDateLabel = this.isToday() ? 'today' : '';
+                    this.caloriesToday = r.calories_raw ? Math.round(r.calories_raw / 1000) : 0;
+                    this.caloriesPct = g.calories_goal ? Math.min(100, Math.round(r.calories_raw / g.calories_goal * 100)).toString() : '0';
+                    this.distanceKm = r.distance_m ? (r.distance_m / 1000).toFixed(2) : '—';
+                    // Active time: hours with >= 500 steps (≈ brisk walk pace)
+                    const hs = r.hourly_steps || [];
+                    const activeH = hs.filter(v => v >= 500).length;
+                    this.activeMinutes = activeH * 60;
+                    this.activePct = Math.min(100, Math.round(this.activeMinutes / 60 * 100)).toString();
+                    this.activeSlotCount = activeH;
+                    this.activeThreshold = 500;
+                },
+
+                // ===== 24-hour day ring + steps timeline =====
+                _polar(cx, cy, r, deg) {
+                    const a = (deg - 90) * Math.PI / 180;
+                    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+                },
+                _arc(cx, cy, rOut, rIn, startDeg, endDeg) {
+                    const [x1, y1] = this._polar(cx, cy, rOut, startDeg);
+                    const [x2, y2] = this._polar(cx, cy, rOut, endDeg);
+                    const [x3, y3] = this._polar(cx, cy, rIn, endDeg);
+                    const [x4, y4] = this._polar(cx, cy, rIn, startDeg);
+                    const large = (endDeg - startDeg) <= 180 ? 0 : 1;
+                    return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${rOut} ${rOut} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L ${x3.toFixed(2)} ${y3.toFixed(2)} A ${rIn} ${rIn} 0 ${large} 0 ${x4.toFixed(2)} ${y4.toFixed(2)} Z`;
+                },
+                _sleepStageForHour(stages, dayKey, h) {
+                    const [y, mo, d] = dayKey.split('-').map(Number);
+                    const start = new Date(y, mo - 1, d, h, 0).getTime();
+                    const end = start + 3600000;
+                    let best = null, bestOverlap = 0;
+                    for (const s of stages) {
+                        const ss = new Date(s.start_ts).getTime();
+                        const se = new Date(s.end_ts).getTime();
+                        const overlap = Math.min(end, se) - Math.max(start, ss);
+                        if (overlap > bestOverlap) { bestOverlap = overlap; best = s.stage; }
+                    }
+                    return best;
+                },
+
+                renderDayOverview() {
+                    this.renderDayRing(this.dailyActivity[this.dateKey(this.selectedDate)]);
+                },
+
+                renderDayRing(r) {
+                    const el = document.getElementById('dayRing');
+                    if (!el) return;
+                    const cx = 120, cy = 120;
+                    const baseIn = 76, baseOut = 82;   // thin status baseline ring
+                    const barIn = 86, barMax = 48;     // activity bars radiate outward
+                    const labelR = 62;                 // hour labels INSIDE the ring (clock-face)
+                    const stageColors = { deep: '#4338ca', rem: '#a855f7', light: '#60a5fa', awake: '#fb923c' };
+                    const stageLabel = { deep: 'Deep', rem: 'REM', light: 'Light', awake: 'Awake' };
+                    const grey = this.darkMode ? '#374151' : '#e5e7eb';
+                    const wornBase = '#86efac'; // light green = worn (same as legend swatch)
+                    const sel = this.dateKey(this.selectedDate);
+                    const worn = (r && r.hourly_worn) || new Array(24).fill(0);
+                    const steps = (r && r.hourly_steps) || new Array(24).fill(0);
+                    const max = Math.max(...steps, 1);
+                    let segs = '';
+                    for (let h = 0; h < 24; h++) {
+                        const a0 = h * 15 + 0.7, a1 = (h + 1) * 15 - 0.7; // gap between segments
+                        const ss = this._sleepStageForHour(this._sleepStages, sel, h);
+                        // 1) status baseline: sleep / worn-or-active / off
+                        let baseFill, baseTip;
+                        if (ss && stageColors[ss]) {
+                            baseFill = stageColors[ss];
+                            baseTip = `${h}:00 · ${stageLabel[ss]} sleep`;
+                        } else if (worn[h] > 0 || steps[h] > 0) {
+                            baseFill = wornBase;
+                            baseTip = `${h}:00 · worn${steps[h] > 0 ? ' · ' + steps[h] + ' steps' : ''}`;
+                        } else {
+                            baseFill = grey;
+                            baseTip = `${h}:00 · not worn`;
+                        }
+                        segs += `<path class="ringbar" d="${this._arc(cx, cy, baseOut, baseIn, a0, a1)}" fill="${baseFill}" data-tip="${baseTip}"/>`;
+                        // 2) activity bar (height ∝ steps) — green by intensity
+                        const v = steps[h];
+                        if (v > 0 && !(ss && stageColors[ss])) {
+                            const top = barIn + (v / max) * barMax;
+                            segs += `<path class="ringbar" d="${this._arc(cx, cy, top, barIn, a0, a1)}" fill="#10b981" opacity="0.95" data-tip="${h}:00–${h + 1}:00 · ${v} steps"/>`;
+                        }
+                    }
+                    // Hour labels at 0,6,12,18
+                    const labelCol = this.darkMode ? '#9ca3af' : '#6b7280';
+                    const labels = [0, 6, 12, 18].map(h => {
+                        const [lx, ly] = this._polar(cx, cy, labelR, h * 15);
+                        const txt = h === 0 ? '12a' : (h === 12 ? '12p' : (h < 12 ? h + 'a' : (h - 12) + 'p'));
+                        return `<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="500" fill="${labelCol}">${txt}</text>`;
+                    }).join('');
+                    // Center: steps total (big) + wear span (sub). Wear = first→last HR.
+                    let centerTop = '—', centerSub = 'no data', wornH = 0;
+                    if (r) {
+                        centerTop = (r.steps_total || 0).toLocaleString();
+                        let wornStr = '';
+                        if (r.first_hr_ts && r.last_hr_ts) {
+                            const ms = new Date(r.last_hr_ts) - new Date(r.first_hr_ts);
+                            wornH = Math.round(ms / 3600000);
+                            wornStr = `${wornH}h worn`;
+                        }
+                        centerSub = wornStr || 'no wear data';
+                    }
+                    const centerTxt = this.darkMode ? '#e5e7eb' : '#111827';
+                    const centerSubTxt = this.darkMode ? '#9ca3af' : '#6b7280';
+                    // Sleep total for the day (for the side legend)
+                    const sleepMin = this._sleepStages.reduce((a, s) => a + (s.duration_minutes || 0), 0);
+                    const sleepH = Math.floor(sleepMin / 60), sleepM = sleepMin % 60;
+                    const legendItems = [
+                        ['#10b981', 'Steps', (r && r.steps_total) ? (r.steps_total).toLocaleString() : '—'],
+                        ['#86efac', 'Worn', wornH ? wornH + 'h' : '—'],
+                        ['#4338ca', 'Sleep', sleepMin ? `${sleepH}h ${sleepM}m` : '—'],
+                        [grey, 'Off', '—']
+                    ];
+                    const valCol = this.darkMode ? '#e5e7eb' : '#374151';
+                    const lblCol = this.darkMode ? '#9ca3af' : '#6b7280';
+                    const legendHtml = `<div class="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm">
+                        ${legendItems.map(([c, l, v]) => `<span class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full flex-shrink-0" style="background:${c}"></span>
+                            <span class="text-gray-600 dark:text-gray-400">${l}</span>
+                            <span class="font-mono" style="color:${valCol}">${v}</span>
+                        </span>`).join('')}
+                        ${r && r.hr_avg ? `<span class="flex items-center gap-2">
+                            <span class="text-gray-600 dark:text-gray-400">HR avg</span>
+                            <span class="font-mono" style="color:${valCol}">${r.hr_avg} bpm</span>
+                        </span>` : ''}
+                    </div>`;
+
+                    el.innerHTML = `
+                        <svg viewBox="-28 -28 296 296" class="w-full" style="width:400px; max-width:100%">
+                            ${segs}${labels}
+                            <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="36" font-weight="700" fill="${centerTxt}">${centerTop}</text>
+                            <text x="${cx}" y="${cy + 18}" text-anchor="middle" font-size="12" fill="${centerSubTxt}">steps</text>
+                            <text x="${cx}" y="${cy + 38}" text-anchor="middle" font-size="12" font-weight="500" fill="${centerSubTxt}">${centerSub}</text>
+                        </svg>`;
+                    const legendEl = document.getElementById('dayRingLegend');
+                    if (legendEl) legendEl.innerHTML = legendHtml;
+                    this.dayRingSubtitle = r ? `${(r.steps_total || 0).toLocaleString()} steps · ${r.hr_avg || '—'} bpm avg` : 'no activity data';
+                    this._wireRingTooltip(el);
+                },
+
+                _wireRingTooltip(host) {
+                    const svg = host.querySelector('svg');
+                    if (!svg) return;
+                    let tip = document.getElementById('ringTip');
+                    if (!tip) {
+                        tip = document.createElement('div');
+                        tip.id = 'ringTip';
+                        tip.className = 'fixed z-50 px-2 py-1 rounded bg-gray-900 text-white text-xs pointer-events-none shadow-lg hidden';
+                        document.body.appendChild(tip);
+                    }
+                    const place = (e, text) => {
+                        tip.textContent = text;
+                        tip.classList.remove('hidden');
+                        const p = e.touches ? e.touches[0] : e;
+                        tip.style.left = Math.min(p.clientX + 14, window.innerWidth - 140) + 'px';
+                        tip.style.top = (p.clientY - 32) + 'px';
+                    };
+                    const hide = () => tip.classList.add('hidden');
+                    svg.addEventListener('mousemove', e => {
+                        const p = e.target.closest && e.target.closest('.ringbar');
+                        if (p && p.dataset.tip) place(e, p.dataset.tip); else hide();
+                    });
+                    svg.addEventListener('mouseleave', hide);
+                    svg.addEventListener('click', e => {
+                        const p = e.target.closest && e.target.closest('.ringbar');
+                        if (p && p.dataset.tip) place(e, p.dataset.tip);
+                    });
+                    svg.addEventListener('touchstart', e => {
+                        const p = e.target.closest && e.target.closest('.ringbar');
+                        if (p && p.dataset.tip) place(e, p.dataset.tip);
+                    }, { passive: true });
+                },
+
+                renderStepsTimeline(r) {
+                    const el = document.getElementById('stepsTimeline');
+                    if (!el) return;
+                    const w = 500, h = 180, padL = 34, padR = 12, padT = 16, padB = 24;
+                    const steps = (r && r.hourly_steps) || new Array(24).fill(0);
+                    const max = Math.max(...steps, 1);
+                    const plotW = w - padL - padR, plotH = h - padT - padB;
+                    const bw = plotW / 24;
+                    const gridCol = this.darkMode ? '#374151' : '#eef2f7';
+                    const txtCol = this.darkMode ? '#9ca3af' : '#9ca3af';
+                    const fmt = v => v >= 1000 ? (v / 1000).toFixed(1).replace('.0', '') + 'k' : '' + v;
+                    // 4 horizontal gridlines (0, 1/4, 1/2, max) for a clean scale
+                    const grid = [0, 0.25, 0.5, 1].map(f => {
+                        const y = padT + plotH - f * plotH;
+                        return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${w - padR}" y2="${y.toFixed(1)}" stroke="${gridCol}" stroke-width="1"/>
+                                <text x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="${txtCol}">${f === 1 ? fmt(max) : (f === 0 ? '0' : '')}</text>`;
+                    }).join('');
+                    // Bars colored by intensity, rounded tops
+                    let bars = '';
+                    for (let hh = 0; hh < 24; hh++) {
+                        const v = steps[hh];
+                        const bh = v > 0 ? Math.max(2, (v / max) * plotH) : 0;
+                        const x = padL + hh * bw + 1.5;
+                        const y = padT + plotH - bh;
+                        const ratio = v / max;
+                        const isPeak = v === max && v > 0;
+                        const fill = v === 0 ? 'none' : (isPeak ? '#1d4ed8' : (ratio > 0.5 ? '#3b82f6' : '#93c5fd'));
+                        const title = `${hh}:00–${hh + 1}:00 — ${v.toLocaleString()} steps`;
+                        bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${(bw - 3).toFixed(1)}" height="${bh.toFixed(1)}" rx="2.5" fill="${fill}"><title>${title}</title></rect>`;
+                    }
+                    const xLabels = [0, 6, 12, 18, 24].map(hh => {
+                        const x = padL + hh * bw;
+                        const lbl = hh === 0 || hh === 24 ? '12a' : (hh === 12 ? '12p' : (hh < 12 ? hh + 'a' : (hh - 12) + 'p'));
+                        return `<text x="${x.toFixed(1)}" y="${h - 6}" text-anchor="middle" font-size="9" fill="${txtCol}">${lbl}</text>`;
+                    }).join('');
+                    el.innerHTML = `
+                        <svg viewBox="0 0 ${w} ${h}" class="chart-svg w-full" style="max-height:200px" preserveAspectRatio="xMidYMid meet">
+                            ${grid}${bars}${xLabels}
+                        </svg>`;
+                },
+
                 renderRawTable(tbodyId, rows, valueKey) {
                     const tbody = document.getElementById(tbodyId);
                     if (!tbody) return;
@@ -1569,6 +1852,24 @@
                             </div>
                         </div>`;
                     }).join('');
+                },
+
+                _renderSleepEmpty(msg) {
+                    const container = document.getElementById('sleepDonut');
+                    if (!container) return;
+                    const ring = this.darkMode ? '#374151' : '#e5e7eb';
+                    container.innerHTML = `
+                        <div class="relative w-44 h-44 flex-shrink-0">
+                            <div class="absolute inset-0 rounded-full" style="background:${ring};"></div>
+                            <div class="absolute inset-3 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
+                                <span class="text-3xl mb-1 opacity-60">🌙</span>
+                                <span class="text-lg font-bold text-gray-500 dark:text-gray-400">0h 0m</span>
+                                <span class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">${msg}</span>
+                            </div>
+                        </div>
+                        <div class="flex-1 self-center">
+                            <p class="text-sm text-gray-500 dark:text-gray-400">${msg}</p>
+                        </div>`;
                 },
 
                 renderSleepDonut(lastNight) {
@@ -2175,12 +2476,36 @@
             return new Uint8Array([0xbc, type, 0x01, 0x00, 0xff, 0x00, 0xff]);
         }
 
+        let _statusEl = null;
+        function _status(msg) {
+            console.log('[ring]', msg);
+            if (!_statusEl) {
+                _statusEl = document.createElement('div');
+                _statusEl.className = 'fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg bg-slate-800 text-white text-xs sm:text-sm whitespace-nowrap max-w-[90vw]';
+                document.body.appendChild(_statusEl);
+            }
+            _statusEl.textContent = msg;
+        }
+        function _statusDone() { if (_statusEl) { _statusEl.remove(); _statusEl = null; } }
+        // R09 expects write-without-response (matches bleak write_gatt_char response=False).
+        function writeCh(char, data) {
+            if (typeof char.writeValueWithoutResponse === 'function') return char.writeValueWithoutResponse(data);
+            return char.writeValue(data);
+        }
+
         async function connect() {
+            _status('Opening device picker…');
             const dev = await navigator.bluetooth.requestDevice({
                 filters: [{ namePrefix: 'R09' }],
                 optionalServices: [SVC.UART, SVC.BIG]
             });
+            dev.addEventListener('gattserverdisconnected', () => {
+                console.warn('[ring] GATT disconnected');
+                _statusDone();
+            });
+            _status('Connecting to ring…');
             const srv = await dev.gatt.connect();
+            _status('Discovering services…');
             const uart = await srv.getPrimaryService(SVC.UART);
             const rx = await uart.getCharacteristic(SVC.RX);
             const tx = await uart.getCharacteristic(SVC.TX);
@@ -2189,15 +2514,17 @@
             const cmd = await big.getCharacteristic(SVC.CMD);
             const notify = await big.getCharacteristic(SVC.NOTIFY);
             await notify.startNotifications();
+            _status('Connected. Syncing time…');
 
-            // Response queues
-            const queues = {};
-            const bdBuf = { d: null, len: 0 };
+            // Handler registry: cmd/type -> fn(data). Supports single AND
+            // multi-packet responses (HR 0x15, HRV 0x39 send many 16-byte pkts).
+            const handlers = {};
+            const bdBuf = { d: null };
 
             tx.addEventListener('characteristicvaluechanged', e => {
                 const d = new Uint8Array(e.target.value.buffer);
-                const q = queues[d[0]];
-                if (q && q.length) q.shift()(d);
+                const h = handlers[d[0]];
+                if (h) h(d);
             });
 
             notify.addEventListener('characteristicvaluechanged', e => {
@@ -2208,27 +2535,43 @@
                 if (bdBuf.d.length >= len + 6) {
                     const done = bdBuf.d.slice(0, len + 6);
                     bdBuf.d = null;
-                    const type = done[1];
-                    const q = queues[type];
-                    if (q && q.length) q.shift()(done);
+                    const h = handlers[done[1]];
+                    if (h) h(done);
                 }
             });
 
-            async function sendCmd(c, data=[]) {
+            // Single-packet response. Resolves null on timeout (non-fatal),
+            // matching Python collector's None-on-timeout semantics.
+            async function sendCmd(c, data=[], timeout=8000) {
                 return new Promise((resolve, reject) => {
-                    const q = queues[c] = queues[c] || [];
-                    q.push(resolve);
-                    rx.writeValue(make16(c, data)).catch(reject);
-                    setTimeout(() => reject(new Error('Timeout')), 8000);
+                    const timer = setTimeout(() => { delete handlers[c]; resolve(null); }, timeout);
+                    handlers[c] = (d) => { clearTimeout(timer); delete handlers[c]; resolve(d); };
+                    writeCh(rx, make16(c, data)).catch(err => { clearTimeout(timer); delete handlers[c]; reject(err); });
                 });
             }
 
+            // Multi-packet response. isLast(collected, latestPacket) -> true when done.
+            // Resolves with array of packets (or partial on timeout).
+            async function sendCmdMulti(c, data, isLast, timeout=15000) {
+                return new Promise((resolve, reject) => {
+                    const collected = [];
+                    const timer = setTimeout(() => { delete handlers[c]; resolve(collected); }, timeout);
+                    handlers[c] = (d) => {
+                        collected.push(d);
+                        if (isLast(collected, d)) { clearTimeout(timer); delete handlers[c]; resolve(collected); }
+                    };
+                    writeCh(rx, make16(c, data)).catch(err => { clearTimeout(timer); delete handlers[c]; reject(err); });
+                });
+            }
+
+            // Big-data response (assembled in notify). Resolves null on timeout so a
+            // missing/flaky day is skipped instead of aborting the whole sync.
             async function sendBig(type) {
                 return new Promise((resolve, reject) => {
-                    const q = queues[type] = queues[type] || [];
-                    q.push(resolve);
-                    cmd.writeValue(makeBig(0xbc, type)).catch(reject);
-                    setTimeout(() => reject(new Error('Timeout')), 20000);
+                    bdBuf.d = null; // clear any stale partial frame from a prior request
+                    const timer = setTimeout(() => { delete handlers[type]; resolve(null); }, 20000);
+                    handlers[type] = (d) => { clearTimeout(timer); delete handlers[type]; resolve(d); };
+                    writeCh(cmd, makeBig(0xbc, type)).catch(err => { clearTimeout(timer); delete handlers[type]; reject(err); });
                 });
             }
 
@@ -2242,9 +2585,12 @@
             ];
             await sendCmd(0x01, tbytes);
 
-            // Fetch temp (types 0x25-0x29 = 5 days)
+            // Fetch temp (types 0x25-0x29 = 5 days). NOTE: 0x27 is the SLEEP
+            // type — querying it here yields sleep bytes parsed as garbage °C, so skip it.
+            _status('Fetching temperature…');
             const tempRecs = [];
             for (let t = 0x25; t <= 0x29; t++) {
+                if (t === 0x27) continue;
                 const d = await sendBig(t);
                 if (!d || d.length < 6) continue;
                 const len = new DataView(d.buffer).getUint16(2, true);
@@ -2262,6 +2608,7 @@
             }
 
             // Fetch SpO2 (type 0x2A)
+            _status('Fetching SpO2…');
             const spo2Recs = [];
             const spo2Data = await sendBig(0x2a);
             if (spo2Data && spo2Data.length >= 6) {
@@ -2278,27 +2625,40 @@
                 }
             }
 
-            // Fetch HR (cmd 0x15, 8 days back)
+            // Fetch HR (cmd 0x15, multi-packet: header pkt0, pkt1=ts+9 vals,
+            // pkts 2..N = 13 vals each; 288 slots @ 5-min from local midnight)
             const hrRecs = [];
-            for (let da = 0; da <= 7; da++) {
+            for (let da = 7; da >= 0; da--) {
+                _status(`Heart rate: day ${7-da}/8…`);
                 const td = new Date(); td.setDate(td.getDate() - da);
                 td.setHours(0,0,0,0);
                 const ts = Math.floor(td.getTime() / 1000);
                 const buf = new ArrayBuffer(4);
                 new DataView(buf).setUint32(0, ts, true);
-                const resp = await sendCmd(0x15, [...new Uint8Array(buf)]);
-                if (!resp || resp.length < 4) continue;
-                const td2 = new Date(td);
-                for (let i = 1; i < resp.length - 1; i++) {
-                    const bpm = resp[i] & 0xFF;
-                    if (bpm > 0) {
-                        hrRecs.push({ts: localISO(td2.getFullYear(), td2.getMonth()+1, td2.getDate(), td2.getHours(), td2.getMinutes()), bpm});
+                let size = -1;
+                const packets = await sendCmdMulti(0x15, [...new Uint8Array(buf)], (col, d) => {
+                    if (d[1] === 0) size = d[2];          // header: expected packet count
+                    if (d[1] === 0xFF) return true;       // no-data terminator
+                    return size > 0 && d[1] === size - 1; // last data packet
+                });
+                const raw = [];
+                for (const p of packets) {
+                    const sub = p[1];
+                    if (sub === 0 || sub === 0xFF) continue;
+                    if (sub === 1) { for (let i = 6; i < 15; i++) raw.push(p[i] & 0xFF); }
+                    else { for (let i = 2; i < 15; i++) raw.push(p[i] & 0xFF); }
+                }
+                for (let i = 0; i < 288; i++) {
+                    const v = raw[i] || 0;
+                    if (v > 0) {
+                        const t = new Date(td.getTime() + i * 5 * 60000);
+                        hrRecs.push({ts: localISO(t.getFullYear(), t.getMonth()+1, t.getDate(), t.getHours(), t.getMinutes()), bpm: v});
                     }
-                    td2.setMinutes(td2.getMinutes() + 5);
                 }
             }
 
             // Fetch sleep (type 0x27)
+            _status('Fetching sleep…');
             const sleepRecs = [];
             const sleepData = await sendBig(0x27);
             if (sleepData && sleepData.length >= 6) {
@@ -2327,24 +2687,34 @@
                             ss = new Date(se);
                         }
                     }
-                    }
                 }
             }
 
-            // Fetch HRV (cmd 0x39, 7 days)
+            // Fetch HRV (cmd 0x39, multi-packet like stress 0x37: sub0=header,
+            // sub1=12 vals @bytes3-14, sub2..4=13 vals @bytes2-14, 30-min intervals)
             const hrvRecs = [];
             for (let da = 0; da < 7; da++) {
+                _status(`HRV: day ${da+1}/7…`);
                 const buf2 = new ArrayBuffer(4);
                 new DataView(buf2).setUint32(0, da, true);
-                const resp = await sendCmd(0x39, [...new Uint8Array(buf2)]);
-                if (!resp || resp.length < 2) continue;
+                const packets = await sendCmdMulti(0x39, [...new Uint8Array(buf2)], (col, d) => {
+                    return d[1] === 4 || d[1] === 0xFF; // last data packet or empty
+                }, 12000);
+                if (!packets.length) continue;
                 const td = new Date(); td.setDate(td.getDate() - da);
                 td.setHours(0,0,0,0);
-                let m = 0;
-                for (let p = 3; p < 15; p++) {
-                    const v = resp[p] & 0xFF;
-                    if (v > 0) hrvRecs.push({ts: new Date(td.getTime() + m*30000).toISOString(), hrv_value: v, hrv_type: 'composite'});
-                    m += 30;
+                for (const p of packets) {
+                    const sub = p[1];
+                    if (sub === 0 || sub === 0xFF) continue;
+                    const start = sub === 1 ? 3 : 2;
+                    const minPrev = sub === 1 ? 0 : (12 * 30 + (sub - 2) * 13 * 30);
+                    for (let i = start; i < 15; i++) {
+                        const v = p[i] & 0xFF;
+                        if (v > 0) {
+                            const t = new Date(td.getTime() + (minPrev + (i - start) * 30) * 60000);
+                            hrvRecs.push({ts: localISO(t.getFullYear(), t.getMonth()+1, t.getDate(), t.getHours(), t.getMinutes()), hrv_value: v, hrv_type: 'composite'});
+                        }
+                    }
                 }
             }
 
@@ -2364,12 +2734,14 @@
                 }
             };
 
+            _status(`Uploading ${hrRecs.length + spo2Recs.length + tempRecs.length + sleepRecs.length + hrvRecs.length} records…`);
             const res = await fetch('/api/mobile/sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
             const result = await res.json();
+            _statusDone();
             showToast(`Synced! ${result.accepted} new, ${result.skipped} skipped. ${result.errors?.length ? result.errors[0] : ''}`, 'success');
         }
 
@@ -2379,6 +2751,7 @@
                 await connect();
             } catch (e) {
                 console.error('Phone sync:', e);
+                _statusDone();
                 showToast('Sync failed: ' + (e.message || e), 'error');
             }
         };

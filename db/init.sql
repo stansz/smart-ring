@@ -147,6 +147,42 @@ CREATE TABLE IF NOT EXISTS stress_classification (
     computed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Per-day activity aggregates (server-computed in local tz so the dashboard
+-- doesn't have to filter raw records client-side, which was flaky on day toggle).
+CREATE TABLE IF NOT EXISTS daily_activity (
+    day DATE PRIMARY KEY,
+    steps_total INT DEFAULT 0,
+    distance_m INT DEFAULT 0,
+    calories_raw INT DEFAULT 0,      -- firmware units (goal column is ~300000)
+    hr_avg INT,
+    hr_min INT,
+    hr_max INT,
+    hr_samples INT DEFAULT 0,
+    worn_minutes INT DEFAULT 0,      -- ~ hr_samples * 5min (HR is 5-min slots)
+    first_hr_ts TIMESTAMPTZ,
+    last_hr_ts TIMESTAMPTZ,
+    hourly_steps JSONB,              -- [24] step counts by local hour
+    hourly_worn JSONB,               -- [24] HR-sample counts by local hour
+    computed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Unified readiness score (Oura-style 0-100, composited from HRV/Sleep/Activity/RHR).
+-- One row per day; computed in analytics.py after all sub-scores are available.
+CREATE TABLE IF NOT EXISTS readiness_score (
+    day DATE PRIMARY KEY,
+    score INT NOT NULL DEFAULT 0,      -- 0-100 composite
+    hrv_score INT DEFAULT 0,           -- 0-100 (from z-score mapping)
+    sleep_score INT DEFAULT 0,         -- 0-100 (from sleep_quality)
+    activity_score INT DEFAULT 0,      -- 0-100 (steps vs goal + active min)
+    rhr_score INT DEFAULT 0,           -- 0-100 (lower RHR = better)
+    hrv_zscore NUMERIC(5,2),
+    steps INT,
+    resting_hr INT,
+    hrv_rmssd NUMERIC(5,2),
+    contributors JSONB,               -- {hrv: +5, sleep: -3, activity: +12, rhr: -2}
+    computed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Sync tracking
 CREATE TABLE IF NOT EXISTS sync_log (
     id BIGSERIAL PRIMARY KEY,

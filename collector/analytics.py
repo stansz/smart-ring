@@ -21,6 +21,7 @@ Formula references (see RESEARCH.md):
 import os
 import sys
 import math
+import json
 import logging
 import statistics
 from datetime import date, datetime, timedelta
@@ -104,6 +105,51 @@ class Analytics:
             log.info(f"Analytics DB session timezone: {local_tz}")
         except Exception as e:
             log.warning(f"Could not set DB timezone: {e}")
+
+    # =================== Source dedup ===================
+
+    def dedupe_sources(self):
+        """Remove 'phone' records that duplicate 'ring' records.
+
+        Ring is the canonical collector (Linux box). Phone sync (Web Bluetooth)
+        is a fallback that fills gaps when the ring hasn't been synced. Since both
+        sample the same physical slots, ~99% of phone records can duplicate ring.
+        We keep ring and drop phone wherever they overlap, so every downstream
+        query and score sees one measurement per slot.
+
+        Point tables dedupe on timestamp (HRV also on hrv_type). Sleep dedupes at
+        the day level (ring's night wins wholesale if present).
+        """
+        log.info("Deduping phone vs ring sources...")
+        # (table, dedup key columns as join predicate)
+        point_tables = [
+            ("raw_heart_rate", "r.ts = p.ts"),
+            ("raw_spo2",       "r.ts = p.ts"),
+            ("raw_temperature","r.ts = p.ts"),
+            ("raw_stress",     "r.ts = p.ts"),
+            ("raw_steps",      "r.ts = p.ts"),
+            ("raw_hrv",        "r.ts = p.ts AND r.hrv_type = p.hrv_type"),
+        ]
+        with self.conn.cursor() as cur:
+            for table, on_clause in point_tables:
+                cur.execute(f"""
+                    DELETE FROM {table} p
+                    WHERE p.source = 'phone'
+                      AND EXISTS (SELECT 1 FROM {table} r
+                                  WHERE r.source = 'ring' AND {on_clause})
+                """)
+                if cur.rowcount:
+                    log.info(f"  {table}: removed {cur.rowcount} phone duplicate(s)")
+            # Sleep: day-level — if ring has any stages for a day, drop all phone stages for it
+            cur.execute("""
+                DELETE FROM raw_sleep p
+                WHERE p.source = 'phone'
+                  AND EXISTS (SELECT 1 FROM raw_sleep r
+                              WHERE r.source = 'ring' AND r.day = p.day)
+            """)
+            if cur.rowcount:
+                log.info(f"  raw_sleep: removed {cur.rowcount} phone duplicate(s)")
+        self.conn.commit()
 
     # =================== HRV Recovery ===================
 
@@ -233,9 +279,13 @@ class Analytics:
         with self.conn.cursor() as cur:
             cur.execute("""
                 SELECT day, stage, start_ts, end_ts, duration_minutes
-                FROM raw_sleep
+                FROM raw_sleep s
                 WHERE duration_minutes IS NOT NULL
                   AND start_ts IS NOT NULL
+                  AND source = CASE WHEN EXISTS (
+                        SELECT 1 FROM raw_sleep r
+                        WHERE r.day = s.day AND r.source = 'ring'
+                      ) THEN 'ring' ELSE 'phone' END
                 ORDER BY day, start_ts
             """)
             all_stages = cur.fetchall()
@@ -552,11 +602,226 @@ class Analytics:
         latest = results[-1]
         return {'day': latest['day'], 'resting_hr': float(latest['min_hr'])}
 
+    # =================== Daily activity ===================
+
+    def compute_daily_activity(self):
+        """Compute per-day activity aggregates + hourly arrays in local tz.
+
+        Replaces the dashboard's flaky client-side day filtering (which could
+        misattribute data on day toggle). Server-side, after dedup, in the
+        session timezone (Pacific). Powers the activity dials, the 24h day
+        ring, and the steps-over-the-day graph.
+        """
+        log.info("Computing daily activity...")
+        with self.conn.cursor() as cur:
+            # Steps by (Pacific day, local hour)
+            cur.execute("""
+                SELECT DATE(ts) AS day,
+                       EXTRACT(HOUR FROM ts)::int AS hr,
+                       SUM(steps)::int AS steps,
+                       SUM(distance)::int AS distance,
+                       SUM(calories)::int AS calories
+                FROM raw_steps
+                WHERE ts >= NOW() - INTERVAL '14 days'
+                GROUP BY 1, 2
+            """)
+            steps_rows = cur.fetchall()
+            # HR by (Pacific day, local hour) — worn coverage + aggregates
+            cur.execute("""
+                SELECT DATE(ts) AS day,
+                       EXTRACT(HOUR FROM ts)::int AS hr,
+                       AVG(bpm)::int AS avg_bpm,
+                       MIN(bpm)::int AS min_bpm,
+                       MAX(bpm)::int AS max_bpm,
+                       COUNT(*)::int AS n,
+                       MIN(ts) AS first_ts,
+                       MAX(ts) AS last_ts
+                FROM raw_heart_rate
+                WHERE ts >= NOW() - INTERVAL '14 days'
+                GROUP BY 1, 2
+            """)
+            hr_rows = cur.fetchall()
+
+        steps_by_day: Dict = {}
+        for r in steps_rows:
+            d = r['day']
+            e = steps_by_day.setdefault(d, {'hourly': [0] * 24, 'steps': 0, 'distance': 0, 'calories': 0})
+            if 0 <= r['hr'] < 24:
+                e['hourly'][r['hr']] = r['steps']
+            e['steps'] += r['steps']
+            e['distance'] += r['distance']
+            e['calories'] += r['calories']
+
+        hr_by_day: Dict = {}
+        for r in hr_rows:
+            d = r['day']
+            e = hr_by_day.setdefault(d, {'hourly_n': [0] * 24, 'samples': 0, 'sum_bpm': 0, 'min': 999, 'max': 0, 'first': None, 'last': None})
+            if 0 <= r['hr'] < 24:
+                e['hourly_n'][r['hr']] = r['n']
+            e['samples'] += r['n']
+            e['sum_bpm'] += (r['avg_bpm'] or 0) * r['n']
+            e['min'] = min(e['min'], r['min_bpm'])
+            e['max'] = max(e['max'], r['max_bpm'])
+            if e['first'] is None or r['first_ts'] < e['first']:
+                e['first'] = r['first_ts']
+            if e['last'] is None or r['last_ts'] > e['last']:
+                e['last'] = r['last_ts']
+
+        count = 0
+        for d in sorted(set(steps_by_day) | set(hr_by_day)):
+            s = steps_by_day.get(d)
+            h = hr_by_day.get(d)
+            hr_samples = h['samples'] if h else 0
+            hr_avg = round(h['sum_bpm'] / hr_samples) if (h and hr_samples) else None
+            # Wear time = span from first→last HR reading (the ring doesn't sample
+            # HR every 5 min, so sample_count*5 badly undercounts).
+            worn_min = None
+            if h and h.get('first') and h.get('last'):
+                worn_min = int((h['last'] - h['first']).total_seconds() // 60)
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO daily_activity
+                        (day, steps_total, distance_m, calories_raw,
+                         hr_avg, hr_min, hr_max, hr_samples, worn_minutes,
+                         first_hr_ts, last_hr_ts, hourly_steps, hourly_worn, computed_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (day) DO UPDATE SET
+                        steps_total=EXCLUDED.steps_total, distance_m=EXCLUDED.distance_m,
+                        calories_raw=EXCLUDED.calories_raw, hr_avg=EXCLUDED.hr_avg,
+                        hr_min=EXCLUDED.hr_min, hr_max=EXCLUDED.hr_max, hr_samples=EXCLUDED.hr_samples,
+                        worn_minutes=EXCLUDED.worn_minutes, first_hr_ts=EXCLUDED.first_hr_ts,
+                        last_hr_ts=EXCLUDED.last_hr_ts, hourly_steps=EXCLUDED.hourly_steps,
+                        hourly_worn=EXCLUDED.hourly_worn, computed_at=NOW()
+                """, (
+                    d,
+                    s['steps'] if s else 0,
+                    s['distance'] if s else 0,
+                    s['calories'] if s else 0,
+                    hr_avg,
+                    (h['min'] if h and h['min'] != 999 else None),
+                    (h['max'] if h and h['max'] else None),
+                    hr_samples,
+                    worn_min if worn_min is not None else 0,
+                    h['first'] if h else None,
+                    h['last'] if h else None,
+                    json.dumps((s or {}).get('hourly', [0] * 24)),
+                    json.dumps((h or {}).get('hourly_n', [0] * 24)),
+                ))
+            count += 1
+        self.conn.commit()
+        if count:
+            log.info(f"  Daily activity: {count} days updated")
+
+    # =================== Readiness Score ===================
+
+    def compute_readiness_score(self, days: int = 30):
+        """Unified 0-100 readiness score (Oura-style).
+
+        Weighted composite of four pillars, each normalized 0-100:
+          HRV     (35%) — z-score from daily_recovery
+          Sleep   (30%) — sleep_quality.score
+          Activity (20%) — steps vs goal + active minutes
+          RHR     (15%) — deviation from 30-day baseline (lower = better)
+
+        Stores one row per day into readiness_score.
+        """
+        log.info("Computing readiness scores...")
+        # Load source data
+        with self.conn.cursor() as cur:
+            cur.execute("""
+                SELECT sq.day,
+                       sq.score AS sleep_score,
+                       dr.z_score AS hrv_zscore,
+                       dr.rmssd AS hrv_rmssd,
+                       da.steps_total,
+                       da.worn_minutes,
+                       da.hr_avg AS resting_hr_approx
+                FROM sleep_quality sq
+                LEFT JOIN daily_recovery dr ON sq.day = dr.day
+                LEFT JOIN daily_activity da ON sq.day = da.day
+                WHERE sq.day >= CURRENT_DATE - INTERVAL '%s days'
+                ORDER BY sq.day
+            """, (days,))
+            rows = cur.fetchall()
+            # Personal goals for activity score
+            cur.execute("SELECT steps_goal FROM ring_goals ORDER BY ts DESC LIMIT 1")
+            goal_row = cur.fetchone()
+        steps_goal = int(goal_row['steps_goal']) if goal_row and goal_row['steps_goal'] else 8000
+
+        # RHR baseline: 30-day median resting HR (from daily_activity.hr_avg overnight proxy,
+        # or computed_resting_hr. For now use the 30-day median of whatever daily HR we have.)
+        rhr_vals = [r['resting_hr_approx'] for r in rows if r['resting_hr_approx']]
+        rhr_baseline = sorted(rhr_vals)[len(rhr_vals)//2] if rhr_vals else 60
+
+        def _hrv_to_score(z):
+            if z is None: return 50
+            if z >= 1.0:  return 100
+            if z >= 0.5:  return 85
+            if z >= 0.0:  return 60
+            if z >= -0.5: return 40
+            if z >= -1.0: return 20
+            return 10
+
+        count = 0
+        for r in rows:
+            day = r['day']
+            # --- HRV sub-score (35%) ---
+            hrv = _hrv_to_score(r['hrv_zscore'])
+            # --- Sleep sub-score (30%) ---
+            slp = int(r['sleep_score']) if r['sleep_score'] is not None else 50
+            # --- Activity sub-score (20%) ---
+            steps = r['steps_total'] or 0
+            act_steps = min(100, int(steps / steps_goal * 70))
+            # active minutes bonus: count hours with >=500 steps
+            act = min(100, act_steps)
+            # --- RHR sub-score (15%) ---
+            rhr_val = r['resting_hr_approx']
+            rhr_s = 50
+            if rhr_val:
+                delta = rhr_val - rhr_baseline
+                rhr_s = max(0, min(100, 60 - delta * 3))
+
+            # Weighted composite
+            score = round(0.35 * hrv + 0.30 * slp + 0.20 * act + 0.15 * rhr_s)
+
+            # Contributors (deltas from neutral = 50)
+            contrib = {
+                "hrv":     round((hrv - 50) * 0.35),
+                "sleep":   round((slp - 50) * 0.30),
+                "activity": round((act - 50) * 0.20),
+                "rhr":     round((rhr_s - 50) * 0.15),
+            }
+
+            with self.conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO readiness_score
+                        (day, score, hrv_score, sleep_score, activity_score, rhr_score,
+                         hrv_zscore, steps, resting_hr, hrv_rmssd, contributors, computed_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (day) DO UPDATE SET
+                        score=EXCLUDED.score, hrv_score=EXCLUDED.hrv_score,
+                        sleep_score=EXCLUDED.sleep_score, activity_score=EXCLUDED.activity_score,
+                        rhr_score=EXCLUDED.rhr_score, hrv_zscore=EXCLUDED.hrv_zscore,
+                        steps=EXCLUDED.steps, resting_hr=EXCLUDED.resting_hr,
+                        hrv_rmssd=EXCLUDED.hrv_rmssd, contributors=EXCLUDED.contributors,
+                        computed_at=NOW()
+                """, (day, score, hrv, slp, act, rhr_s,
+                      r['hrv_zscore'], r['steps_total'], r['resting_hr_approx'],
+                      r['hrv_rmssd'], json.dumps(contrib)))
+            count += 1
+        self.conn.commit()
+        if count:
+            log.info(f"  Readiness: {count} days updated (baseline RHR={rhr_baseline} bpm)")
+
     # =================== Orchestration ===================
 
     def run_all(self):
         """Run all analytics computations in order."""
         log.info("=== Starting analytics run ===")
+        try:
+            self.dedupe_sources()
+        except Exception as e:
+            log.error(f"Source dedup failed: {e}", exc_info=True)
         try:
             self.compute_hrv_recovery()
         except Exception as e:
@@ -576,6 +841,16 @@ class Analytics:
             self.compute_circadian_hr()
         except Exception as e:
             log.error(f"Circadian HR failed: {e}", exc_info=True)
+
+        try:
+            self.compute_daily_activity()
+        except Exception as e:
+            log.error(f"Daily activity failed: {e}", exc_info=True)
+
+        try:
+            self.compute_readiness_score()
+        except Exception as e:
+            log.error(f"Readiness score failed: {e}", exc_info=True)
 
         try:
             resting = self.compute_resting_hr()
