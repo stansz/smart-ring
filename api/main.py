@@ -50,7 +50,10 @@ app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 
 @app.get("/")
 def root():
-    return FileResponse(os.path.join(DASHBOARD_DIR, "index.html"))
+    return FileResponse(
+        os.path.join(DASHBOARD_DIR, "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 @app.get("/health")
 def health():
@@ -72,6 +75,37 @@ def get_recovery(days: int = 30):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/daily-activity")
+def get_daily_activity(days: int = 14):
+    """Per-day activity aggregates (server-computed in local tz).
+    Powers the activity dials + 24h day ring + steps timeline, replacing
+    flaky client-side day filtering of raw records."""
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT day, steps_total, distance_m, calories_raw,
+                   hr_avg, hr_min, hr_max, hr_samples, worn_minutes,
+                   first_hr_ts, last_hr_ts, hourly_steps, hourly_worn
+            FROM daily_activity
+            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            ORDER BY day ASC
+        """), {"days": days}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/readiness")
+def get_readiness(days: int = 7):
+    """Unified readiness score (0-100 Oura-style) with sub-scores."""
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT day, score, hrv_score, sleep_score, activity_score, rhr_score,
+                   hrv_zscore, steps, resting_hr, hrv_rmssd, contributors
+            FROM readiness_score
+            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            ORDER BY day DESC
+        """), {"days": days}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/sleep")
 def get_sleep(days: int = 30):
     """Sleep quality scores from persisted analytics."""
@@ -82,19 +116,6 @@ def get_sleep(days: int = 30):
             FROM sleep_quality
             WHERE day >= CURRENT_DATE - INTERVAL ':days days'
             ORDER BY day ASC
-        """), {"days": days}).mappings().all()
-    return [dict(r) for r in rows]
-
-
-@app.get("/api/sleep")
-def get_sleep(days: int = 30):
-    with SessionLocal() as db:
-        rows = db.execute(text("""
-            SELECT day, score, deep_pct, rem_pct, light_pct, wake_pct,
-                   temp_drop_c, total_sleep_minutes
-            FROM sleep_quality
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
-            ORDER BY day DESC
         """), {"days": days}).mappings().all()
     return [dict(r) for r in rows]
 
@@ -215,8 +236,11 @@ def get_goals():
 def get_raw_sleep(hours: int = 168, limit: int = 200):
     with SessionLocal() as db:
         rows = db.execute(text("""
-            SELECT day, stage, start_ts, end_ts, duration_minutes FROM raw_sleep
+            SELECT day, stage, start_ts, end_ts, duration_minutes FROM raw_sleep s
             WHERE start_ts >= NOW() - INTERVAL ':hours hours'
+              AND source = CASE WHEN EXISTS (
+                    SELECT 1 FROM raw_sleep r WHERE r.day = s.day AND r.source = 'ring'
+                  ) THEN 'ring' ELSE 'phone' END
             ORDER BY start_ts DESC LIMIT :limit
         """), {"hours": hours, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
@@ -260,6 +284,34 @@ class MobileSyncRequest(BaseModel):
     device_id: str
     records: dict  # {heart_rate: [...], spo2: [...], hrv: [...], sleep: [...], temperature: [...], steps: [...], stress: [...], goals: {...}}
     synced_at: datetime
+
+
+def _dedupe_sources(db):
+    """Delete phone records that duplicate ring records (ring is canonical).
+
+    Phone sync fills gaps the ring missed; where both captured the same slot we
+    keep the ring row and drop the redundant phone copy. Per-row `source` is
+    preserved on every surviving row.
+    """
+    point = [
+        ("raw_heart_rate", "r.ts = p.ts"),
+        ("raw_spo2",       "r.ts = p.ts"),
+        ("raw_temperature","r.ts = p.ts"),
+        ("raw_stress",     "r.ts = p.ts"),
+        ("raw_steps",      "r.ts = p.ts"),
+        ("raw_hrv",        "r.ts = p.ts AND r.hrv_type = p.hrv_type"),
+    ]
+    for table, on_clause in point:
+        db.execute(text(f"""
+            DELETE FROM {table} p
+            WHERE p.source = 'phone'
+              AND EXISTS (SELECT 1 FROM {table} r WHERE r.source = 'ring' AND {on_clause})
+        """))
+    db.execute(text("""
+        DELETE FROM raw_sleep p
+        WHERE p.source = 'phone'
+          AND EXISTS (SELECT 1 FROM raw_sleep r WHERE r.source = 'ring' AND r.day = p.day)
+    """))
 
 
 @app.post("/api/mobile/sync")
@@ -323,19 +375,6 @@ def mobile_sync(req: MobileSyncRequest):
                 errors.append(f"sleep: {e}")
                 skipped += 1
 
-        # SpO2
-        for r in req.records.get("spo2", []):
-            try:
-                db.execute(text("""
-                    INSERT INTO raw_spo2 (ts, spo2_pct, source)
-                    VALUES (:ts, :spo2_pct, 'phone')
-                    ON CONFLICT (ts, source) DO NOTHING
-                """), {"ts": r["ts"], "spo2_pct": r["spo2_pct"]})
-                accepted += 1
-            except Exception as e:
-                errors.append(f"spo2: {e}")
-                skipped += 1
-
         # Temperature
         for r in req.records.get("temperature", []):
             try:
@@ -394,16 +433,35 @@ def mobile_sync(req: MobileSyncRequest):
                 errors.append(f"goals: {e}")
                 skipped += 1
 
+        # Record the phone sync in sync_log so it appears in the dashboard
+        try:
+            db.execute(text("""
+                INSERT INTO sync_log (started_at, completed_at, records_synced, status, current_step)
+                VALUES (:started, NOW(), :n, 'ok', 'phone sync')
+            """), {"started": req.synced_at, "n": accepted})
+        except Exception as e:
+            errors.append(f"sync_log: {e}")
+
+        # Drop phone records that duplicate ring (ring canonical; phone fills gaps)
+        try:
+            _dedupe_sources(db)
+        except Exception as e:
+            errors.append(f"dedupe: {e}")
+
         db.commit()
 
-        # Trigger analytics recomputation
+        # Ask the host poller to recompute analytics. The container can't run
+        # collector/analytics.py (host venv + BLE collector deps), so we queue a
+        # request the host picks up. IntegrityError = a sync is already
+        # pending/running, which runs analytics too — harmless to skip.
         try:
-            import subprocess
-            subprocess.Popen(["venv/bin/python3", "collector/analytics.py"], 
-                           cwd="/home/sz/code/smart-ring",
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except Exception:
-            pass
+            db.execute(text("""
+                INSERT INTO sync_requests (requested_by, status)
+                VALUES ('phone-analytics', 'pending')
+            """))
+            db.commit()
+        except IntegrityError:
+            db.rollback()
 
         return {
             "accepted": accepted,

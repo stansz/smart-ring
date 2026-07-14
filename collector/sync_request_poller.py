@@ -57,6 +57,11 @@ DISPATCH = {
     "admin-ui": (COLLECTOR_WRAPPER, COLLECTOR_PYTHON),
 }
 
+# Special requested_by value: skip the collector, just recompute analytics.
+# Used by the phone (Web Bluetooth) sync path — the API container inserts a
+# row with this value because it can't run the host's analytics.py itself.
+ANALYTICS_ONLY = "phone-analytics"
+
 
 def claim_next_request(conn):
     """Atomically claim the oldest pending request. Returns (id, requested_by) or (None, None)."""
@@ -140,6 +145,27 @@ def process_one(conn):
     req_id, requested_by = claim_next_request(conn)
     if req_id is None:
         return False
+
+    # Analytics-only request (e.g. after a phone Web Bluetooth sync): the
+    # container can't run analytics.py, so it queues this. Skip the collector
+    # and just recompute metrics.
+    if requested_by == ANALYTICS_ONLY:
+        log.info(f"Claimed request id={req_id} → analytics-only")
+        try:
+            arc, _, _ = run_analytics(COLLECTOR_PYTHON)
+            if arc == 0:
+                mark_completed(conn, req_id, None, "analytics done")
+                log.info(f"Request {req_id} analytics done")
+            else:
+                mark_failed(conn, req_id, f"analytics exit {arc}")
+                log.error(f"Request {req_id} analytics exit {arc}")
+        except subprocess.TimeoutExpired:
+            mark_failed(conn, req_id, "analytics timed out after 300s")
+            log.error(f"Request {req_id} analytics timed out")
+        except Exception as e:
+            mark_failed(conn, req_id, str(e))
+            log.exception(f"Request {req_id} raised")
+        return True
 
     script, python_path = DISPATCH.get(requested_by, (None, None))
     if script is None:

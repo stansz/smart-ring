@@ -499,6 +499,67 @@ Home Network
 
 ---
 
+---
+
+## Readiness Score (Oura-style 0-100)
+
+**Implemented July 2026.** Stored in `readiness_score` table, computed daily by `analytics.py`.
+
+### Formula
+
+```
+readiness = 0.35*HRV + 0.30*Sleep + 0.20*Activity + 0.15*RHR
+```
+
+Each sub-score normalized 0-100:
+
+| Pillar | Weight | Computation | Normalization |
+|--------|--------|-------------|---------------|
+| **HRV** | 35% | z-score from 7-day baseline (Altini/Plews) | z≥1.0→100, z=0→60, z≤-1→10 |
+| **Sleep** | 30% | `sleep_quality.score` (0-100 from Ohayon 2004) | As-is (already 0-100) |
+| **Activity** | 20% | Steps vs goal (default 8000) + active-minute bonus | capped at 100 |
+| **RHR** | 15% | Deviation from 30-day median resting HR | delta × 3 offset; lower RHR = higher score |
+
+### Contributors
+
+Each pillar gets a "contributor" score = (sub_score - 50) × weight, showing whether it's pushing readiness UP (+) or DOWN (−). Displayed in the hero panel as e.g. "+18 HRV · +9 Sleep · -6 Activity · +6 RHR."
+
+### RHR Baseline
+
+30-day median of resting HR across all days. Recalculated each analytics run. Excludes days with no HR data.
+
+### Prior Art
+
+- **Oura**: Proprietary Readiness Score (0-100). Three pillars: Sleep, Activity, Readiness. Weights and normalization not public — but the three-pillar architecture is well-documented in their patents and UX.
+- **Garmin**: Body Battery (0-100) uses HRV + stress + activity. More continuous (updates throughout the day). Heavier on real-time HRV streams.
+- **Whoop**: Recovery Score (0-100%) weights HRV heaviest (~50%), plus RHR, sleep, respiratory rate. Morning assessment only.
+- **Fitbit**: Daily Readiness Score (1-100) uses HRV + recent activity + sleep. Arrives in the morning; adjusts throughout the day.
+
+---
+
+## Source Dedup (Phone vs Ring)
+
+**Implemented July 2026.** Phone (Web Bluetooth) and Ring (Linux box collector) capture the same physical measurements, so ~99% of phone records duplicate ring. Dedup runs in two places:
+1. `mobile_sync` endpoint (container): `_dedupe_sources(db)` after inserts — deletes phone rows where ring has same timestamp (point tables) or same day (sleep).
+2. `analytics.py` (host): `dedupe_sources()` at top of `run_all` — same logic, covers ring syncs.
+
+Policy: **ring canonical, phone fills gaps.** The `source` column (ring/phone) survives on every row; phone rows only persist where ring has no data. First run removed 356 duplicates; only 7 phone gap-fills remain.
+
+---
+
+## Timezone: Pacific (America/Vancouver)
+
+**Fixed July 2026.** Day boundaries are now consistently Pacific:
+
+- **Postgres**: `ALTER SYSTEM SET TimeZone='America/Vancouver'` — `CURRENT_DATE`, `ts::date`, `NOW()::date` all use Pacific midnight. Persists across restarts.
+- **Containers**: `TZ=America/Vancouver` in both quadlets (API + DB).
+- **Analytics**: was already Pacific (`SET TIME ZONE` from `/etc/timezone`). Now consistent with server tz.
+- **Ring time-setting**: unaffected — host collector's `set_time_local()` sends Pacific-local BCD bytes.
+- **Stored `ts` values**: unchanged (correct instants). Only date-boundary interpretation changed.
+- **Why it mattered**: Evening Pacific activity (after 5pm PDT) was attributed to the next UTC day. E.g., a Saturday 7pm walk showed under Sunday.
+
+---
+
 ## Value Add: Our Analytics vs Ring/Gadgetbridge Raw Data
 
 The ring and Gadgetbridge provide **raw measurements** — single data points without context. A composite HRV of 42ms or 7h sleep duration has no inherent meaning without comparison to **your own baseline** and **population norms**. Our analytics layer adds clinical interpretation with peer-reviewed formulas.
