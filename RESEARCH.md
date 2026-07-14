@@ -501,7 +501,9 @@ Home Network
 
 ---
 
-## Readiness Score (Oura-style 0-100)
+
+
+## Readiness Score (0–100)
 
 **Implemented July 2026.** Stored in `readiness_score` table, computed daily by `analytics.py`.
 
@@ -511,11 +513,11 @@ Home Network
 readiness = 0.35*HRV + 0.30*Sleep + 0.20*Activity + 0.15*RHR
 ```
 
-Each sub-score normalized 0-100:
+Each sub-score normalized 0–100:
 
 | Pillar | Weight | Computation | Normalization |
 |--------|--------|-------------|---------------|
-| **HRV** | 35% | z-score from 7-day baseline (Altini/Plews) | z≥1.0→100, z=0→60, z≤-1→10 |
+| **HRV** | 35% | z-score from 7-day baseline (Altini/Plews) | z≥3→100, z=1→80, z=0→55, z≤-1→10 |
 | **Sleep** | 30% | `sleep_quality.score` (0-100 from Ohayon 2004) | As-is (already 0-100) |
 | **Activity** | 20% | Steps vs goal (default 8000) + active-minute bonus | capped at 100 |
 | **RHR** | 15% | Deviation from 30-day median resting HR | delta × 3 offset; lower RHR = higher score |
@@ -528,12 +530,112 @@ Each pillar gets a "contributor" score = (sub_score - 50) × weight, showing whe
 
 30-day median of resting HR across all days. Recalculated each analytics run. Excludes days with no HR data.
 
-### Prior Art
+---
 
-- **Oura**: Proprietary Readiness Score (0-100). Three pillars: Sleep, Activity, Readiness. Weights and normalization not public — but the three-pillar architecture is well-documented in their patents and UX.
-- **Garmin**: Body Battery (0-100) uses HRV + stress + activity. More continuous (updates throughout the day). Heavier on real-time HRV streams.
-- **Whoop**: Recovery Score (0-100%) weights HRV heaviest (~50%), plus RHR, sleep, respiratory rate. Morning assessment only.
-- **Fitbit**: Daily Readiness Score (1-100) uses HRV + recent activity + sleep. Arrives in the morning; adjusts throughout the day.
+### How Other Wearables Calculate Readiness (Deep Dive)
+
+Research compiled July 2026 from Oura support docs, WHOOP developer docs, and peer-reviewed studies.
+
+#### Oura Ring — 9 Contributors (most granular)
+
+Oura uses **9 separate contributors** combined into a single 0-100 score. No single contributor dominates — each is weighted by significance. Key: "balance" contributors use **14-day weighted averages** vs **2-month long-term averages** (recent 2-5 days weighted more heavily).
+
+| Contributor | What it tracks | Time window |
+|-------------|---------------|-------------|
+| **HRV Balance** | 14-day HRV vs 3-month average | Multi-week |
+| **Resting Heart Rate** | Last night's lowest HR vs long-term average | Single day |
+| **Body Temperature** | Last night's skin temp deviation vs baseline | Single day |
+| **Recovery Index** | How long you keep sleeping after HR hits overnight low (6h+ ideal) | Overnight |
+| **Sleep** | Last night's total sleep vs personal baseline | Single day |
+| **Sleep Balance** | Cumulative sleep + sleep debt over 2 weeks | Multi-week |
+| **Sleep Regularity** | Consistency of bed/wake times | Multi-week |
+| **Previous Day Activity** | Yesterday's movement + inactivity patterns | Single day |
+| **Activity Balance** | 14-day activity load vs 2-month average | Multi-week |
+
+**Oura tiers:** 85-100 Optimal · 70-84 Good · 60-69 Fair · <60 Pay Attention
+
+#### WHOOP — 3 Contributors (HRV-dominant)
+
+WHOOP uses a much simpler model with **HRV heavily weighted**:
+
+| Contributor | Weight | What it measures |
+|-------------|--------|-----------------|
+| **HRV** | ~70% | Heart rate variability during slow-wave sleep |
+| **Resting HR** | ~20% | HR during deep sleep — cardiovascular fitness indicator |
+| **Sleep Performance** | ~10% | Sleep need vs actual (based on sleep debt) |
+
+**WHOOP tiers:** 67-100% Green (primed) · 34-66% Yellow (maintain) · 0-33% Red (rest). Average member score: 58%.
+
+#### Garmin — Body Battery
+
+Uses HRV + stress + activity in a **continuous model** (updates throughout the day, not just morning). More dependent on real-time HRV streams. Reports as 0-100 "battery charge" that depletes during activity and recharges during rest.
+
+#### Fitbit — Daily Readiness
+
+Uses HRV + recent activity + sleep. Arrives in the morning; adjusts throughout the day as new activity is recorded.
+
+---
+
+### Key Research Findings (Doherty & Altini 2025)
+
+From the most comprehensive comparative study of wearable readiness scores:
+
+1. **"Wearables estimate recovery, they don't measure it."** There is no gold standard for "recovery" the way PSG exists for sleep. Every score is an algorithmic interpretation.
+
+2. **"No brand publishes its exact readiness formula and very few scores have been independently validated."** The underlying signals (HRV, RHR, sleep architecture) are well-tested, but the composite scores themselves have no clinical validation.
+
+3. **"Trust the trend of Readiness, not the exact number."** A score going from 75→68→55 is meaningful; whether it's exactly 68 vs 72 is noise.
+
+4. **Oura had the best nocturnal RHR accuracy vs ECG** in a 536-night multi-wearable study (Dial et al. 2025). The core signals are well-tested even if the composite is proprietary.
+
+---
+
+### What Lowers Readiness (with measured effect sizes)
+
+| Factor | Effect | Source |
+|--------|--------|--------|
+| Alcohol (1-2 drinks) | HRV down ~15% (~11ms), RHR up same night | Oura 2025 |
+| Short/broken sleep | HRV down, RHR up; takes 2-3 nights to clear | Zhang et al. 2025 |
+| Hard training/overreaching | HRV down, RHR up; 5-7 day slide = overreaching | Noon et al. 2018 |
+| Illness onset | RHR + skin temp rise 1-3 days before symptoms | Kasl et al. 2024 |
+| Late/heavy meal | Raises cortisol, disturbs sleep | Ucar et al. 2021 |
+| Evening caffeine | Lighter sleep, delayed HRV rebound (long half-life) | Bonnet et al. 2005 |
+| Dehydration | HRV down, RHR up (especially after hot/hard day) | Castro-Sepulveda et al. 2015 |
+| Hot bedroom | HRV down, RHR up, fragmented sleep | O'Connor et al. 2025 |
+| Jet lag / late nights | Body clock misaligned, HRV rhythm disrupted | Furlan et al. 2000 |
+| Chronic stress | HRV reduction over weeks; lingers after feeling calm | Mohammadi et al. 2019 |
+| Luteal phase (cyclical) | RHR up, HRV down, temp up — normal, not poor recovery | Alzueta et al. 2022 |
+
+---
+
+### Gap Analysis: Our Score vs Commercial Offerings
+
+| Feature | Oura | WHOOP | Us (current) | Gap |
+|---------|------|-------|-------------|-----|
+| HRV weight | ~equal contributor | **70%** (dominant) | 35% | ⚠️ WHOOP suggests HRV could be weighted higher |
+| HRV baseline | 14-day vs 3-month | personal baseline | 7-day z-score | ⚠️ We use short baseline; could add "HRV Balance" (multi-week) |
+| Sleep contributors | 3 (sleep, balance, regularity) | 1 (performance vs need) | 1 (quality score) | ⚠️ Could add sleep regularity + multi-day sleep debt |
+| Activity contributors | 2 (previous day + balance) | 0 (not in recovery) | 1 (today vs goal) | ⚠️ Could add activity balance (multi-day trend) |
+| Temperature | ✅ (skin temp deviation) | ✅ | ❌ (we have data, don't use) | ⚠️ Could add as 5th pillar |
+| Recovery Index | ✅ (time after HR low) | ❌ | ❌ | Future: compute from overnight HR data |
+| Number of contributors | 9 | 3 | 4 | Moderate — more granular than WHOOP, less than Oura |
+| Time-to-first-score | ~2 weeks | ~4 weeks | ~7 days | ✅ Faster (7-day HRV baseline) |
+
+### Recommended Improvements (prioritized)
+
+Based on the gap analysis, ranked by impact-to-effort ratio:
+
+1. **Add Temperature deviation** (we have the data, just need to wire it in). Oura uses overnight skin temp deviation from baseline as a contributor. We already store raw_temperature. Would add as 5th pillar at ~10% weight (redistribute: HRV 30%, Sleep 25%, Activity 20%, RHR 15%, Temp 10%).
+
+2. **Add HRV Balance** (14-day vs 30-day). Currently we only use 7-day z-score which is reactive (swings daily). Adding a multi-week trend would capture chronic changes (overtraining, sustained stress). Low effort — just extend the baseline window.
+
+3. **Add Sleep Regularity** (bed/wake consistency). Oura tracks how consistent bed/wake times are. We have sleep_start_ts/sleep_end_ts stored. Computing variance of bedtimes over 7 days is straightforward.
+
+4. **Bump HRV weight** toward WHOOP's model. Our 35% might under-weight the strongest recovery signal. Consider 40-50% if the ring's composite HRV proves reliable over time.
+
+5. **Add Recovery Index** (time from overnight HR low to wake). Oura's unique contributor: how long you keep sleeping after HR hits its overnight minimum. 6+ hours = ideal. We have overnight HR data — could compute as min(HR) timestamp → wake timestamp.
+
+6. **Illness early warning** (HRV drop + RHR rise). Both Oura and WHOOP validate this. When HRV drops below -1.5 z AND RHR rises >3 bpm above baseline for 2+ consecutive days → flag. We have all the data; just need the alerting logic.
 
 ---
 
