@@ -394,6 +394,12 @@ class Analytics:
             'wake_pct': round(wake_pct, 1),
             'temp_drop_c': round(temp_drop, 2),
             'total_sleep_minutes': round(total_sleep),
+            'deep_min': deep_min,
+            'rem_min': rem_min,
+            'light_min': light_min,
+            'awake_min': awake_min,
+            'sleep_start_ts': first_start,
+            'sleep_end_ts': last_end,
             '_components': {
                 'duration': round(s_dur), 'efficiency': round(s_eff),
                 'architecture': round(s_arch), 'continuity': round(s_cont),
@@ -420,8 +426,10 @@ class Analytics:
         with self.conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO sleep_quality (day, score, deep_pct, rem_pct, light_pct,
-                                         wake_pct, temp_drop_c, total_sleep_minutes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                         wake_pct, temp_drop_c, total_sleep_minutes,
+                                         deep_min, rem_min, light_min, awake_min,
+                                         sleep_start_ts, sleep_end_ts)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (day) DO UPDATE SET
                     score = EXCLUDED.score,
                     deep_pct = EXCLUDED.deep_pct,
@@ -430,11 +438,19 @@ class Analytics:
                     wake_pct = EXCLUDED.wake_pct,
                     temp_drop_c = EXCLUDED.temp_drop_c,
                     total_sleep_minutes = EXCLUDED.total_sleep_minutes,
+                    deep_min = EXCLUDED.deep_min,
+                    rem_min = EXCLUDED.rem_min,
+                    light_min = EXCLUDED.light_min,
+                    awake_min = EXCLUDED.awake_min,
+                    sleep_start_ts = EXCLUDED.sleep_start_ts,
+                    sleep_end_ts = EXCLUDED.sleep_end_ts,
                     computed_at = NOW()
             """, (
                 data['day'], data['score'],
                 data['deep_pct'], data['rem_pct'], data['light_pct'], data['wake_pct'],
                 data['temp_drop_c'], data['total_sleep_minutes'],
+                data['deep_min'], data['rem_min'], data['light_min'], data['awake_min'],
+                data['sleep_start_ts'], data['sleep_end_ts'],
             ))
         self.conn.commit()
 
@@ -726,22 +742,31 @@ class Analytics:
         Stores one row per day into readiness_score.
         """
         log.info("Computing readiness scores...")
-        # Load source data
+        # Load source data: start from a UNION of all days that have ANY data
+        # (not just sleep_quality) so days with HRV but no sleep still get scored.
         with self.conn.cursor() as cur:
             cur.execute("""
-                SELECT sq.day,
+                WITH days AS (
+                    SELECT day FROM sleep_quality WHERE day >= CURRENT_DATE - INTERVAL '%s days'
+                    UNION
+                    SELECT day FROM daily_recovery WHERE day >= CURRENT_DATE - INTERVAL '%s days'
+                    UNION
+                    SELECT day FROM daily_activity WHERE day >= CURRENT_DATE - INTERVAL '%s days'
+                )
+                SELECT d.day,
                        sq.score AS sleep_score,
+                       sq.total_sleep_minutes AS sleep_total_min,
                        dr.z_score AS hrv_zscore,
                        dr.rmssd AS hrv_rmssd,
                        da.steps_total,
                        da.worn_minutes,
                        da.hr_avg AS resting_hr_approx
-                FROM sleep_quality sq
-                LEFT JOIN daily_recovery dr ON sq.day = dr.day
-                LEFT JOIN daily_activity da ON sq.day = da.day
-                WHERE sq.day >= CURRENT_DATE - INTERVAL '%s days'
-                ORDER BY sq.day
-            """, (days,))
+                FROM days d
+                LEFT JOIN sleep_quality sq ON d.day = sq.day
+                LEFT JOIN daily_recovery dr ON d.day = dr.day
+                LEFT JOIN daily_activity da ON d.day = da.day
+                ORDER BY d.day
+            """, (days, days, days))
             rows = cur.fetchall()
             # Personal goals for activity score
             cur.execute("SELECT steps_goal FROM ring_goals ORDER BY ts DESC LIMIT 1")
@@ -755,11 +780,14 @@ class Analytics:
 
         def _hrv_to_score(z):
             if z is None: return 50
-            if z >= 1.0:  return 100
-            if z >= 0.5:  return 85
-            if z >= 0.0:  return 60
+            if z >= 3.0:  return 100
+            if z >= 2.0:  return 95
+            if z >= 1.5:  return 90
+            if z >= 1.0:  return 80
+            if z >= 0.5:  return 70
+            if z >= 0.0:  return 55
             if z >= -0.5: return 40
-            if z >= -1.0: return 20
+            if z >= -1.0: return 25
             return 10
 
         count = 0
@@ -796,18 +824,23 @@ class Analytics:
                 cur.execute("""
                     INSERT INTO readiness_score
                         (day, score, hrv_score, sleep_score, activity_score, rhr_score,
-                         hrv_zscore, steps, resting_hr, hrv_rmssd, contributors, computed_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                         hrv_zscore, steps, resting_hr, hrv_rmssd,
+                         sleep_total_min, rhr_baseline, contributors, computed_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     ON CONFLICT (day) DO UPDATE SET
                         score=EXCLUDED.score, hrv_score=EXCLUDED.hrv_score,
                         sleep_score=EXCLUDED.sleep_score, activity_score=EXCLUDED.activity_score,
                         rhr_score=EXCLUDED.rhr_score, hrv_zscore=EXCLUDED.hrv_zscore,
                         steps=EXCLUDED.steps, resting_hr=EXCLUDED.resting_hr,
-                        hrv_rmssd=EXCLUDED.hrv_rmssd, contributors=EXCLUDED.contributors,
+                        hrv_rmssd=EXCLUDED.hrv_rmssd,
+                        sleep_total_min=EXCLUDED.sleep_total_min,
+                        rhr_baseline=EXCLUDED.rhr_baseline,
+                        contributors=EXCLUDED.contributors,
                         computed_at=NOW()
                 """, (day, score, hrv, slp, act, rhr_s,
                       r['hrv_zscore'], r['steps_total'], r['resting_hr_approx'],
-                      r['hrv_rmssd'], json.dumps(contrib)))
+                      r['hrv_rmssd'], r['sleep_total_min'], rhr_baseline,
+                      json.dumps(contrib)))
             count += 1
         self.conn.commit()
         if count:
