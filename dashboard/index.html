@@ -164,9 +164,9 @@
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-100 dark:border-gray-700 mb-8">
             <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 dark:divide-gray-700">
                 <!-- LEFT: Activity Ring -->
-                <div class="p-6 flex flex-col items-center">
-                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2 self-start">Activity</h2>
-                    <div class="flex flex-col items-center justify-center gap-4 my-2 w-full">
+                <div class="px-6 py-4 flex flex-col items-center">
+                    <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 self-start">Activity</h2>
+                    <div class="flex flex-col items-center w-full flex-1">
                         <div id="dayRing" class="flex justify-center w-full"></div>
                         <div id="dayRingLegend" class="w-full"></div>
                     </div>
@@ -178,41 +178,54 @@
                         <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness Score</h2>
                         <span class="text-xs text-gray-400 dark:text-gray-500" x-text="readinessDay ? new Date(readinessDay + 'T00:00').toLocaleDateString() : ''"></span>
                     </div>
-                    <!-- Circular progress ring -->
-                    <div class="relative w-36 h-36 mx-auto mb-3">
-                        <svg viewBox="0 0 100 100" class="w-full h-full -rotate-90">
-                            <circle cx="50" cy="50" r="40" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="8" stroke="currentColor"/>
-                            <circle cx="50" cy="50" r="40" fill="none" stroke-width="8" stroke-linecap="round"
-                                :class="readinessScore >= 80 ? 'text-green-500' : readinessScore >= 60 ? 'text-amber-500' : 'text-red-500'"
-                                :style="`stroke-dasharray: 251; stroke-dashoffset: ${251 * (1 - (readinessScore || 0) / 100)}`"
-                                stroke="currentColor"/>
-                        </svg>
-                        <div class="absolute inset-0 flex flex-col items-center justify-center">
-                            <span class="text-4xl font-bold text-gray-900 dark:text-gray-100" x-text="readinessScore != null ? readinessScore : '—'"></span>
-                        </div>
+                <!-- Circular progress: 4 concentric rings (Sleep/HRV/Activity/RHR) -->
+                <div class="relative mx-auto mb-3" style="width:300px; max-width:100%">
+                    <svg viewBox="0 0 100 100" class="w-full -rotate-90">
+                        <!-- Background tracks -->
+                        <circle cx="50" cy="50" r="40" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
+                        <circle cx="50" cy="50" r="32" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
+                        <circle cx="50" cy="50" r="24" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
+                        <circle cx="50" cy="50" r="16" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
+                        <!-- Value rings (outer→inner: Sleep, HRV, Activity, RHR) -->
+                        <circle cx="50" cy="50" r="40" fill="none" stroke-width="6" stroke-linecap="round"
+                            stroke="#6366f1"
+                            :style="`stroke-dasharray: 251; stroke-dashoffset: ${251 * (1 - (readinessSleep || 0) / 100)}`"/>
+                        <circle cx="50" cy="50" r="32" fill="none" stroke-width="6" stroke-linecap="round"
+                            stroke="#a855f7"
+                            :style="`stroke-dasharray: 201; stroke-dashoffset: ${201 * (1 - (readinessHrv || 0) / 100)}`"/>
+                        <circle cx="50" cy="50" r="24" fill="none" stroke-width="6" stroke-linecap="round"
+                            stroke="#10b981"
+                            :style="`stroke-dasharray: 151; stroke-dashoffset: ${151 * (1 - (readinessActivity || 0) / 100)}`"/>
+                        <circle cx="50" cy="50" r="16" fill="none" stroke-width="6" stroke-linecap="round"
+                            stroke="#f43f5e"
+                            :style="`stroke-dasharray: 101; stroke-dashoffset: ${101 * (1 - (readinessRhr || 0) / 100)}`"/>
+                    </svg>
+                    <div class="absolute inset-0 flex flex-col items-center justify-center">
+                        <span class="text-4xl font-bold text-gray-900 dark:text-gray-100" x-text="readinessScore != null ? readinessScore : '—'"></span>
                     </div>
+                </div>
                     <p class="text-sm font-medium text-center"
                         :class="readinessScore >= 80 ? 'text-green-600' : readinessScore >= 60 ? 'text-amber-600' : 'text-red-500'"
                         x-text="readinessLabel || '—'"></p>
-                    <!-- 4 sub-score cards (2x2) -->
-                    <div class="grid grid-cols-2 gap-3 mt-5">
-                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
-                            <p class="text-2xl font-bold text-indigo-600 dark:text-indigo-400" x-text="readinessSleep != null ? readinessSleep : '—'"></p>
-                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">Sleep</p>
-                        </div>
-                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
-                            <p class="text-2xl font-bold text-purple-600 dark:text-purple-400" x-text="readinessHrv != null ? readinessHrv : '—'"></p>
-                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">HRV</p>
-                        </div>
-                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
-                            <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" x-text="readinessActivity != null ? readinessActivity : '—'"></p>
-                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">Activity</p>
-                        </div>
-                        <div class="p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-100 dark:border-gray-700 text-center">
-                            <p class="text-2xl font-bold text-rose-600 dark:text-rose-400" x-text="readinessRhr != null ? readinessRhr : '—'"></p>
-                            <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">RHR</p>
-                        </div>
-                    </div>
+                <!-- Sub-score legend (pillar name + value, matches ring colors) -->
+                <div class="flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-[11px] mt-4">
+                    <span class="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#6366f1"></span>
+                        Sleep <span class="font-semibold text-indigo-600 dark:text-indigo-400" x-text="readinessSleep || '—'"></span>
+                    </span>
+                    <span class="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#a855f7"></span>
+                        HRV <span class="font-semibold text-purple-600 dark:text-purple-400" x-text="readinessHrv || '—'"></span>
+                    </span>
+                    <span class="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#10b981"></span>
+                        Activity <span class="font-semibold text-emerald-600 dark:text-emerald-400" x-text="readinessActivity || '—'"></span>
+                    </span>
+                    <span class="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
+                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#f43f5e"></span>
+                        RHR <span class="font-semibold text-rose-600 dark:text-rose-400" x-text="readinessRhr || '—'"></span>
+                    </span>
+                </div>
                     <!-- Contributors -->
                     <p class="text-xs text-gray-500 dark:text-gray-400 text-center mt-4" x-text="readinessContribText || ''"></p>
                 </div>
@@ -236,12 +249,6 @@
                     </div>
                     <!-- Detail rows -->
                     <div class="flex-1 space-y-2">
-                        <div class="flex justify-between text-sm">
-                            <span class="text-gray-500 dark:text-gray-400">Readiness</span>
-                            <span class="font-medium"
-                                  :class="readinessText.includes('Excellent') || readinessText.includes('Good') ? 'text-green-600' : readinessText.includes('Fair') ? 'text-amber-600' : 'text-red-500'"
-                                  x-text="readinessText || '—'"></span>
-                        </div>
                         <div class="flex justify-between text-sm" x-show="recoveryBaseline">
                             <span class="text-gray-500 dark:text-gray-400">7-day baseline</span>
                             <span class="font-mono text-gray-700 dark:text-gray-300" x-text="recoveryBaseline ? recoveryBaseline + 'ms' : '—'"></span>
@@ -256,21 +263,23 @@
                             <span class="text-gray-500 dark:text-gray-400">Range</span>
                             <span class="font-mono text-gray-700 dark:text-gray-300" x-text="hrvRange ? hrvRange.min + '–' + hrvRange.max + 'ms' : ''"></span>
                         </div>
-                        <div class="flex justify-between text-sm" x-show="stressClass">
-                            <span class="text-gray-500 dark:text-gray-400">Stress</span>
-                            <span>
-                                <span class="font-bold"
-                                      :class="stressDailyAvg <= 25 ? 'text-green-600' : stressDailyAvg <= 50 ? 'text-gray-600 dark:text-gray-300' : stressDailyAvg <= 75 ? 'text-amber-600' : 'text-red-600'"
-                                      x-text="stressDailyAvg != null ? Math.round(stressDailyAvg) : ''"></span>
-                                <span class="font-medium capitalize ml-1"
-                                      :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'"
-                                      x-text="stressClass"></span>
-                                <span class="text-xs text-gray-400 dark:text-gray-500 ml-1" x-text="stressTrendText || ''"></span>
-                            </span>
-                        </div>
                         <div class="flex justify-between text-sm" x-show="restingHr">
                             <span class="text-gray-500 dark:text-gray-400">Resting HR</span>
                             <span class="font-mono text-gray-700 dark:text-gray-300" x-text="restingHr ? restingHr + ' bpm' : '—'"></span>
+                        </div>
+                        <div class="flex justify-between text-sm" x-show="stressClass">
+                            <span class="text-gray-500 dark:text-gray-400">Stress</span>
+                            <span class="text-right">
+                                <span>
+                                    <span class="font-bold"
+                                          :class="stressDailyAvg <= 25 ? 'text-green-600' : stressDailyAvg <= 50 ? 'text-gray-600 dark:text-gray-300' : stressDailyAvg <= 75 ? 'text-amber-600' : 'text-red-600'"
+                                          x-text="stressDailyAvg != null ? Math.round(stressDailyAvg) : ''"></span>
+                                    <span class="font-medium capitalize ml-1"
+                                          :class="stressClass === 'relaxed' ? 'text-green-600' : stressClass === 'low' ? 'text-gray-500' : stressClass === 'medium' ? 'text-amber-600' : 'text-red-600'"
+                                          x-text="stressClass"></span>
+                                </span>
+                                <p class="text-xs text-gray-400 dark:text-gray-500" x-text="stressTrendText || ''"></p>
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -788,6 +797,8 @@
                 readinessRhr: null,
                 readinessLabel: null,
                 readinessContribText: '',
+                readinessSleepDetail: '', readinessHrvDetail: '',
+                readinessActivityDetail: '', readinessRhrDetail: '',
                 readinessDay: null,
 
                 // Server-computed per-day activity (replaces flaky client-side calc)
@@ -910,6 +921,7 @@
                     await Promise.allSettled([
                         this.loadPersistedScores(),
                         this.loadSleepStages(),
+                        this.loadSleepRingData(),
                         this.loadHealthMetrics(),
                         this.loadVitalsChart(),
                         this.loadCircadian(),
@@ -1215,52 +1227,49 @@
                 async loadSleepStages() {
                     this._sleepStages = [];
                     try {
-                        const res = await fetch('/api/raw/sleep?hours=72&limit=200');
+                        const res = await fetch('/api/sleep?days=14');
                         const data = await res.json();
                         if (!data.length) {
                             this.hasSleepData = false;
-                            this._sleepStages = [];
                             this.sleepSummary = {};
                             this._renderSleepEmpty('No sleep data yet — sync the ring to pull sleep history');
                             this.renderDayOverview();
                             return;
                         }
-                        // Group by day; show ONLY the selected day's sleep (no fallback
-                        // to older nights — that was showing 2-nights-ago data when the
-                        // ring wasn't worn).
-                        const stagesByDay = {};
-                        for (const s of data) {
-                            if (!stagesByDay[s.day]) stagesByDay[s.day] = [];
-                            stagesByDay[s.day].push(s);
-                        }
                         const selDay = this.dateKey(this.selectedDate);
-                        let lastNight = null;
-                        if (stagesByDay[selDay] && stagesByDay[selDay].some(s => s.stage === 'deep' || s.stage === 'rem')) {
-                            lastNight = { day: selDay, stages: stagesByDay[selDay].sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts)) };
-                        }
-                        if (!lastNight) {
+                        const r = data.find(d => d.day === selDay);
+                        if (!r || !r.total_sleep_minutes || r.total_sleep_minutes < 30) {
                             this.hasSleepData = false;
-                            this._sleepStages = [];
                             this.sleepSummary = {};
                             this._renderSleepEmpty(this.isToday() ? 'No sleep recorded last night' : 'No sleep data for this day');
                             this.renderDayOverview();
                             return;
                         }
                         this.hasSleepData = true;
+                        // Build synthetic stages from stored aggregates (reliable, no time-window bugs).
+                        const synthetic = [];
+                        if (r.deep_min > 0) synthetic.push({ stage: 'deep', duration_minutes: r.deep_min, start_ts: r.sleep_start_ts, end_ts: r.sleep_end_ts });
+                        if (r.rem_min > 0)  synthetic.push({ stage: 'rem',  duration_minutes: r.rem_min,  start_ts: r.sleep_start_ts, end_ts: r.sleep_end_ts });
+                        if (r.light_min > 0) synthetic.push({ stage:'light', duration_minutes: r.light_min, start_ts: r.sleep_start_ts, end_ts: r.sleep_end_ts });
+                        if (r.awake_min > 0) synthetic.push({ stage:'awake', duration_minutes: r.awake_min, start_ts: r.sleep_start_ts, end_ts: r.sleep_end_ts });
+                        const lastNight = { day: selDay, stages: synthetic };
                         this.renderSleepDonut(lastNight);
-                        // Cache for the 24h day ring overlay
-                        this._sleepStages = lastNight ? lastNight.stages : [];
+                        // Ring overlay needs per-hour stage data — loaded separately.
                         this.renderDayOverview();
                         // Fill legacy stat card
-                        const totalMin = lastNight.stages.reduce((s, r) => s + (r.duration_minutes || 0), 0);
-                        const h = Math.floor(totalMin / 60);
-                        const m = totalMin % 60;
-                        this.sleepScore = h + 'h ' + m + 'm';
-                        const deepMin = lastNight.stages.filter(s => s.stage === 'deep').reduce((a, s) => a + (s.duration_minutes || 0), 0);
-                        const remMin = lastNight.stages.filter(s => s.stage === 'rem').reduce((a, s) => a + (s.duration_minutes || 0), 0);
-                        this.sleepLabel = `${deepMin}m deep · ${remMin}m REM`;
-                        // Quality score comes from persisted analytics (loadPersistedScores)
+                        this.sleepScore = Math.floor(r.total_sleep_minutes / 60) + 'h ' + (r.total_sleep_minutes % 60) + 'm';
+                        this.sleepLabel = `${r.deep_min || 0}m deep · ${r.rem_min || 0}m REM`;
                     } catch (e) { console.error('loadSleepStages', e); }
+                },
+
+                async loadSleepRingData() {
+                    try {
+                        const res = await fetch('/api/raw/sleep?hours=120&limit=200');
+                        const data = await res.json();
+                        const selDay = this.dateKey(this.selectedDate);
+                        this._sleepStages = data.filter(s => s.day === selDay);
+                        this.renderDayOverview();
+                    } catch (e) { console.error('loadSleepRingData', e); }
                 },
 
                 async loadHealthMetrics() {
@@ -1566,10 +1575,18 @@
                         const names = { hrv: 'HRV', sleep: 'Sleep', activity: 'Activity', rhr: 'RHR' };
                         this.readinessContribText = Object.entries(c)
                             .map(([k, v]) => `${v >= 0 ? '+' : ''}${v} ${names[k] || k}`).join(' · ');
+                        // Context detail lines per sub-score card
+                        const m = r.sleep_total_min || 0;
+                        this.readinessSleepDetail = `${Math.floor(m/60)}h ${m%60}m`;
+                        this.readinessHrvDetail = r.hrv_zscore ? `z=${r.hrv_zscore.toFixed(1)} · ${r.hrv_rmssd || 0}ms` : '';
+                        this.readinessActivityDetail = r.steps ? `${r.steps.toLocaleString()} steps` : '';
+                        this.readinessRhrDetail = r.resting_hr ? `${r.resting_hr} bpm` + (r.rhr_baseline ? ` · baseline ${r.rhr_baseline}` : '') : '';
                     } else {
                         this.readinessScore = null; this.readinessSleep = null; this.readinessHrv = null;
                         this.readinessActivity = null; this.readinessRhr = null; this.readinessDay = null;
                         this.readinessLabel = null; this.readinessContribText = '';
+                        this.readinessSleepDetail = ''; this.readinessHrvDetail = '';
+                        this.readinessActivityDetail = ''; this.readinessRhrDetail = '';
                     }
                 },
 
@@ -1643,14 +1660,14 @@
                 renderDayRing(r) {
                     const el = document.getElementById('dayRing');
                     if (!el) return;
-                    const cx = 120, cy = 120;
+                    const cx = 120, cy = 90;  // shifted up to reduce top whitespace
                     const baseIn = 76, baseOut = 82;   // thin status baseline ring
                     const barIn = 86, barMax = 48;     // activity bars radiate outward
                     const labelR = 62;                 // hour labels INSIDE the ring (clock-face)
                     const stageColors = { deep: '#4338ca', rem: '#a855f7', light: '#60a5fa', awake: '#fb923c' };
                     const stageLabel = { deep: 'Deep', rem: 'REM', light: 'Light', awake: 'Awake' };
+                    const wornBase = '#d1d5db'; // light grey = worn/idle (distinct from off-grey)
                     const grey = this.darkMode ? '#374151' : '#e5e7eb';
-                    const wornBase = '#86efac'; // light green = worn (same as legend swatch)
                     const sel = this.dateKey(this.selectedDate);
                     const worn = (r && r.hourly_worn) || new Array(24).fill(0);
                     const steps = (r && r.hourly_steps) || new Array(24).fill(0);
@@ -1705,7 +1722,7 @@
                     const sleepH = Math.floor(sleepMin / 60), sleepM = sleepMin % 60;
                     const legendItems = [
                         ['#10b981', 'Steps', (r && r.steps_total) ? (r.steps_total).toLocaleString() : '—'],
-                        ['#86efac', 'Worn', wornH ? wornH + 'h' : '—'],
+                        ['#d1d5db', 'Worn', wornH ? wornH + 'h' : '—'],
                         ['#4338ca', 'Sleep', sleepMin ? `${sleepH}h ${sleepM}m` : '—'],
                         [grey, 'Off', '—']
                     ];
@@ -1717,18 +1734,14 @@
                             <span class="text-gray-600 dark:text-gray-400">${l}</span>
                             <span class="font-mono" style="color:${valCol}">${v}</span>
                         </span>`).join('')}
-                        ${r && r.hr_avg ? `<span class="flex items-center gap-2">
-                            <span class="text-gray-600 dark:text-gray-400">HR avg</span>
-                            <span class="font-mono" style="color:${valCol}">${r.hr_avg} bpm</span>
-                        </span>` : ''}
                     </div>`;
 
                     el.innerHTML = `
-                        <svg viewBox="-28 -28 296 296" class="w-full" style="width:400px; max-width:100%">
+                        <svg viewBox="-18 -18 276 276" class="w-full" style="width:360px; max-width:100%">
                             ${segs}${labels}
-                            <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="36" font-weight="700" fill="${centerTxt}">${centerTop}</text>
-                            <text x="${cx}" y="${cy + 18}" text-anchor="middle" font-size="12" fill="${centerSubTxt}">steps</text>
-                            <text x="${cx}" y="${cy + 38}" text-anchor="middle" font-size="12" font-weight="500" fill="${centerSubTxt}">${centerSub}</text>
+                            <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="30" font-weight="700" fill="${centerTxt}">${centerTop}</text>
+                            <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="10" fill="${centerSubTxt}">steps</text>
+                            <text x="${cx}" y="${cy + 32}" text-anchor="middle" font-size="10" font-weight="500" fill="${centerSubTxt}">${centerSub}</text>
                         </svg>`;
                     const legendEl = document.getElementById('dayRingLegend');
                     if (legendEl) legendEl.innerHTML = legendHtml;
@@ -1864,7 +1877,6 @@
                             <div class="absolute inset-3 bg-white dark:bg-gray-800 rounded-full flex flex-col items-center justify-center">
                                 <span class="text-3xl mb-1 opacity-60">🌙</span>
                                 <span class="text-lg font-bold text-gray-500 dark:text-gray-400">0h 0m</span>
-                                <span class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">${msg}</span>
                             </div>
                         </div>
                         <div class="flex-1 self-center">
@@ -2718,8 +2730,57 @@
                 }
             }
 
-            // Fetch stress (cmd 0x37)
-            // ... (can add later if needed)
+            // Fetch steps (cmd 0x43, 7 days — SportDetail multi-packet)
+            const stepRecs = [];
+            for (let da = 0; da < 7; da++) {
+                _status(`Steps: day ${da+1}/7…`);
+                const td = new Date(); td.setDate(td.getDate() - da); td.setHours(0,0,0,0);
+                const packets = await sendCmdMulti(0x43, [da, 0x0f, 0x00, 0x5f, 0x01], (col, d) => {
+                    if (d[1] === 0xFF) return true;  // NoData
+                    if (d[1] === 0xF0) return false; // header packet
+                    return d[5] === d[6] - 1;        // last data packet
+                }, 10000);
+                let newCal = false;
+                for (const p of packets) {
+                    if (p[1] === 0xFF) break;
+                    if (p[1] === 0xF0) { if (p[3] === 1) newCal = true; continue; }
+                    const ti = p[4];
+                    let cal = p[7] | (p[8] << 8);
+                    if (newCal) cal *= 10;
+                    const st = p[9] | (p[10] << 8);
+                    const dist = p[11] | (p[12] << 8);
+                    if (st > 0 || cal > 0) {
+                        const t = new Date(td.getTime() + ti * 15 * 60000);
+                        stepRecs.push({
+                            ts: localISO(t.getFullYear(), t.getMonth()+1, t.getDate(), t.getHours(), t.getMinutes()),
+                            steps: st, calories: cal, distance: dist
+                        });
+                    }
+                }
+            }
+
+            // Fetch stress (cmd 0x37, multi-packet — same layout as HRV)
+            _status('Fetching stress…');
+            const stressRecs = [];
+            {
+                const stressPkts = await sendCmdMulti(0x37, new Array(14).fill(0), (col, d) => {
+                    return d[1] === 4 || d[1] === 0xFF;
+                }, 12000);
+                const td = new Date(); td.setHours(0,0,0,0);
+                for (const p of stressPkts) {
+                    const sub = p[1];
+                    if (sub === 0 || sub === 0xFF) continue;
+                    const start = sub === 1 ? 3 : 2;
+                    const minPrev = sub === 1 ? 0 : (12 * 30 + (sub - 2) * 13 * 30);
+                    for (let i = start; i < 15; i++) {
+                        const v = p[i] & 0xFF;
+                        if (v > 0) {
+                            const t = new Date(td.getTime() + (minPrev + (i - start) * 30) * 60000);
+                            stressRecs.push({ts: localISO(t.getFullYear(), t.getMonth()+1, t.getDate(), t.getHours(), t.getMinutes()), stress_value: v});
+                        }
+                    }
+                }
+            }
 
             // POST all data to API
             const payload = {
@@ -2731,10 +2792,12 @@
                     temperature: tempRecs,
                     sleep: sleepRecs,
                     hrv: hrvRecs,
+                    steps: stepRecs,
+                    stress: stressRecs,
                 }
             };
 
-            _status(`Uploading ${hrRecs.length + spo2Recs.length + tempRecs.length + sleepRecs.length + hrvRecs.length} records…`);
+            _status(`Uploading ${hrRecs.length + spo2Recs.length + tempRecs.length + sleepRecs.length + hrvRecs.length + stepRecs.length + stressRecs.length} records…`);
             const res = await fetch('/api/mobile/sync', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
