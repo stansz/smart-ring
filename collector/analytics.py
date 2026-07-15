@@ -657,20 +657,32 @@ class Analytics:
                 GROUP BY 1, 2
             """)
             hr_rows = cur.fetchall()
-            # Wear time: earliest→latest across ALL biometric types (HR may not
-            # be queryable for the current day, but HRV/SpO2/steps prove the
-            # ring was worn).
+            # Wear time: count actual hours with biometric readings (HR + HRV +
+            # SpO2 — all require skin contact; steps excluded as bag movement
+            # can trigger them). Apply value thresholds to filter out off-finger
+            # noise (PPG sensors produce garbage readings from ambient light).
             cur.execute("""
-                SELECT DATE(ts) AS day, MIN(ts) AS wear_first, MAX(ts) AS wear_last
+                SELECT DATE(ts) AS day,
+                       COUNT(DISTINCT EXTRACT(HOUR FROM ts))::int AS active_hours,
+                       MIN(ts) AS wear_first, MAX(ts) AS wear_last
                 FROM (
                     SELECT ts FROM raw_heart_rate WHERE ts >= NOW() - INTERVAL '14 days'
-                    UNION ALL SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days'
-                    UNION ALL SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days'
-                    UNION ALL SELECT ts FROM raw_steps WHERE ts >= NOW() - INTERVAL '14 days'
+                    UNION ALL SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days' AND hrv_value >= 15
+                    UNION ALL SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days' AND spo2_pct BETWEEN 85 AND 100
                 ) all_ts
                 GROUP BY 1
             """)
             wear_rows = cur.fetchall()
+            # Per-hour wear map: which hours have skin-contact readings
+            cur.execute("""
+                SELECT DISTINCT DATE(ts) AS day, EXTRACT(HOUR FROM ts)::int AS hr
+                FROM (
+                    SELECT ts FROM raw_heart_rate WHERE ts >= NOW() - INTERVAL '14 days'
+                    UNION ALL SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days' AND hrv_value >= 15
+                    UNION ALL SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days' AND spo2_pct BETWEEN 85 AND 100
+                ) all_ts
+            """)
+            wear_hourly_rows = cur.fetchall()
 
         steps_by_day: Dict = {}
         for r in steps_rows:
@@ -698,7 +710,15 @@ class Analytics:
                 e['last'] = r['last_ts']
 
         # Wear timestamps per day (from all biometric types, not just HR)
-        wear_by_day = {r['day']: {'first': r['wear_first'], 'last': r['wear_last']} for r in wear_rows}
+        wear_by_day = {r['day']: {'first': r['wear_first'], 'last': r['wear_last'],
+                                   'hours': r['active_hours']} for r in wear_rows}
+        # Per-hour wear map for the 24h ring display
+        wear_hourly_by_day: Dict = {}
+        for r in wear_hourly_rows:
+            d = r['day']
+            arr = wear_hourly_by_day.setdefault(d, [0] * 24)
+            if 0 <= r['hr'] < 24:
+                arr[r['hr']] = 1
 
         count = 0
         for d in sorted(set(steps_by_day) | set(hr_by_day) | set(wear_by_day)):
@@ -706,11 +726,11 @@ class Analytics:
             h = hr_by_day.get(d)
             hr_samples = h['samples'] if h else 0
             hr_avg = round(h['sum_bpm'] / hr_samples) if (h and hr_samples) else None
-            # Wear time = span from first→last biometric reading (HR + HRV + SpO2 + steps)
+            # Wear time = actual hours with skin-contact readings (HR/HRV/SpO2)
             worn_min = None
             wear = wear_by_day.get(d)
-            if wear and wear.get('first') and wear.get('last'):
-                worn_min = int((wear['last'] - wear['first']).total_seconds() // 60)
+            if wear and wear.get('hours'):
+                worn_min = wear['hours'] * 60
             with self.conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO daily_activity
@@ -738,7 +758,7 @@ class Analytics:
                     h['first'] if h else (wear['first'] if wear else None),
                     h['last'] if h else (wear['last'] if wear else None),
                     json.dumps((s or {}).get('hourly', [0] * 24)),
-                    json.dumps((h or {}).get('hourly_n', [0] * 24)),
+                    json.dumps(wear_hourly_by_day.get(d, [0] * 24)),
                 ))
             count += 1
         self.conn.commit()
