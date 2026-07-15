@@ -95,6 +95,33 @@
 | — | Live temp/pulse during workout |
 | — | Gadgetbridge fork for Android native sync |
 
+### CFW Roadmap (from RESEARCH.md)
+
+Stock firmware is the starting point. Custom firmware mods to explore:
+
+| # | Task | Notes |
+|---|------|-------|
+| — | Sync behavior control | Never clear on sync, or "give me everything since timestamp X" |
+| — | Faster raw PPG polling | atc1441 has `R02_3.00.06_FasterRawValuesMOD.bin` |
+| — | MAC whitelist | Only authorized devices can connect (~10 lines of C) |
+| — | Custom storage model | Circular buffer with proper timestamps, configurable retention |
+| — | Shared secret auth | Collector sends password byte before data commands accepted |
+
+Flash via atc1441's web-based OTA tool: https://atc1441.github.io/ATC_RF03_Writer.html
+
+### Readiness Score Improvements (prioritized, from gap analysis)
+
+Ranked by impact-to-effort ratio:
+
+| # | Task | Effort | Notes |
+|---|------|--------|-------|
+| — | **Add Temperature deviation** | Low | We have data, just wire it in. Add as 5th pillar ~10% weight |
+| — | **Add HRV Balance** | Low | 14-day vs 30-day baseline (currently 7-day only). Captures chronic changes |
+| — | **Add Sleep Regularity** | Low | Variance of bed/wake times over 7 days. Oura uses this |
+| — | **Bump HRV weight** | Low | WHOOP uses ~70%. Consider 40-50% if composite HRV proves reliable |
+| — | **Add Recovery Index** | Medium | Time from overnight HR low to wake. Oura's unique contributor |
+| — | **Illness early warning** | Medium | HRV drop + RHR rise >3 bpm for 2+ days → flag |
+
 ---
 
 ## Phone-sync analytics trigger ✅ (2026-07-12)

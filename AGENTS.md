@@ -14,6 +14,13 @@ Private, self-hosted health tracking built around the **Colmi R09** (~$45 CAD). 
 - **Deployment:** Local-first on Linux Mint HTPC (AMD 3800x, 64GB RAM)
 - **Status:** Green. Ring validated. All 8 data types collecting. All 5 health scores computing. Poller + auto-refresh working.
 
+### Hardware
+
+- **Host:** Linux Mint HTPC (AMD 3800x, 64GB RAM, GTX 1070) — on 24/7
+- **Bluetooth:** Built-in (combo WiFi+BT on motherboard PCIe)
+- **Ring:** Colmi R09, size 11, FW RT09_3.10.21_251107, HW RT09_V3.1
+- **BLE address:** stored in `.env` as `RING_ADDRESS`
+
 ---
 
 ## Current Architecture
@@ -90,7 +97,9 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 - Steps undercount vs wrist devices (rings inherently register fewer steps)
 - Phone steps not fetched (Web Bluetooth sync doesn't query step data — only HR/SpO2/temp/sleep/HRV)
 
-**See RESEARCH.md for:** BLE quirks & reconnect bug, full protocol command table, validated score formulas (with citations), value-add analysis (our analytics vs ring/Gadgetbridge data), deployment topology, CFW roadmap.
+**See RESEARCH.md for:** BLE protocol command table, validated score formulas (with citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis (our analytics vs raw ring data), timezone design rationale, source dedup design.
+
+**See TASKS.md for:** CFW roadmap, readiness score improvement backlog, future feature plans.
 
 ---
 
