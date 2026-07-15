@@ -80,6 +80,10 @@ Topics covered:
 - Custom firmware roadmap
 - Oura comparison & bottom-line analysis
 
+## Development
+
+This project was built with heavy AI assistance — the architecture, analytics engine, and dashboard were co-developed with LLMs. The code is reviewed, tested, and working on real hardware, but the development loop was "describe what you want → iterate on the output" rather than traditional hand-coding. The source is open — fork it and rewrite it by hand if you prefer. 😄
+
 ## Status
 
 🟢 **Working end-to-end. All 8 data types collecting + all health scores computing.**
