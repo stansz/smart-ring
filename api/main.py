@@ -94,11 +94,12 @@ def get_daily_activity(days: int = 14):
 
 @app.get("/api/readiness")
 def get_readiness(days: int = 7):
-    """Unified readiness score (0-100 Oura-style) with sub-scores."""
+    """Unified readiness score (0-100 Oura-style) with sub-scores + context."""
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, score, hrv_score, sleep_score, activity_score, rhr_score,
-                   hrv_zscore, steps, resting_hr, hrv_rmssd, contributors
+                   hrv_zscore, steps, resting_hr, hrv_rmssd,
+                   sleep_total_min, rhr_baseline, contributors
             FROM readiness_score
             WHERE day >= CURRENT_DATE - INTERVAL ':days days'
             ORDER BY day DESC
@@ -112,10 +113,12 @@ def get_sleep(days: int = 30):
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, score, deep_pct, rem_pct, light_pct, wake_pct,
-                   temp_drop_c, total_sleep_minutes
+                   temp_drop_c, total_sleep_minutes,
+                   deep_min, rem_min, light_min, awake_min,
+                   sleep_start_ts, sleep_end_ts
             FROM sleep_quality
             WHERE day >= CURRENT_DATE - INTERVAL ':days days'
-            ORDER BY day ASC
+            ORDER BY day DESC
         """), {"days": days}).mappings().all()
     return [dict(r) for r in rows]
 
@@ -284,6 +287,7 @@ class MobileSyncRequest(BaseModel):
     device_id: str
     records: dict  # {heart_rate: [...], spo2: [...], hrv: [...], sleep: [...], temperature: [...], steps: [...], stress: [...], goals: {...}}
     synced_at: datetime
+    battery_pct: int | None = None
 
 
 def _dedupe_sources(db):
@@ -436,11 +440,21 @@ def mobile_sync(req: MobileSyncRequest):
         # Record the phone sync in sync_log so it appears in the dashboard
         try:
             db.execute(text("""
-                INSERT INTO sync_log (started_at, completed_at, records_synced, status, current_step)
-                VALUES (:started, NOW(), :n, 'ok', 'phone sync')
-            """), {"started": req.synced_at, "n": accepted})
+                INSERT INTO sync_log (started_at, completed_at, records_synced, battery_pct, status, current_step)
+                VALUES (:started, NOW(), :n, :bat, 'ok', 'phone sync')
+            """), {"started": req.synced_at, "n": accepted, "bat": req.battery_pct})
         except Exception as e:
             errors.append(f"sync_log: {e}")
+
+        # Store battery reading in ring_status (keeps nav bar indicator fresh)
+        if req.battery_pct is not None:
+            try:
+                db.execute(text("""
+                    INSERT INTO ring_status (ts, battery_pct)
+                    VALUES (NOW(), :bat)
+                """), {"bat": req.battery_pct})
+            except Exception as e:
+                errors.append(f"ring_status: {e}")
 
         # Drop phone records that duplicate ring (ring canonical; phone fills gaps)
         try:
