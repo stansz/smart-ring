@@ -657,6 +657,20 @@ class Analytics:
                 GROUP BY 1, 2
             """)
             hr_rows = cur.fetchall()
+            # Wear time: earliest→latest across ALL biometric types (HR may not
+            # be queryable for the current day, but HRV/SpO2/steps prove the
+            # ring was worn).
+            cur.execute("""
+                SELECT DATE(ts) AS day, MIN(ts) AS wear_first, MAX(ts) AS wear_last
+                FROM (
+                    SELECT ts FROM raw_heart_rate WHERE ts >= NOW() - INTERVAL '14 days'
+                    UNION ALL SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days'
+                    UNION ALL SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days'
+                    UNION ALL SELECT ts FROM raw_steps WHERE ts >= NOW() - INTERVAL '14 days'
+                ) all_ts
+                GROUP BY 1
+            """)
+            wear_rows = cur.fetchall()
 
         steps_by_day: Dict = {}
         for r in steps_rows:
@@ -683,17 +697,20 @@ class Analytics:
             if e['last'] is None or r['last_ts'] > e['last']:
                 e['last'] = r['last_ts']
 
+        # Wear timestamps per day (from all biometric types, not just HR)
+        wear_by_day = {r['day']: {'first': r['wear_first'], 'last': r['wear_last']} for r in wear_rows}
+
         count = 0
-        for d in sorted(set(steps_by_day) | set(hr_by_day)):
+        for d in sorted(set(steps_by_day) | set(hr_by_day) | set(wear_by_day)):
             s = steps_by_day.get(d)
             h = hr_by_day.get(d)
             hr_samples = h['samples'] if h else 0
             hr_avg = round(h['sum_bpm'] / hr_samples) if (h and hr_samples) else None
-            # Wear time = span from first→last HR reading (the ring doesn't sample
-            # HR every 5 min, so sample_count*5 badly undercounts).
+            # Wear time = span from first→last biometric reading (HR + HRV + SpO2 + steps)
             worn_min = None
-            if h and h.get('first') and h.get('last'):
-                worn_min = int((h['last'] - h['first']).total_seconds() // 60)
+            wear = wear_by_day.get(d)
+            if wear and wear.get('first') and wear.get('last'):
+                worn_min = int((wear['last'] - wear['first']).total_seconds() // 60)
             with self.conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO daily_activity
@@ -718,8 +735,8 @@ class Analytics:
                     (h['max'] if h and h['max'] else None),
                     hr_samples,
                     worn_min if worn_min is not None else 0,
-                    h['first'] if h else None,
-                    h['last'] if h else None,
+                    h['first'] if h else (wear['first'] if wear else None),
+                    h['last'] if h else (wear['last'] if wear else None),
                     json.dumps((s or {}).get('hourly', [0] * 24)),
                     json.dumps((h or {}).get('hourly_n', [0] * 24)),
                 ))
