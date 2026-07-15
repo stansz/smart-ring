@@ -119,3 +119,64 @@ Ring → BLE sync (on-demand) → Postgres raw tables → analytics.py → compu
 ```
 
 The poller watches for sync requests every 30s, runs the collector, then runs analytics.py to recompute all scores. Fully automated after clicking "Sync Now".
+
+## Attributions & Licensing
+
+### License
+
+This project is released under the [MIT License](LICENSE) — see `LICENSE` for details.
+
+### Protocol & Hardware References
+
+This project would not exist without the open work of the Colmi R09 reverse-engineering community:
+
+| Project | Purpose |
+|---------|---------|
+| **[tahnok/colmi_r02_client](https://github.com/tahnok/colmi_r02_client)** | Python BLE client library, CLI tools, and foundational BLE protocol documentation. Used as the direct data-extraction layer for all 8 data types. |
+| **[atc1441/ATC_RF03_Ring](https://github.com/atc1441/ATC_RF03_Ring)** | Custom firmware + SDK for the BlueX RF03 SoC. Cracked the platform open and provided the web-based OTA flasher. |
+| **[Gadgetbridge](https://codeberg.org/Freeyourgadget/Gadgetbridge)** | Open-source Android client. Primary protocol reference for R09 command set, V2 big-data characteristic, and HR/HRV/SpO2 parsers. All our collector commands are cross-validated against Gadgetbridge source. |
+| **[colmi.puxtril.com](https://colmi.puxtril.com/commands/)** | Community BLE protocol documentation site. Command reference for Nordic UART service and V2 big-data service. |
+
+### Software Libraries & Frameworks
+
+| Library / Tool | Role |
+|----------------|------|
+| **[bleak](https://github.com/hbldh/bleak)** | Cross-platform BLE client (async). Used for all ring communication. |
+| **[FastAPI](https://fastapi.tiangolo.com/)** | Web API framework (container). Serves all JSON endpoints and the dashboard. |
+| **[uvicorn](https://www.uvicorn.org/)** | ASGI server for FastAPI. |
+| **[SQLAlchemy](https://www.sqlalchemy.org/)** | Python SQL toolkit and ORM. |
+| **[psycopg2](https://www.psycopg.org/)** | PostgreSQL adapter for Python. |
+| **[PostgreSQL 16](https://www.postgresql.org/)** | Primary data store — raw sensor tables + computed health scores. |
+| **[Alpine.js](https://alpinejs.dev/)** | Lightweight JS framework for the dashboard UI (3 tabs, reactive charts, Web Bluetooth sync). |
+| **[Tailwind CSS](https://tailwindcss.com/)** | Utility-first CSS framework. Dashboard uses CDN build (no build step). |
+| **[Python asyncio](https://docs.python.org/3/library/asyncio.html)** | Async I/O for BLE collector (stdlib). |
+| **[Podman](https://podman.io/)** | Rootless container engine for DB + API services. |
+| **[systemd](https://systemd.io/)** | User services for poller + container quadlets. |
+
+### Scientific & Research References
+
+Health score formulas are grounded in peer-reviewed research:
+
+| Source | Contribution |
+|--------|-------------|
+| **Ohayon 2004** — *Sleep Medicine* meta-analysis (65 studies, 3,577 subjects) | Sleep architecture norms (deep 13–23%, REM 20–25%), efficiency thresholds, sleep quality 5-component scoring. |
+| **Altini 2021** — *Sensors* (9M measurements, 28,175 users) | HRV longitudinal monitoring, z-score recovery framework, ln-transform normalization. |
+| **Plews et al. 2013** — *Sports Medicine* | HRV training adaptation in elite athletes. Basis for 7-day rolling baseline methodology. |
+| **Garmin/Firstbeat** | Stress classification thresholds (0–99 scale → Relaxed/Low/Medium/High). Daily weighted score methodology. |
+| **Shen et al. 2025** — *Frontiers in Physiology* | Circadian rhythm removal improves stress classification accuracy by 13.67%. |
+| **Doherty & Altini 2025** | Comparative study of wearable readiness scores (Oura, WHOOP, Garmin, Fitbit). Validates that wearable readiness scores estimate recovery, not measure it. |
+| **Dial et al. 2025** | Multi-wearable study (536 nights) showing Oura's nocturnal RHR accuracy vs ECG. |
+
+### Deployment & Infrastructure
+
+| Tool | Role |
+|------|------|
+| **[Tailscale](https://tailscale.com/)** | Secure remote access to dashboard without cloud dependency. |
+
+### No Affiliation
+
+This project is **not affiliated with, endorsed by, or connected to** Colmi, ATC, or any commercial ring manufacturer. It is an independent, community-built health tracking pipeline.
+
+### Health Disclaimer
+
+The health scores computed by this project are for informational purposes only. They are not medical devices, not FDA/Health Canada approved, and not a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of a physician or qualified health provider with any questions about a medical condition.
