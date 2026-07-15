@@ -2489,14 +2489,37 @@
         }
 
         let _statusEl = null;
+        let _wakeLock = null;
+
+        async function _requestWakeLock() {
+            try {
+                _wakeLock = await navigator.wakeLock.request('screen');
+                document.addEventListener('visibilitychange', async () => {
+                    if (_wakeLock !== null && document.visibilityState === 'visible') {
+                        try { _wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+                    }
+                });
+            } catch(e) { console.log('Wake lock not available'); }
+        }
+        async function _releaseWakeLock() {
+            if (_wakeLock) { try { await _wakeLock.release(); } catch(e) {} _wakeLock = null; }
+        }
+
         function _status(msg) {
             console.log('[ring]', msg);
             if (!_statusEl) {
                 _statusEl = document.createElement('div');
-                _statusEl.className = 'fixed bottom-16 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg shadow-lg bg-slate-800 text-white text-xs sm:text-sm whitespace-nowrap max-w-[90vw]';
+                _statusEl.className = 'fixed inset-0 z-[100] flex items-center justify-center bg-black/60';
+                _statusEl.innerHTML = `
+                    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-sm w-[90%] text-center">
+                        <div class="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 dark:border-gray-600 border-t-blue-600 mx-auto mb-5"></div>
+                        <p id="_statusPhase" class="text-lg font-semibold text-gray-900 dark:text-gray-100"></p>
+                        <p class="text-xs text-gray-400 dark:text-gray-500 mt-3">💡 Keep this screen on</p>
+                    </div>`;
                 document.body.appendChild(_statusEl);
             }
-            _statusEl.textContent = msg;
+            const phase = _statusEl.querySelector('#_statusPhase');
+            if (phase) phase.textContent = msg;
         }
         function _statusDone() { if (_statusEl) { _statusEl.remove(); _statusEl = null; } }
         // R09 expects write-without-response (matches bleak write_gatt_char response=False).
@@ -2811,11 +2834,14 @@
         // Expose to Alpine
         window.ringSyncFromPhone = async function() {
             try {
+                await _requestWakeLock();
                 await connect();
             } catch (e) {
                 console.error('Phone sync:', e);
                 _statusDone();
                 showToast('Sync failed: ' + (e.message || e), 'error');
+            } finally {
+                await _releaseWakeLock();
             }
         };
     })();
