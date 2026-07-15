@@ -1,19 +1,13 @@
-# Smart Ring Research Summary
+# Smart Ring Research
 
-*Compiled 2026-07-01 — Updated 2026-07-11*
-*Ring arrived and fully validated July 9, 2026. Firmware RT09_3.10.21_251107, HW RT09_V3.1. All data types collecting, all health scores computing.*
+*Hardware specs, BLE protocol, validated score formulas, and design rationale. For operational details (deployment, setup, BLE workarounds) see `AGENTS.md`.*
 
-## Hardware Target: Colmi R09 ✅ ARRIVED & VALIDATED
+## Hardware Target: Colmi R09
 
-- **Status:** ✅ Arrived July 9, 2026 — working end-to-end
-- **BLE address:** `<ring_ble_address>` (R09_2103)
-- **Firmware:** RT09_3.10.21_251107
-- **Hardware:** RT09_V3.1
-- **Cost:** ~$45 CAD from Colmi official store (AliExpress), size 11
 - **SoC:** BlueX RF03 ARM Cortex-M0 (200KB RAM, 512KB Flash)
 - **Sensors:** accelerometer (steps, sleep, gestures), heart rate (PPG), SpO2, **skin temperature** (R09 exclusive — R02/R06/R10 lack this)
 - **Weight:** ~3.8g (20% lighter than R02 due to concave design)
-- **Battery:** 15-18mAh, ~2-3 day battery life depending on size
+- **Battery:** 15-18mAh, ~2-3 day battery life
 - **Storage model:** ring logs sensor data onboard, syncs on demand via BLE. No persistent phone connection needed.
 
 ### Why R09 over R02?
@@ -26,9 +20,9 @@
 | CFW support | ✅ | ✅ confirmed |
 | Price | ~$20-25 CAD | ~$45 CAD (official store) |
 
-The temperature sensor is a real hardware advantage — enables body temp trending for sleep staging and cycle tracking alongside raw PPG data.
+The temperature sensor enables body temp trending for sleep staging alongside raw PPG data.
 
-### Compatible Models Reference
+### Compatible Models
 
 All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says "use the QRing app," it's compatible.
 
@@ -44,310 +38,116 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 
 ## Why It's Hackable
 
-- **Zero auth.** No binding, no pairing ceremony, no security keys. First device to connect wins. Anyone in BLE range can read stored data.
-- **Standard BLE protocol.** Uses Nordic UART Service (UUID `6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E`). You write 16-byte packets, ring responds. First byte = command type, last byte = checksum (sum of other 15 bytes mod 255), middle 14 bytes = payload.
+- **Zero auth.** No binding, no pairing ceremony, no security keys. First device to connect wins.
+- **Standard BLE protocol.** Uses Nordic UART Service (`6E40FFF0-B5A3-F393-E0A9-E50E24DCCA9E`). You write 16-byte packets, ring responds. First byte = command type, last byte = checksum (sum of other 15 bytes mod 255), middle 14 bytes = payload.
 - **No app lock-in.** The QRing app is completely optional. Multiple Gadgetbridge users confirmed connecting directly without ever installing QRing.
 
-## Key Tools (all open source)
+## Key Tools
 
 | Tool | Purpose |
 |------|---------|
-| **tahnok/colmi_r02_client** | Python client + full BLE protocol docs. CLI for scan, sync to SQLite, realtime HR, set time, set HR log interval, send raw commands. Can be used as a library. |
-| **smittytone/RingCLI** | CLI for pulling historical data |
-| **atc1441/ATC_RF03_Ring** | Custom firmware + SDK for the RF03 SoC. Includes a web-based OTA flasher (no hardware programmer needed). This is the foundation that cracked the platform. |
-| **Gadgetbridge** | Open-source Android client (F-Droid, NOT Play Store). Package: `nodomain.freeyourgadget.gadgetbridge`. Supports R02/R03/R06/R09. |
+| **tahnok/colmi_r02_client** | Python client + full BLE protocol docs. CLI for scan, sync to SQLite, realtime HR, set time. Used as a library in our collector. |
+| **atc1441/ATC_RF03_Ring** | Custom firmware + SDK for the BlueX RF03 SoC. Includes web-based OTA flasher (no hardware programmer needed). Foundation that cracked the platform. |
+| **Gadgetbridge** | Open-source Android client (F-Droid). Supports R02/R03/R06/R09. Primary protocol reference for command set and V2 big-data characteristic. |
+| **colmi.puxtril.com** | Community BLE protocol documentation site. Command reference for Nordic UART + V2 big-data service. |
 
-## Setup Plan
+## Open Questions (All Resolved)
 
-### Phase 1: Gadgetbridge (interim — phone only) ✅ DONE
-1. Install Gadgetbridge from F-Droid ✅
-2. Charge ring, pair via BLE ✅
-3. Set clock, configure logging intervals ✅
-4. Verify sensors work — HR, SpO2, temperature, steps ✅
-5. Use for visual validation only — don't rely on it for data pipeline ✅
+### Does syncing wipe data from the ring? ✅ READ-ONLY
 
-### Phase 2: PC Collector (primary pipeline) ✅ DONE
-1. `pip install colmi-r02-client` ✅
-2. `colmi_r02_util scan` → get BLE address ✅ (<ring_ble_address>)
-3. `colmi_r02_client --address=XX:XX set-time` → sync clock ✅
-4. `colmi_r02_client --address=XX:XX set-heart-rate-log-settings` → set sampling interval ✅
-5. Build collector wrapper → sync → parse → push to Postgres ✅ (see `collector/sync_ring.py`)
+**Confirmed read-only on firmware RT09_3.10.21.** Syncing reads data without clearing it. Tested both within-connection (two fetches, same session) and across-disconnect (fetch → disconnect → reconnect → fetch). Both returned identical data.
 
-### Phase 3: Full pipeline ✅ DONE
-- Postgres schema (raw HR, steps, HRV, sleep, SpO2, temperature, stress, goals + computed metrics) ✅
-- Web dashboard (Alpine.js + Tailwind CSS, dark mode, no external chart library) ✅ — served at `http://localhost:8000`
-- Admin UI with Sync Now button, ring status, system health, sync log, raw data tables ✅
-- On-demand sync via web UI → DB queue → host-side poller → BLE sync ✅
-- All 8 data types collecting (HR, steps, HRV, sleep, SpO2, temp, stress, goals) ✅
-- Validated health scores (sleep quality, recovery z-score, stress classification) ✅
-- Remote access via Tailscale ✅
-- ~~Optional CFW for enhanced behavior~~ (evaluating, not a priority)
-- Phone sync path (Gadgetbridge → FastAPI via Tailscale) — PLANNED
+Data persists on the ring regardless of read or disconnect. The ring's storage is an age-based circular buffer (~7 days). Data is only lost when it ages out. Multiple devices (phone + Linux collector) can sync independently without data loss.
 
-## Open Questions
+### What is the HRV data format? ✅ COMPOSITE VALUE
 
-### Does syncing wipe data from the ring? ✅ RESOLVED — READ-ONLY
+The ring stores a **composite HRV value** (single byte, 0-255, in milliseconds) — NOT true RR intervals. Fetched via `CMD_SYNC_HRV` (0x39) with per-day offset (0-6). Buffer is ~3 days.
 
-**Confirmed read-only on firmware RT09_3.10.21.** Syncing reads data from the ring without clearing it. Two scenarios were tested via `collector/test_sync_readonly.py`:
-
-1. **Within-connection:** Two fetches within the same BLE link returned identical data (9 entries, 731 steps each).
-2. **Across-disconnect:** Fetch → disconnect → reconnect → fetch. Reconnect required the `forget+repair` workaround (see BLE Quirks below). Both fetches returned identical data.
-
-**Data persists on the ring regardless of read or disconnect.** The ring's storage is an age-based circular buffer (~7 days). Data is only lost when it ages out of the buffer window. This means:
-- Multiple devices (phone/Gadgetbridge + Linux collector) can both sync independently without data loss.
-- Timer-driven or manual syncs are safe — no risk of missed data.
-- The ring can be synced by Gadgetbridge in the morning on the go, then synced again by the Linux box in the afternoon — both get the same data.
-
-### What is the HRV data format? ✅ RESOLVED — COMPOSITE VALUE
-
-The ring stores a **composite HRV value** (single byte, 0-255, in milliseconds) — NOT true RR intervals. This is fetched via `CMD_SYNC_HRV` (0x39) with a per-day offset parameter (0-6). The ring's HRV buffer is ~3 days.
-
-The composite value can substitute for RMSSD in trend/z-score analysis — this is exactly how all commercial rings work (PPG-derived values against personal baselines). The z-score methodology is robust to monotonic transforms since it uses your own baseline and SD. See "Validated Score Formulas" below for the full methodology.
-
-RMSSD and pNN50 (which require RR intervals) are **NOT available** from this ring.
+The composite value works for trend/z-score analysis — this is exactly how all commercial rings work (PPG-derived values against personal baselines). RMSSD and pNN50 (which require RR intervals) are **NOT available**.
 
 ### What commands does the R09 actually use? ✅ ALL RESOLVED
 
-| Data Type | Command | Status |
-|-----------|---------|--------|
-| Sleep | `CMD_BIG_DATA_V2` (0xBC) + type 0x27 | ✅ Implemented — per-session stages via V2 BLE characteristic |
-| HRV | `CMD_SYNC_HRV` (0x39) with per-day offset | ✅ Implemented — composite ms values at 30-min intervals |
-| SpO2 | `CMD_BIG_DATA_V2` (0xBC) + type 0x2A | ✅ Implemented — hourly min/max averaged |
-| Temperature | `CMD_BIG_DATA_V2` (0xBC) + types 0x25-0x29 | ✅ Implemented — 30-min intervals, temp = (raw/10)+20°C. **5 days of history** split across big-data types 0x25-0x29 (one type per day, oldest to newest). Each type holds 1 day of 30-min interval readings. R09 exclusive. |
-| Stress | `CMD_SYNC_STRESS` (0x37) | ✅ Implemented — 30-min interval readings (0-99) |
-| Heart Rate | cmd 21 (0x15) | ✅ Same as library |
-| Steps | cmd 67 (0x43) | ✅ Same as library |
-| Battery | cmd 3 | ✅ Same as library |
-| Goals | `CMD_GOALS` (0x21) | ✅ Implemented — steps/calorie/distance targets |
-| Device Info | GATT 0x180A | ✅ Same as library |
+| Data Type | Command | Notes |
+|-----------|---------|-------|
+| Heart Rate | cmd 0x15 | 5-min intervals, multi-packet per day, 288 slots |
+| Steps | cmd 0x43 | 15-min slots with calories + distance (slots 0–95 per day) |
+| HRV | cmd 0x39 | 30-min intervals, composite ms values, 3-day buffer |
+| Sleep | cmd 0xBC + type 0x27 | V2 big-data: per-session stages with timestamps |
+| SpO2 | cmd 0xBC + type 0x2A | V2 big-data: hourly min/max, averaged |
+| Temperature | cmd 0xBC + types 0x25-0x29 | V2 big-data: 30-min intervals, 5-day history (R09 exclusive). `temp_c = (raw/10)+20` |
+| Stress | cmd 0x37 | 30-min intervals, 0-99 scale |
+| Battery | cmd 0x03 | Battery percentage |
+| Goals | cmd 0x21 | Steps/calorie/distance targets |
+| Device Info | GATT 0x180A | Hardware + firmware version |
 
-**Heart rate data format:** The ring's SportDetail returns `time_index` as a **15-minute slot** from local midnight (slots 0–95 per day), NOT the hour of the day. Each 15-min slot represents steps/calories/distance for that window.
-
-**Ring time — R09 Time Sync Protocol (Gadgetbridge source-verified, Jul 2026):**
+### R09 Time Sync Protocol
 
 The R09 firmware reads the set_time BCD bytes as **local wall-clock values** (not UTC). Three implementations compared:
 
-| Aspect | Gadgetbridge `setDateTime()` | Our `set_time_local()` | Library `set_time_packet()` |
-|--------|------------------------------|------------------------|-----------------------------|
-| Timezone | LOCAL (`GregorianCalendar.getInstance()`) | LOCAL (`datetime.now()`) | UTC (converts via `.astimezone(timezone.utc)`) |
-| Data bytes | 6 (year/month/day/hour/min/sec) | 6 (same) | 7 (+ language flag `0x01`) |
-| Encoding | BCD via `Byte.parseByte(str, 16)` | BCD via `byte_to_bcd()` | BCD via `byte_to_bcd()` |
+| Aspect | Gadgetbridge | Our `set_time_local()` | Library `set_time_packet()` |
+|--------|-------------|----------------------|---------------------------|
+| Timezone | LOCAL | LOCAL | UTC |
+| Data bytes | 6 (year/month/day/hour/min/sec) | 6 (same) | 7 (+ language flag) |
+| Encoding | BCD | BCD | BCD |
 
 The library's UTC approach shifts the ring's "midnight" by the host's UTC offset, causing data to land in wrong time slots. Our 6-byte local packet matches Gadgetbridge byte-for-byte.
 
-**The ring acknowledges `set_time`:** After sending cmd 0x01, the ring responds with a 16-byte capability packet (same cmd byte). The library's `client.py` registers `empty_parse` for 0x01, which returns `None` and silently discards this response. We override with `_pass_through` so the ack reaches `client.queues[0x01]`. After `set_time_local()`, we wait 3s for this response — if it arrives, the ring processed the command.
+The ring acknowledges `set_time` with a 16-byte capability packet. The library's `client.py` silently discards this via `empty_parse` — we override with `_pass_through` so the ack is captured. After sending, we wait 3s for the response to confirm the ring processed the command.
 
-**Ring buffer behavior after clock jumps:** When the ring's clock is changed (e.g., factory UTC+8 → our local time), old data in the ring's circular buffer retains its original timestamps. This creates "phantom" future-dated entries in the DB. The `clipFuture` filter on the dashboard hides these. The ring's ~7-day buffer flushes old entries naturally as new data fills in.
+**Drift measurement pitfall:** Do NOT measure clock drift as `max(HR ts) - now()`. With 30-min HR sampling, this always shows -10 to -30 min "drift" — that's sampling lag, not clock error. Any data-freshness-based check will false-alarm when the ring is off the finger.
 
-**Drift measurement pitfall:** Do NOT measure clock drift as `max(HR ts) - now()`. With 30-min HR sampling, this always shows -10 to -30 min "drift" — that's just the time since the last HR sample, not clock error. Any data-freshness-based check will false-alarm when the ring is off the finger. The ack-based approach avoids this entirely.
+## BLE Quirks (R09 Firmware 3.10.21)
 
-All stored data uses the ring's local time as the reference. When building timestamps, use local midnight (not UTC midnight) as the base, then convert to UTC via `.astimezone()`.
+The R09 firmware has several BLE behaviors requiring workarounds. See `AGENTS.md` for the operational details (forget+repair procedure, retry backoff). Key facts:
 
----
+1. **Aggressive sleep** — stops advertising ~30s after disconnect. RSSI drops from -68 to -127.
+2. **Reconnect bug (Linux/BlueZ specific)** — BlueZ holds stale GATT state after disconnect. Does NOT happen on Android.
+3. **Single BLE connection** — hardware limitation of the RF03 SoC. Only one device can connect at a time.
+4. **bluetoothctl vs bleak conflict** — pair → disconnect → bleak connect (see AGENTS.md for procedure).
 
-## BLE Quirks & Reconnect Bug (R09 Firmware 3.10.21)
+## Data Availability
 
-The R09 firmware has several BLE behaviors that required workarounds in the collector code. These are documented in `collector/ring_client.py` as utility functions (`forget_ring`, `pair_ring`, `disconnect_ring`, `forget_and_repair`).
+### Stored on ring (syncable historically, ~3-7 day buffer)
 
-### 1. Aggressive Sleep
-The ring **stops advertising ~30 seconds** after losing a BLE connection. RSSI drops from -68 to -127 within seconds. The ring will not be discoverable again until:
-- You wear/tap the ring (movement wakes the accelerometer)
-- You connect it briefly to a charger
-- A BLE scan "nudges" the radio awake (used as a wake-ping in `connect_with_retry`)
-
-### 2. Reconnect Bug (Linux/BlueZ Specific)
-After a BLE disconnect, **BlueZ holds stale GATT state** that prevents new connections. The symptom on Linux is:
-- `BleakDeviceNotFoundError`: "Device was not found" (ring is advertising but BlueZ can't see it)
-- `BleakError`: "failed to discover services, device disconnected"
-- `EOFError` on `start_notify` (BlueZ has GATT cache from previous session)
-
-**This does NOT happen on Android** — Android's BLE stack properly maintains the bond and clears stale GATT state on reconnect. The R09 bug only manifests on Linux BlueZ.
-
-### 3. The Forget+Repair Workaround
-The reliable workaround on Linux is a **full forget+re-pair** before every connection:
-
-```
-bluetoothctl disconnect <addr>    # Release any lingering GATT link
-bluetoothctl remove <addr>        # Clear ALL cached state (bond, GATT services, connection history)
-    → SCAN (BlueZ must re-discover the device before pairing)
-bluetoothctl pair <addr>          # Establish a fresh bond
-bluetoothctl disconnect <addr>    # Release the GATT link so bleak can own it
-    → bleak connects and owns the notification stream
-```
-
-After the sync completes, the ring is forgotten again (`bluetoothctl remove`) to leave it in a clean state for the next sync (or for phone pairing).
-
-This workaround is automated in `collector/ring_client.py`:
-- `forget_ring(addr)` — disconnect + remove
-- `pair_ring(addr)` — pair + auto-disconnect (releases GATT for bleak)
-- `forget_and_repair(addr)` — forget → scan → pair (async, includes scan between forget and pair so BlueZ re-discovers the device)
-
-### 4. Single BLE Connection
-The R09 only supports **one BLE connection at a time**. If the Linux box is connected, the phone (Gadgetbridge) cannot connect — and vice versa. This is a hardware limitation of the BlueX RF03 SoC.
-
-Our design works around this by:
-- Connecting only during sync (no persistent BLE link)
-- Doing `forget_ring()` at the end of each sync → ring is immediately free for phone pairing
-- The poller (`smart-ring-poller.service`) polls the DB every 30s and only initiates a BLE connection when there's a pending sync request
-
-### 5. bluetoothctl vs bleak Ownership Conflict
-**bluetoothctl and bleak cannot share a connection.** If `bluetoothctl pair` establishes a GATT link, it must be disconnected (`bluetoothctl disconnect`) before bleak can `connect()`. The `pair_ring()` function now auto-disconnects after pairing to prevent this conflict.
-
-### 6. Retry-on-Sleep with Exponential Backoff
-`connect_with_retry()` in `sync_ring.py` handles the ring's sleep behavior:
-- Attempts: 5 (configurable via `--attempts N` CLI flag)
-- Backoff: 2s, 4s, 8s, 16s, 32s
-- Wake-ping: a 5-10s BLE scan before the first attempt and before the last attempt
-- Catches: `BleakError`, `OSError`, `TimeoutError`, `EOFError`, `ConnectionError`
-
----
-
-## Security Posture
-
-**Stock firmware — wide open:**
-- No auth, no pairing, no token exchange
-- Practical risk is low: BLE range is ~1–3m (tiny antenna, 17mAh battery), single connection only, data is just HR/steps
-- Same reason all cheap IoT gear ships open — auth costs engineering time + support tickets, and at $20 margins there's no ROI on security
-
-**Custom firmware — you control it:**
-- **MAC whitelist** (~10 lines of C): ring checks connecting device's address against stored list. Easy to defeat via spoofing but raises the bar above casual BLE scanning.
-- **Shared secret** (~30 lines): collector sends a password byte before ring accepts data commands. Can't be defeated by sniffing.
-- **Rolling challenge-response** (~100 lines): ring sends random nonce, collector encrypts with shared key. Defeats replay attacks. Needs a tiny crypto impl on the M0.
-
-**Honest assessment:** MAC binding is probably sufficient for this threat model. The only realistic attacker is "someone physically in your house who knows what a Colmi ring is AND has reverse-engineered the BLE protocol" — approximately zero people. Layer MAC filtering for peace of mind.
-
-## CFW Roadmap
-
-Stock firmware is the starting point. Custom firmware mods to explore:
-
-1. **Sync behavior control** — never clear on sync, or implement "give me everything since timestamp X" command
-2. **Faster raw PPG polling** — atc1441 already has `R02_3.00.06_FasterRawValuesMOD.bin` firmware
-3. **MAC whitelist** — only authorized devices can connect
-4. **Custom storage model** — circular buffer with proper timestamps, configurable retention
-5. **Shared secret auth** — prevent unauthorized data access
-
-Flash via atc1441's web-based OTA tool: https://atc1441.github.io/ATC_RF03_Writer.html (WebBluetooth, Chrome required)
-
-## Architecture (CONFIRMED — Local-First)
-
-Both options share the same components — they differ in WHERE things run.
-
-### Shared components (same for both options)
-- **Collector:** Python wrapping `colmi_r02_client` + `bleak` for BLE
-- **Storage:** Postgres (containerized — Podman or Docker)
-- **Analytics:** Python with numpy/scipy for HRV math and sleep staging
-- **API:** FastAPI serving JSON
-- **Dashboard:** Web UI (SvelteKit or lightweight server-rendered + charts)
-- **Ring management:** CLI (sync, battery, config) — infrequent, no UI needed
-
-## Data Availability — What the Ring Stores vs Streams
-
-### Stored on ring (syncable historically, ~3-7 day buffer depending on data type)
-- **Heart Rate** (cmd 0x15) ✅ — processed BPM at 5-minute intervals. Fetched via custom `fetch_hr_history()` which bypasses the library's buggy `HeartRateLogParser`.
-- **Steps/Activity** (cmd 0x43) ✅ — `SportDetail` objects with `time_index` as **15-minute slots** from local midnight (0–95), each containing `steps`, `calories`, `distance`.
-- **HRV** (cmd 0x39) ✅ — composite ms values at 30-minute intervals. Ring's buffer is ~3 days. NOT true RR intervals — the ring computes a single-byte composite HRV internally.
-- **Sleep** (cmd 0xBC + type 0x27) ✅ — per-session sleep data via V2 BLE characteristic: sleepStart/sleepEnd (minutes after midnight) + per-stage entries (type: 2=light, 3=deep, 4=rem, 5=awake + duration in minutes).
-- **SpO2** (cmd 0xBC + type 0x2A) ✅ — per-day hourly min/max blood oxygen, averaged to single value.
-- **Temperature** (cmd 0xBC + types 0x25-0x29) ✅ — skin temperature at 30-min intervals: `temp_c = (raw / 10) + 20`. **5 days of history** split across big-data types 0x25-0x29 (one type per day, oldest to newest). R09 exclusive.
-- **Stress** (cmd 0x37) ✅ — stress values 0-99 at 30-min intervals. Multi-packet protocol (pkt 0=header, pkts 1-4=data).
-- **Goals** (cmd 0x21) ✅ — daily step/calorie/distance/sport/sleep targets.
+| Data Type | Interval | Buffer | Format |
+|-----------|----------|--------|--------|
+| Heart Rate | 5-min | ~7 days | Processed BPM, 288 slots/day |
+| Steps/Activity | 15-min | ~7 days | Steps + calories + distance per slot |
+| HRV | 30-min | ~3 days | Composite single-byte (0-255 ms) |
+| Sleep | Per-session | ~7 days | Stages + durations via V2 characteristic |
+| SpO2 | Hourly | ~7 days | Min/max averaged to single % |
+| Temperature | 30-min | 5 days | Skin temp °C (R09 exclusive) |
+| Stress | 30-min | ~7 days | 0-99 scale |
 
 ### V2 Big-Data Protocol (sleep, SpO2, temperature)
-These three data types use a **second BLE service** (`de5bf728`) separate from the Nordic UART:
-- **Request**: write to COMMAND char (`de5bf72a`) — raw bytes, no 16-byte framing
+
+These use a second BLE service (`de5bf728`) separate from Nordic UART:
+- **Request**: write raw bytes to COMMAND char (`de5bf72a`) — no 16-byte framing
 - **Response**: notify on NOTIFY_V2 char (`de5bf729`) — multi-packet, accumulate until `length + 6` bytes (header bytes [2:3] = uint16 LE total length)
-- Implemented in `collector/ring_client.py` (`_handle_big_data`, `send_command`)
 
-### Real-time only (live stream, on-demand — NOT stored)
-- **Raw PPG** — the actual light sensor waveform
-- **Raw accelerometer** — x/y/z at full rate
-- **ECG** — if supported
-- **Live HR** — current BPM reading
+### Real-time only (NOT stored — requires active BLE connection)
 
-### Critical constraint
-The ring does NOT store raw PPG waveforms. It processes them internally into BPM metrics, stores those results in a ~7-day circular buffer, and discards the raw signal. The 512KB flash can't hold continuous waveform data. For raw PPG you must be actively connected and streaming — which drains the 15mAh battery in ~4-6 hours of continuous use.
+- Raw PPG (photoplethysmogram waveform)
+- Raw accelerometer (x/y/z at full rate)
+- Live HR (current BPM reading)
 
-### HRV data details
-The ring stores a **composite HRV value** (single byte, ms) — not RR intervals. This means:
-- ❌ True RMSSD and pNN50 cannot be computed (require beat-to-beat interval arrays)
-- ✅ Trend analysis works: the composite value tracks meaningfully day-to-day
-- ✅ Z-score recovery computation works: uses personal baseline + SD, robust to the composite transform
+The 512KB flash can't hold continuous waveform data. For raw PPG you must be actively connected and streaming — drains the 15mAh battery in ~4-6 hours.
+
+### HRV data limitations
+
+The ring provides a composite HRV value — not RR intervals. This means:
+- ❌ True RMSSD and pNN50 cannot be computed
+- ✅ Trend analysis works: composite value tracks meaningfully day-to-day
+- ✅ Z-score recovery works: uses personal baseline + SD, robust to monotonic transform
 - ✅ All commercial rings (Oura, WHOOP) use PPG-derived values the same way
 
-The ring's HRV buffer is ~3 days (daysAgo 0-2 return data, 3-6 return empty).
+## Validated Score Formulas
 
-Source: Full BLE protocol docs at https://colmi.puxtril.com/commands/
+All formulas backed by peer-reviewed research. Implementation in `collector/analytics.py`.
 
----
+### Sleep Quality (0-100)
 
-## Metrics & Insights from Periodic Data (No Continuous Streaming Needed)
-
-Research shows periodic sampling throughout the day is scientifically valid and widely used. You don't need continuous raw PPG to get meaningful health insights.
-
-### Daily Recovery Score (Morning RMSSD)
-- **What:** Single RMSSD measurement taken each morning, compared to 7-day rolling baseline
-- **Science:** Validated as the gold standard for athlete recovery monitoring. Short-term RMSSD (60-120 seconds of clean data) is statistically reliable (Frontiers in Physiology, 2025). Marco Altini's research shows morning HRV is the most practical and effective way to capture acute stress response and chronic baseline changes.
-- **Ring already does this:** The ring samples HR periodically throughout the night and morning. Those stored BPM readings + HRV data are exactly what you need.
-- **Metric:** `(today's RMSSD - 7-day avg) / 7-day std dev` → z-score → readiness rating
-
-### Stress vs Rest Classification (Tri-daily Sampling)
-- **What:** HRV measured at morning, noon, and evening to classify stress/rest states
-- **Science:** Frontiers in Physiology (2025) trained a classifier on 3x daily short-term HRV features with circadian rhythm removed. Successfully distinguished stress from resting states throughout the day.
-- **Ring data:** The ring's periodic HR samples throughout the day provide the raw material for this.
-
-### Sleep Quality Scoring (Periodic Overnight Sampling)
-- **What:** Sleep stage estimation from periodic HR + HRV + accelerometer + temperature
-- **Science:** Nature Scientific Reports (2023) demonstrated 4-class sleep staging (wake/light/deep/REM) using PPG-derived instantaneous heart rate + accelerometer, achieving Cohen's kappa 0.74 — competitive with PSG. The algorithm uses interbeat intervals and body movement patterns, sampled periodically.
-- **Key insight:** The ring's overnight periodic samples (every 10-30 min) capture enough HR variability + movement data for sleep staging. You don't need continuous PPG.
-- **Temperature bonus:** R09's skin temp adds body temperature drops during deep sleep — improves staging accuracy significantly.
-
-### Resting Heart Rate Tracking
-- **What:** Lowest sustained HR during sleep, trended over time
-- **Science:** Elevated RHR correlates with illness onset, overtraining, stress, and poor sleep. WHOOP and Oura both use this.
-- **Ring data:** Directly available from stored overnight HR samples — no raw PPG needed.
-
-### HRV Trending (Weekly/Monthly)
-- **What:** Rolling averages of RMSSD/HRV score over time
-- **Science:** Long-term HRV trends (7-28 day rolling windows) reveal training adaptation, chronic stress, and seasonal patterns. More meaningful than day-to-day fluctuations.
-- **Ring data:** Just need the stored HRV readings — compute trends in Postgres.
-
-### Circadian HR Pattern
-- **What:** HR mapped to time-of-day across days/weeks
-- **Science:** HR follows a circadian rhythm — lowest ~3-4am, peak ~noon. Disruptions in this pattern indicate jet lag, shift work effects, or metabolic issues.
-- **Ring data:** Periodic HR samples throughout the day are perfect for mapping this.
-
-### Illness Early Warning
-- **What:** Drop in HRV + rise in RHR above baseline
-- **Science:** Both Oura and WHOOP validate this. HRV drops and RHR rises 1-3 days before symptom onset.
-- **Ring data:** Just needs stored HR + HRV trends — the ring already captures this periodically.
-
-### Activity-Based HR Zones
-- **What:** HR during walking/running from accelerometer + HR correlation
-- **Science:** Step count + HR during activity gives crude cardio zones without a chest strap.
-- **Ring data:** Stored steps + stored HR at those timestamps.
-
----
-
-### Metrics to Implement (both options)
-- ~~**RMSSD** (root mean square of successive differences)~~ — NOT AVAILABLE: ring provides composite HRV, not RR intervals
-- ~~**pNN50**~~ — NOT AVAILABLE: requires RR intervals
-- ✅ **Sleep staging** — light/deep/REM/wake from cmd 0xBC big-data (IMPLEMENTED)
-- ✅ **Resting HR** — lowest sustained HR during sleep (IMPLEMENTED)
-- ✅ **Recovery score** — ln(composite_HRV) z-score vs 7-day baseline (IMPLEMENTED)
-- ✅ **Stress classification** — Garmin/Firstbeat thresholds from raw_stress (IMPLEMENTED)
-- ✅ **HRV trends** — rolling 7d/28d windows of composite HRV (IMPLEMENTED)
-- ✅ **Circadian HR pattern** — HR mapped to time-of-day (IMPLEMENTED)
-- [ ] **Illness early warning** — HRV drop + RHR rise above baseline (future)
-
----
-
-## Validated Score Formulas (2026-07-10)
-
-All formulas are backed by peer-reviewed research and commercial validation studies. See `collector/analytics.py` for implementation.
-
-### Sleep Quality Score (0-100)
-
-**5-component composite** — mirrors Oura's architecture (reverse-engineered by Chheda, ~500 nights, R²=0.846):
+5-component composite — mirrors Oura's architecture (reverse-engineered by Chheda, ~500 nights):
 
 ```
 SleepScore = 30%·S_dur + 25%·S_eff + 25%·S_arch + 15%·S_cont + 5%·S_lat
@@ -357,27 +157,23 @@ Each sub-score uses trapezoidal scoring (full credit in optimal range, linear de
 
 | Component | Optimal | Declines to 0 at | Reference |
 |-----------|---------|-------------------|-----------|
-| Duration | 7-9 hours | <4h, >10h | Watson et al. 2015 (NSF consensus); Koemel et al. 2026 |
-| Efficiency | ≥90% | <60% | Ohayon 2004 meta-analysis (3,327 citations) |
+| Duration | 7-9 hours | <4h, >10h | Watson et al. 2015 (NSF consensus) |
+| Efficiency | ≥90% | <60% | Ohayon 2004 meta-analysis |
 | Architecture | deep 13-23%, REM 20-25% | penalize below/above | Ohayon et al. 2004, AASM norms |
 | Continuity | WASO <20min, <2 awakenings | WASO >60min, >6 awakenings | AASM clinical practice |
 | Latency | 10-20 min | <5min (debt), >30min (poor) | PSQI / Oura contributor |
 
-**Why these weights:** Oura's reverse-engineering (Chheda) shows total sleep time is the #1 predictor (coefficient 25.26), followed by latency (12.14), then REM (7.56). Duration gets ~2-3× the weight of any single stage metric.
-
-**Normal sleep architecture (Ohayon 2004 meta-analysis, 65 studies, 3,577 subjects):**
-- Deep (N3): 13-23% (declines ~2%/decade with age; men >70 have ~50% less than men <55)
-- REM: 20-25% (subtle decline; meaningful impairment usually only after 80)
+**Normal sleep architecture** (Ohayon 2004 meta-analysis, 65 studies, 3,577 subjects):
+- Deep (N3): 13-23% (declines ~2%/decade with age)
+- REM: 20-25%
 - Light (N1+N2): 50-60%
 - Wake: <10%
 
-**Previous formula** (`deep_pct × 2.5 + rem_pct × 1.5`) was duration-blind, over-rewarded supra-physiological deep sleep, and ignored efficiency/continuity. Replaced.
+### HRV Recovery (z-score)
 
-### HRV Recovery Score (z-score)
+Altini/Plews/Buchheit framework — gold standard for athlete recovery monitoring:
 
-**Altini/Plews/Buchheit framework** — the gold standard for athlete recovery monitoring:
-
-1. **Log-transform**: `ln(composite_hrv)` — normalizes the distribution (RMSSD is right-skewed)
+1. **Log-transform**: `ln(composite_hrv)` — normalizes the distribution
 2. **7-day rolling baseline**: mean of ln(HRV) over previous 7 days
 3. **Z-score**: `z = (ln_today - mean_7d) / SD_7d`
 4. **Readiness mapping**:
@@ -390,19 +186,16 @@ Each sub-score uses trapezoidal scoring (full credit in optimal range, linear de
 | -1.0 to -0.5 | Poor |
 | < -1.0 | Very Poor |
 
-5. **Coefficient of variation** (CV): SD/mean × 100; CV >15% with suppressed baseline = accumulated fatigue flag
-6. **Cold-start**: ≥5 nights/week needed for reliable 7-day estimates (Grosicki et al. 2026, 2M nights). Scores flagged "low confidence" until 7+ days.
+5. **Coefficient of variation** (CV): SD/mean × 100; CV >15% = accumulated fatigue flag
+6. **Cold-start**: ≥5 nights needed for reliable 7-day estimates (Grosicki et al. 2026, 2M nights)
 
-**Why composite HRV works:** The ring's composite value is a PPG-derived HRV metric. All commercial rings (Oura, WHOOP, Garmin) use PPG-derived RMSSD against personal baselines — population norms are less useful than individual trends. The z-score methodology is robust to monotonic transforms since it uses your own baseline and SD.
-
-**Key references:**
+**References:**
 - Altini M (2021). "Longitudinal HRV monitoring." *Sensors*. 9M measurements, 28,175 users.
 - Plews DJ, Laursen PB, Stanley J, et al. (2013). "Training adaptation and heart rate variability in elite endurance athletes." *Sports Medicine*.
-- Marco Altini is data science advisor at Oura; creator of HRV4Training.
 
 ### Stress Classification
 
-**Garmin/Firstbeat thresholds** (industry standard, most cited):
+Garmin/Firstbeat thresholds (industry standard):
 
 | Level | Score Range | Garmin Band |
 |-------|------------|-------------|
@@ -415,93 +208,18 @@ Each sub-score uses trapezoidal scoring (full credit in optimal range, linear de
 ```
 daily_stress = 0.5 × daytime_avg + 0.3 × peak_sustained + 0.2 × overnight_avg
 ```
-- **Daytime average** (0.5 weight): bulk of readings, 6AM-10PM
-- **Peak sustained** (0.3 weight): highest 2-hour rolling average — prolonged stress is more meaningful than brief spikes
-- **Overnight average** (0.2 weight): recovery quality signal, 10PM-6AM
+- Daytime average (0.5 weight): 6AM-10PM
+- Peak sustained (0.3 weight): highest 2-hour rolling average
+- Overnight average (0.2 weight): 10PM-6AM, recovery quality signal
 
-**Circadian awareness** (Frontiers in Physiology 2025, Shen et al.): Detrending HRV features with circadian rhythm removal improved stress classification accuracy by **13.67%**. Future: compute per-slot 14-day baselines and report deviation from baseline.
-
-**Cross-validation:** Pearson r between `raw_stress.stress_value` and `raw_hrv.hrv_value` should be ≈ -0.4 to -0.7. Healthy systems show inverse correlation (high stress → low HRV).
+**Circadian awareness** (Shen et al. 2025, *Frontiers in Physiology*): Detrending HRV features with circadian rhythm removal improved stress classification accuracy by 13.67%.
 
 ### Resting Heart Rate
 
 Tracked as complement to HRV (Altini: "HRV is more sensitive, HR is more specific"):
 - Overnight lowest HR (1-5 AM window)
-- >3 bpm elevation for 2+ consecutive days vs 7-day baseline = warning (illness, overtraining)
+- >3 bpm elevation for 2+ consecutive days vs 7-day baseline = warning
 - Most useful when it **diverges** from HRV (confirms or contradicts the signal)
-
-### Local hardware available
-- **Linux Mint HTPC** (AMD 3800x, 64GB RAM, GTX 1070) — on 24/7, has built-in BT (currently used for mouse)
-- Runs Windows 10 VM (VMware Workstation Pro) for work — needs ~16GB RAM reserved
-- Also has Unraid NAS on 24/7
-- BT confirmed working
-
-### Deployment Topology — BARE METAL + CONTAINERS
-- **Collector:** Python wrapping `colmi_r02_client` + `bleak` (bare metal venv — needs BlueZ/DBus)
-- **Polling:** `smart-ring-poller.service` (systemd user unit, bare metal) — watches `sync_requests` table every 30s, runs `sync_ring.py --forget` as subprocess for any pending row. Does NOT hold a BLE connection between syncs.
-- **DB:** Postgres 16 (rootless Podman quadlet, `smart-ring-db.service`, port `localhost:5432`)
-- **API:** FastAPI + Dashboard (rootless Podman quadlet, `smart-ring-api.service`, port `localhost:8000`) — mounts `dashboard/` directory for live HTML reload
-- **Analytics:** Runs on host via poller after each successful sync (not cron) — computes derived tables from raw data
-
----
-
-## Architecture (CONFIRMED — Local-First)
-
-The agent (Hermes) runs on the same local Linux box, so full local deployment is now the starting point. Remote access can be added later (e.g. Cloudflare tunnel or reverse proxy to the VPS).
-
-Current topology (Linux Mint HTPC):
-```
-Home Network
-├─ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
-│   ├─ smart-ring-poller.service  (systemd user unit, bare metal)
-│   │   └─ watches sync_requests table every 30s
-│   │   └─ runs sync_ring.py --forget for pending requests
-│   ├─ collector/sync_ring.py     (bare metal venv — needs BlueZ/DBus for BLE)
-│   │   └─ triggered by poller or run manually
-│   ├─ smart-ring-db.service      (rootless Podman quadlet, Postgres 16)
-│   │   └─ port localhost:5432
-│   └─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
-│       └─ port localhost:8000, serves dashboard
-│
-└─ Phone (on the go — planned)
-    └─ Gadgetbridge → HTTPS (Tailscale) → FastAPI
-```
-
-**Why local-first?**
-- ✅ Agent can build, test, debug, maintain everything
-- ✅ Full control, no data leaves the house
-- ✅ Lowest latency, no network dependency
-- ✅ Can add remote access later (Cloudflare tunnel, VPN, or sync to VPS)
-- ✅ Postgres + FastAPI run fine in containers; collector stays bare metal for BLE
-
-**When to consider VPS hybrid:**
-- When you want remote dashboard access (add Cloudflare tunnel to the local FastAPI container)
-- When you want a backup copy (sync computed metrics, not raw data, to VPS)
-- Not needed for initial dev or data collection
-
----
-
-## Deployment Topology — BARE METAL + CONTAINERS
-
-- **Collector:** Runs on bare metal host (Python venv) — needs direct BlueZ/DBus access for BLE
-- **Postgres, FastAPI, Dashboard:** Isolated in Podman/Docker containers
-- **Analytics:** Runs on host via cron (2 min after collector, shares collector's venv)
-- **Windows 10 VM:** Unchanged, untouched
-- **Why not VM with BT passthrough?** The BT chip is a combo WiFi+BT on motherboard PCIe. Passing it through to a VM would lose host connectivity (mouse dies). Bare metal avoids the mess entirely.
-- **Collector on host vs container:** Host is simpler — collector is a thin script that needs DBus/BlueZ. Can containerize later by mounting `/var/run/dbus` if isolation is ever needed.
-
----
-
-## REMOVED — Old Multi-Option Comparison
-
-> The previous multi-option comparison (All-Local vs OVH Hybrid vs Read-Only Mirror) has been removed. Local-first is the confirmed starting point. If a VPS component is needed later, it will be added as a remote mirror, not a hybrid backend.
-
-
----
-
----
-
-
 
 ## Readiness Score (0–100)
 
@@ -517,206 +235,127 @@ Each sub-score normalized 0–100:
 
 | Pillar | Weight | Computation | Normalization |
 |--------|--------|-------------|---------------|
-| **HRV** | 35% | z-score from 7-day baseline (Altini/Plews) | z≥3→100, z=1→80, z=0→55, z≤-1→10 |
-| **Sleep** | 30% | `sleep_quality.score` (0-100 from Ohayon 2004) | As-is (already 0-100) |
+| **HRV** | 35% | z-score from 7-day baseline | z≥3→100, z=1→80, z=0→55, z≤-1→10 |
+| **Sleep** | 30% | `sleep_quality.score` (0-100) | As-is (already 0-100) |
 | **Activity** | 20% | Steps vs goal (default 8000) + active-minute bonus | capped at 100 |
 | **RHR** | 15% | Deviation from 30-day median resting HR | delta × 3 offset; lower RHR = higher score |
 
 ### Contributors
 
-Each pillar gets a "contributor" score = (sub_score - 50) × weight, showing whether it's pushing readiness UP (+) or DOWN (−). Displayed in the hero panel as e.g. "+18 HRV · +9 Sleep · -6 Activity · +6 RHR."
+Each pillar gets a "contributor" score = (sub_score - 50) × weight, showing whether it's pushing readiness UP (+) or DOWN (−). Displayed as e.g. "+18 HRV · +9 Sleep · -6 Activity · +6 RHR."
 
-### RHR Baseline
+### How Commercial Wearables Compare
 
-30-day median of resting HR across all days. Recalculated each analytics run. Excludes days with no HR data.
+#### Oura Ring — 9 Contributors
+Uses 9 separate contributors combined into a single 0-100 score. "Balance" contributors use 14-day weighted averages vs 2-month long-term averages.
 
----
+| Contributor | Time window |
+|-------------|------------|
+| HRV Balance | 14-day vs 3-month average |
+| Resting Heart Rate | Last night vs long-term average |
+| Body Temperature | Last night's deviation vs baseline |
+| Recovery Index | Time after HR hits overnight low (6h+ ideal) |
+| Sleep + Sleep Balance + Sleep Regularity | Multi-window (single + 2-week + consistency) |
+| Previous Day Activity + Activity Balance | Single day + 14-day vs 2-month |
 
-### How Other Wearables Calculate Readiness (Deep Dive)
-
-Research compiled July 2026 from Oura support docs, WHOOP developer docs, and peer-reviewed studies.
-
-#### Oura Ring — 9 Contributors (most granular)
-
-Oura uses **9 separate contributors** combined into a single 0-100 score. No single contributor dominates — each is weighted by significance. Key: "balance" contributors use **14-day weighted averages** vs **2-month long-term averages** (recent 2-5 days weighted more heavily).
-
-| Contributor | What it tracks | Time window |
-|-------------|---------------|-------------|
-| **HRV Balance** | 14-day HRV vs 3-month average | Multi-week |
-| **Resting Heart Rate** | Last night's lowest HR vs long-term average | Single day |
-| **Body Temperature** | Last night's skin temp deviation vs baseline | Single day |
-| **Recovery Index** | How long you keep sleeping after HR hits overnight low (6h+ ideal) | Overnight |
-| **Sleep** | Last night's total sleep vs personal baseline | Single day |
-| **Sleep Balance** | Cumulative sleep + sleep debt over 2 weeks | Multi-week |
-| **Sleep Regularity** | Consistency of bed/wake times | Multi-week |
-| **Previous Day Activity** | Yesterday's movement + inactivity patterns | Single day |
-| **Activity Balance** | 14-day activity load vs 2-month average | Multi-week |
-
-**Oura tiers:** 85-100 Optimal · 70-84 Good · 60-69 Fair · <60 Pay Attention
+Oura tiers: 85-100 Optimal · 70-84 Good · 60-69 Fair · <60 Pay Attention
 
 #### WHOOP — 3 Contributors (HRV-dominant)
+- HRV: ~70% (during slow-wave sleep)
+- Resting HR: ~20%
+- Sleep Performance: ~10% (sleep need vs actual)
 
-WHOOP uses a much simpler model with **HRV heavily weighted**:
-
-| Contributor | Weight | What it measures |
-|-------------|--------|-----------------|
-| **HRV** | ~70% | Heart rate variability during slow-wave sleep |
-| **Resting HR** | ~20% | HR during deep sleep — cardiovascular fitness indicator |
-| **Sleep Performance** | ~10% | Sleep need vs actual (based on sleep debt) |
-
-**WHOOP tiers:** 67-100% Green (primed) · 34-66% Yellow (maintain) · 0-33% Red (rest). Average member score: 58%.
+WHOOP tiers: 67-100% Green · 34-66% Yellow · 0-33% Red. Average member score: 58%.
 
 #### Garmin — Body Battery
-
-Uses HRV + stress + activity in a **continuous model** (updates throughout the day, not just morning). More dependent on real-time HRV streams. Reports as 0-100 "battery charge" that depletes during activity and recharges during rest.
-
-#### Fitbit — Daily Readiness
-
-Uses HRV + recent activity + sleep. Arrives in the morning; adjusts throughout the day as new activity is recorded.
-
----
+Continuous model using HRV + stress + activity. Updates throughout the day, not just morning. 0-100 "battery charge" that depletes during activity and recharges during rest.
 
 ### Key Research Findings (Doherty & Altini 2025)
 
 From the most comprehensive comparative study of wearable readiness scores:
 
-1. **"Wearables estimate recovery, they don't measure it."** There is no gold standard for "recovery" the way PSG exists for sleep. Every score is an algorithmic interpretation.
+1. **"Wearables estimate recovery, they don't measure it."** There is no gold standard for "recovery" the way PSG exists for sleep.
+2. **"No brand publishes its exact readiness formula and very few scores have been independently validated."** The composite scores themselves have no clinical validation.
+3. **"Trust the trend of Readiness, not the exact number."** 75→68→55 is meaningful; whether it's exactly 68 vs 72 is noise.
+4. **Oura had the best nocturnal RHR accuracy vs ECG** in a 536-night multi-wearable study (Dial et al. 2025).
 
-2. **"No brand publishes its exact readiness formula and very few scores have been independently validated."** The underlying signals (HRV, RHR, sleep architecture) are well-tested, but the composite scores themselves have no clinical validation.
-
-3. **"Trust the trend of Readiness, not the exact number."** A score going from 75→68→55 is meaningful; whether it's exactly 68 vs 72 is noise.
-
-4. **Oura had the best nocturnal RHR accuracy vs ECG** in a 536-night multi-wearable study (Dial et al. 2025). The core signals are well-tested even if the composite is proprietary.
-
----
-
-### What Lowers Readiness (with measured effect sizes)
+### What Lowers Readiness
 
 | Factor | Effect | Source |
 |--------|--------|--------|
-| Alcohol (1-2 drinks) | HRV down ~15% (~11ms), RHR up same night | Oura 2025 |
-| Short/broken sleep | HRV down, RHR up; takes 2-3 nights to clear | Zhang et al. 2025 |
-| Hard training/overreaching | HRV down, RHR up; 5-7 day slide = overreaching | Noon et al. 2018 |
+| Alcohol (1-2 drinks) | HRV down ~15%, RHR up same night | Oura 2025 |
+| Short/broken sleep | HRV down, RHR up; 2-3 nights to clear | Zhang et al. 2025 |
+| Hard training/overreaching | HRV down, RHR up; 5-7 day slide | Noon et al. 2018 |
 | Illness onset | RHR + skin temp rise 1-3 days before symptoms | Kasl et al. 2024 |
 | Late/heavy meal | Raises cortisol, disturbs sleep | Ucar et al. 2021 |
-| Evening caffeine | Lighter sleep, delayed HRV rebound (long half-life) | Bonnet et al. 2005 |
-| Dehydration | HRV down, RHR up (especially after hot/hard day) | Castro-Sepulveda et al. 2015 |
-| Hot bedroom | HRV down, RHR up, fragmented sleep | O'Connor et al. 2025 |
-| Jet lag / late nights | Body clock misaligned, HRV rhythm disrupted | Furlan et al. 2000 |
+| Dehydration | HRV down, RHR up | Castro-Sepulveda et al. 2015 |
 | Chronic stress | HRV reduction over weeks; lingers after feeling calm | Mohammadi et al. 2019 |
 | Luteal phase (cyclical) | RHR up, HRV down, temp up — normal, not poor recovery | Alzueta et al. 2022 |
 
----
-
 ### Gap Analysis: Our Score vs Commercial Offerings
 
-| Feature | Oura | WHOOP | Us (current) | Gap |
-|---------|------|-------|-------------|-----|
-| HRV weight | ~equal contributor | **70%** (dominant) | 35% | ⚠️ WHOOP suggests HRV could be weighted higher |
-| HRV baseline | 14-day vs 3-month | personal baseline | 7-day z-score | ⚠️ We use short baseline; could add "HRV Balance" (multi-week) |
-| Sleep contributors | 3 (sleep, balance, regularity) | 1 (performance vs need) | 1 (quality score) | ⚠️ Could add sleep regularity + multi-day sleep debt |
-| Activity contributors | 2 (previous day + balance) | 0 (not in recovery) | 1 (today vs goal) | ⚠️ Could add activity balance (multi-day trend) |
-| Temperature | ✅ (skin temp deviation) | ✅ | ❌ (we have data, don't use) | ⚠️ Could add as 5th pillar |
-| Recovery Index | ✅ (time after HR low) | ❌ | ❌ | Future: compute from overnight HR data |
-| Number of contributors | 9 | 3 | 4 | Moderate — more granular than WHOOP, less than Oura |
-| Time-to-first-score | ~2 weeks | ~4 weeks | ~7 days | ✅ Faster (7-day HRV baseline) |
+| Feature | Oura | WHOOP | Us | Gap |
+|---------|------|-------|----|-----|
+| HRV weight | ~equal contributor | **70%** (dominant) | 35% | WHOOP suggests higher HRV weight |
+| HRV baseline | 14-day vs 3-month | personal baseline | 7-day z-score | Could add multi-week "HRV Balance" |
+| Sleep contributors | 3 (sleep, balance, regularity) | 1 | 1 (quality score) | Could add regularity + sleep debt |
+| Activity contributors | 2 (previous day + balance) | 0 | 1 (today vs goal) | Could add multi-day activity balance |
+| Temperature | ✅ | ✅ | ❌ (have data, don't use) | Could add as 5th pillar |
+| Recovery Index | ✅ | ❌ | ❌ | Future: compute from overnight HR |
+| Number of contributors | 9 | 3 | 4 | More granular than WHOOP, less than Oura |
+| Time-to-first-score | ~2 weeks | ~4 weeks | ~7 days | ✅ Faster |
 
-### Recommended Improvements (prioritized)
-
-Based on the gap analysis, ranked by impact-to-effort ratio:
-
-1. **Add Temperature deviation** (we have the data, just need to wire it in). Oura uses overnight skin temp deviation from baseline as a contributor. We already store raw_temperature. Would add as 5th pillar at ~10% weight (redistribute: HRV 30%, Sleep 25%, Activity 20%, RHR 15%, Temp 10%).
-
-2. **Add HRV Balance** (14-day vs 30-day). Currently we only use 7-day z-score which is reactive (swings daily). Adding a multi-week trend would capture chronic changes (overtraining, sustained stress). Low effort — just extend the baseline window.
-
-3. **Add Sleep Regularity** (bed/wake consistency). Oura tracks how consistent bed/wake times are. We have sleep_start_ts/sleep_end_ts stored. Computing variance of bedtimes over 7 days is straightforward.
-
-4. **Bump HRV weight** toward WHOOP's model. Our 35% might under-weight the strongest recovery signal. Consider 40-50% if the ring's composite HRV proves reliable over time.
-
-5. **Add Recovery Index** (time from overnight HR low to wake). Oura's unique contributor: how long you keep sleeping after HR hits its overnight minimum. 6+ hours = ideal. We have overnight HR data — could compute as min(HR) timestamp → wake timestamp.
-
-6. **Illness early warning** (HRV drop + RHR rise). Both Oura and WHOOP validate this. When HRV drops below -1.5 z AND RHR rises >3 bpm above baseline for 2+ consecutive days → flag. We have all the data; just need the alerting logic.
-
----
+See `TASKS.md` for prioritized improvement roadmap.
 
 ## Source Dedup (Phone vs Ring)
 
-**Implemented July 2026.** Phone (Web Bluetooth) and Ring (Linux box collector) capture the same physical measurements, so ~99% of phone records duplicate ring. Dedup runs in two places:
-1. `mobile_sync` endpoint (container): `_dedupe_sources(db)` after inserts — deletes phone rows where ring has same timestamp (point tables) or same day (sleep).
-2. `analytics.py` (host): `dedupe_sources()` at top of `run_all` — same logic, covers ring syncs.
+**Ring canonical, phone fills gaps.** Phone (Web Bluetooth) and ring (Linux box) capture the same physical measurements. Dedup runs in two places:
+1. `mobile_sync` endpoint (container): deletes phone rows where ring has same timestamp
+2. `analytics.py` (host): same logic, covers ring syncs
 
-Policy: **ring canonical, phone fills gaps.** The `source` column (ring/phone) survives on every row; phone rows only persist where ring has no data. First run removed 356 duplicates; only 7 phone gap-fills remain.
-
----
+The `source` column survives on every row; phone rows only persist where ring has no data.
 
 ## Timezone: Pacific (America/Vancouver)
 
-**Fixed July 2026.** Day boundaries are now consistently Pacific:
+Day boundaries are consistently Pacific:
+- **Postgres**: `ALTER SYSTEM SET TimeZone='America/Vancouver'` — persists across restarts
+- **Containers**: `TZ=America/Vancouver` in both quadlets
+- **Ring time-setting**: host collector's `set_time_local()` sends Pacific-local BCD bytes
+- **Stored timestamps**: correct instants (unchanged). Only date-boundary interpretation changed.
 
-- **Postgres**: `ALTER SYSTEM SET TimeZone='America/Vancouver'` — `CURRENT_DATE`, `ts::date`, `NOW()::date` all use Pacific midnight. Persists across restarts.
-- **Containers**: `TZ=America/Vancouver` in both quadlets (API + DB).
-- **Analytics**: was already Pacific (`SET TIME ZONE` from `/etc/timezone`). Now consistent with server tz.
-- **Ring time-setting**: unaffected — host collector's `set_time_local()` sends Pacific-local BCD bytes.
-- **Stored `ts` values**: unchanged (correct instants). Only date-boundary interpretation changed.
-- **Why it mattered**: Evening Pacific activity (after 5pm PDT) was attributed to the next UTC day. E.g., a Saturday 7pm walk showed under Sunday.
+Why it mattered: evening Pacific activity (after 5pm PDT) was attributed to the next UTC day.
 
----
+## Value Add: Our Analytics vs Raw Ring Data
 
-## Value Add: Our Analytics vs Ring/Gadgetbridge Raw Data
+The ring and Gadgetbridge provide **raw measurements** without context. A composite HRV of 42ms or 7h sleep has no meaning without comparison to **your own baseline** and **population norms**.
 
-The ring and Gadgetbridge provide **raw measurements** — single data points without context. A composite HRV of 42ms or 7h sleep duration has no inherent meaning without comparison to **your own baseline** and **population norms**. Our analytics layer adds clinical interpretation with peer-reviewed formulas.
-
-### What the Ring Provides (Measurements Only)
-
-| Data Type | Ring Output | Limitation |
-|-----------|-------------|-------------|
-| HR | 30-min BPM | Point value, no context |
-| Steps | 15-min slot counts | Raw count, no goal context |
-| SpO₂ | Hourly % | Isolated reading |
-| Temp | 30-min °C | Single value |
-| Sleep stages | Light/deep/REM/awake + durations | Raw stage totals |
-| HRV | Single-byte composite (ms) | Ambiguous number — 42ms could be excellent or poor, unknown without baseline |
-| Stress | 1-99 scale, 30-min | Ambiguous — 55 could be "medium" or "high" depending on context |
-| Goals | Target steps/cal/distance | Static targets |
-
-### What Our Analytics Adds (Interpretation + Clinical Context)
-
-| Our Metric | Ring Data Used | Key Value Add |
-|------------|----------------|---------------|
-| **Recovery/Readiness** | HRV composite | Log-transform → 7-day rolling baseline (mean + SD) → z-score → actionable classification (Excellent/Good/Fair/Poor/Very Poor) + confidence flag. **Longitudinal context is 90% of the value.** |
-| **Sleep Quality (0-100)** | Sleep stages + duration + temp | 5-component validated score (Duration 30% + Efficiency 25% + Architecture 25% + Continuity 15% + Latency 5%) using Ohayon 2004 meta-analysis norms (3,327 subjects). Weighted, norm-referenced, transparent. |
-| **Stress Classification** | Stress 1-99 | Garmin/Firstbeat clinical thresholds + daily weighted score (daytime + peak sustained + overnight) + morning/noon/evening breakdown. **Converts ambiguous 1-99 scale to meaningful clinical categories.** |
-| **Circadian HR / Resting HR** | Hourly HR | 24h pattern visualization + overnight 1-5 AM average. **Trend detection + clinical reference (elevated RHR = illness/overtraining signal).** |
+| What We Add | Ring Data Used | Key Value |
+|-------------|----------------|-----------|
+| **Recovery/Readiness** | HRV composite | Log-transform → 7-day baseline → z-score → actionable classification |
+| **Sleep Quality (0-100)** | Sleep stages + duration | 5-component validated score using Ohayon 2004 norms |
+| **Stress Classification** | Stress 1-99 | Garmin/Firstbeat clinical thresholds + daily weighted score |
+| **Circadian HR / Resting HR** | Hourly HR | 24h pattern + overnight baseline + trend detection |
 
 ### Key Differentiators
 
-1. **Transparency** — Every formula cited (Ohayon 2004, Altini 2021, Plews, Garmin/Firstbeat). Gadgetbridge algorithms are opaque black boxes.
-
-2. **Personalized baselines** — 7-day rolling mean/SD for HRV is *essential*. A raw HRV of 42ms means nothing without "your baseline is 38±5". All commercial rings do this internally — we make it transparent.
-
-3. **Validated population norms** — Sleep architecture targets from 3,327-subject meta-analysis (Ohayon 2004: deep 13-23%, REM 20-25%), not arbitrary thresholds.
-
-4. **Customizability** — Weights and thresholds adjustable for personal physiology (e.g., shift worker circadian norms, athlete recovery windows).
-
-5. **Auditability** — All SQL/Python, reproducible. Gadgetbridge's health scores are compiled Java — good luck tweaking them.
-
-6. **Divergence detection** — RHR + HRV together form a stronger signal than either alone. Altini: "HRV is more sensitive, HR is more specific." When they diverge (HRV drops but RHR holds), it confirms fatigue vs illness.
+1. **Transparency** — every formula cited (Ohayon 2004, Altini 2021, Plews, Garmin/Firstbeat). Gadgetbridge algorithms are opaque.
+2. **Personalized baselines** — 7-day rolling mean/SD for HRV is essential. A raw 42ms means nothing without "your baseline is 38±5."
+3. **Validated population norms** — sleep targets from 3,327-subject meta-analysis, not arbitrary thresholds.
+4. **Auditability** — all SQL/Python, reproducible. Gadgetbridge's scores are compiled Java.
+5. **Divergence detection** — RHR + HRV together form a stronger signal than either alone (Altini: "HRV is more sensitive, HR is more specific").
 
 ### Bottom Line
 
 The ring gives **measurements** — ~10% of the health-tracking value. Our analytics give **clinical interpretation with validated baselines** — the other ~90%.
 
-**Worth the complexity?** Yes if you want to track trends and understand *why* your readiness changed. No if you just want "slept 7h, HRV 42ms" — Gadgetbridge already shows that. The difference between "my HRV is 42ms" and "my HRV is 42ms, baseline is 38±5, z-score is +0.8, readiness is Good" is the difference between data and actionable insight.
+## Oura Comparison
 
-
-## Quick Oura Comparison (for context)
-
-- Oura Ring 5: ~$530 CAD + $8/month subscription forever
+- Oura Ring 5: ~$530 CAD + $8/month subscription
 - Colmi R09: ~$45 CAD, no subscription
 - BOM on an Oura is estimated $60–80 at scale — Colmi proves the hardware class is profitable at $20
-- Oura's sleep staging is legitimately well-validated (peer-reviewed, tested against PSG), but the gap vs Apple Watch is marginal (Cohen's kappa 0.65 vs 0.60) and likely comes from the ring form factor, not the algorithm
+- Oura's sleep staging is well-validated (peer-reviewed, tested against PSG), but the gap vs Apple Watch is marginal (Cohen's kappa 0.65 vs 0.60) and likely comes from the ring form factor, not the algorithm
 - The proprietary composite scores (Readiness, Resilience, etc.) have no independent validation — the real science stops at sleep-stage detection
 
-## Bottom Line
+---
 
 Colmi's lack of security is the feature, not the bug. Their cost-cutting created a fully hackable, fully documented, $45 biometric sensor platform with the same form-factor advantage as a $530 Oura ring. With tahnok's client for data extraction and atc1441's CFW for firmware control, you own every layer — hardware, protocol, storage, compute, visualization.
