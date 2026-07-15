@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS sleep_quality (
     wake_pct NUMERIC,
     temp_drop_c NUMERIC,
     total_sleep_minutes INT,
+    deep_min INT DEFAULT 0,
+    rem_min INT DEFAULT 0,
+    light_min INT DEFAULT 0,
+    awake_min INT DEFAULT 0,
+    sleep_start_ts TIMESTAMPTZ,
+    sleep_end_ts TIMESTAMPTZ,
     computed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
