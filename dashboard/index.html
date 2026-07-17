@@ -160,6 +160,18 @@
             </button>
         </div>
 
+        <!-- Data quality banner: shown when any data type is stale (recently worn, recent sync, but type empty) -->
+        <div x-show="staleTypes.length > 0" class="mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-4 py-3 flex items-start gap-3">
+            <span class="text-amber-600 dark:text-amber-400 text-lg flex-shrink-0">⚠️</span>
+            <div class="text-sm text-amber-800 dark:text-amber-300">
+                <p class="font-medium">Data gap detected</p>
+                <p class="text-amber-700 dark:text-amber-400">
+                    <span x-text="staleTypes.map(t => ({heart_rate:'Heart Rate', temperature:'Skin Temp', spo2:'SpO₂', hrv:'HRV', steps:'Steps', stress:'Stress'}[t] || t)).join(', ')"></span>
+                    — no data today despite ring being worn. If your ring has been toggled, the logger will resume on the next sync.
+                </p>
+            </div>
+        </div>
+
         <!-- Hero row: Activity Ring + Readiness Score (one unified panel) -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-100 dark:border-gray-700 mb-8">
             <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 dark:divide-gray-700">
@@ -175,7 +187,10 @@
                 <!-- RIGHT: Readiness Score -->
                 <div class="p-6">
                     <div class="flex justify-between items-baseline mb-4">
-                        <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness Score</h2>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness Score</h2>
+                            <span x-show="readinessConfidence === 'partial'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium uppercase tracking-wide" x-text="'partial · missing ' + (readinessMissing || []).join(', ')"></span>
+                        </div>
                         <span class="text-xs text-gray-400 dark:text-gray-500" x-text="readinessDay ? new Date(readinessDay + 'T00:00').toLocaleDateString() : ''"></span>
                     </div>
                 <!-- Circular progress: 4 concentric rings (Sleep/HRV/Activity/RHR) -->
@@ -800,6 +815,12 @@
                 readinessSleepDetail: '', readinessHrvDetail: '',
                 readinessActivityDetail: '', readinessRhrDetail: '',
                 readinessDay: null,
+                readinessConfidence: null,
+                readinessMissing: [],
+
+                // Data-quality stale-type banner
+                staleTypes: [],
+                _dataQualityByDay: {},
 
                 // Server-computed per-day activity (replaces flaky client-side calc)
                 dailyActivity: {},
@@ -929,6 +950,7 @@
                         this.loadDialsData(),
                         this.loadDailyActivity(),
                         this.loadReadiness(),
+                        this.loadDataQuality(),
                     ]);
                     // Apply server-computed daily values after raw fallbacks + goals load
                     this.applyDailyActivity();
@@ -1560,6 +1582,27 @@
                     } catch (e) { console.error('loadReadiness', e); }
                 },
 
+                async loadDataQuality() {
+                    try {
+                        const res = await fetch('/api/data-quality?days=3');
+                        const rows = await res.json();
+                        const today = this.dateKey(new Date());
+                        const yesterday = this.dateKey(new Date(Date.now() - 86400000));
+                        // Build per-day map
+                        this._dataQualityByDay = {};
+                        for (const r of rows) {
+                            const d = r.day;
+                            if (!this._dataQualityByDay[d]) this._dataQualityByDay[d] = {};
+                            this._dataQualityByDay[d][r.data_type] = r;
+                        }
+                        // Stale types for today (checked date, any stale type)
+                        const todayRows = rows.filter(r => r.day === today || r.day === yesterday);
+                        this.staleTypes = [...new Set(
+                            todayRows.filter(r => r.status === 'stale').map(r => r.data_type)
+                        )];
+                    } catch (e) { console.error('loadDataQuality', e); }
+                },
+
                 applyReadiness() {
                     const sel = this.dateKey(this.selectedDate);
                     const r = this._readinessByDay[sel];
@@ -1570,12 +1613,13 @@
                         this.readinessActivity = r.activity_score;
                         this.readinessRhr = r.rhr_score;
                         this.readinessDay = r.day;
+                        this.readinessConfidence = r.confidence || 'full';
+                        this.readinessMissing = r.missing_components || [];
                         this.readinessLabel = r.score >= 80 ? 'Excellent' : r.score >= 60 ? 'Good' : r.score >= 40 ? 'Fair' : 'Low';
                         const c = r.contributors || {};
                         const names = { hrv: 'HRV', sleep: 'Sleep', activity: 'Activity', rhr: 'RHR' };
                         this.readinessContribText = Object.entries(c)
                             .map(([k, v]) => `${v >= 0 ? '+' : ''}${v} ${names[k] || k}`).join(' · ');
-                        // Context detail lines per sub-score card
                         const m = r.sleep_total_min || 0;
                         this.readinessSleepDetail = `${Math.floor(m/60)}h ${m%60}m`;
                         this.readinessHrvDetail = r.hrv_zscore ? `z=${r.hrv_zscore.toFixed(1)} · ${r.hrv_rmssd || 0}ms` : '';

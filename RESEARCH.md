@@ -57,7 +57,13 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 
 **Confirmed read-only on firmware RT09_3.10.21.** Syncing reads data without clearing it. Tested both within-connection (two fetches, same session) and across-disconnect (fetch → disconnect → reconnect → fetch). Both returned identical data.
 
-Data persists on the ring regardless of read or disconnect. The ring's storage is an age-based circular buffer (~7 days). Data is only lost when it ages out. Multiple devices (phone + Linux collector) can sync independently without data loss.
+Data persists on the ring regardless of read or disconnect. The ring's storage is an age-based circular buffer (~7 days). Under normal operation, data is only lost when it ages out.
+
+**Caveat (R09 firmware quirk):** The background logging task (cmd 0x15 HeartRateLog + temperature) runs as a separate firmware task from live PPG measurement. It can hang silently — the ring continues real-time measurement (HRV, SpO₂, stress still flow), but new HR/temp samples stop being written to the on-board buffer. When this happens, the buffer returns NoData/empty for the affected days, and no client (our collector, Gadgetbridge, phone) can recover data the ring never wrote.
+
+**Detection signal:** HRV present for today (ring worn + measuring) but HR log/temp empty → logger stalled. Auto-recovery: toggle `set_heart_rate_log_settings(False→True)` to re-kick the firmware logger task (implemented in `sync_ring.py`). If the toggle doesn't revive it, a full power-cycle (discharge → recharge) is needed.
+
+Multiple devices (phone + Linux collector) can sync independently without data loss (for data the ring *did* record).
 
 ### What is the HRV data format? ✅ COMPOSITE VALUE
 

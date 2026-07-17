@@ -99,7 +99,8 @@ def get_readiness(days: int = 7):
         rows = db.execute(text("""
             SELECT day, score, hrv_score, sleep_score, activity_score, rhr_score,
                    hrv_zscore, steps, resting_hr, hrv_rmssd,
-                   sleep_total_min, rhr_baseline, contributors
+                   sleep_total_min, rhr_baseline, contributors,
+                   confidence, missing_components
             FROM readiness_score
             WHERE day >= CURRENT_DATE - INTERVAL ':days days'
             ORDER BY day DESC
@@ -160,6 +161,19 @@ def get_stress(days: int = 30):
             FROM stress_classification
             WHERE day >= CURRENT_DATE - INTERVAL ':days days'
             ORDER BY day DESC
+        """), {"days": days}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/data-quality")
+def get_data_quality(days: int = 7):
+    """Per-type data freshness status (ok | stale | missing)."""
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT day, data_type, last_ts, sample_count, status, checked_at
+            FROM data_quality
+            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            ORDER BY day DESC, data_type
         """), {"days": days}).mappings().all()
     return [dict(r) for r in rows]
 
@@ -482,17 +496,6 @@ def mobile_sync(req: MobileSyncRequest):
             "skipped": skipped,
             "errors": errors[:10],
         }
-
-
-@app.get("/api/raw/temperature")
-def get_raw_temp(hours: int = 48, limit: int = 1000):
-    with SessionLocal() as db:
-        rows = db.execute(text("""
-            SELECT ts, temp_c FROM raw_temperature
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
-            ORDER BY ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
-    return [dict(r) for r in rows]
 
 
 @app.get("/api/sync-log")
