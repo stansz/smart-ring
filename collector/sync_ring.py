@@ -276,7 +276,7 @@ async def fetch_hrv_history(client: Client) -> list[dict]:
 # ----------------------------------------------------------------
 # Big-data protocol helpers (cmd 0xBC, V2 characteristic)
 #
-# Sleep (type 0x27), SpO2 (type 0x2A), and temperature (type 0x25)
+# Sleep (type 0x27), SpO2 (type 0x2A), and temperature (types 0x23-0x2B,
 # are fetched via the CMD_BIG_DATA_V2 command on the V2 characteristic.
 # Responses arrive on NOTIFY_V2 and may span multiple BLE packets.
 # The ring_client.Client handles concatenation; we read complete payloads
@@ -285,16 +285,39 @@ async def fetch_hrv_history(client: Client) -> list[dict]:
 
 
 async def _big_data_request(client: Client, data_type: int) -> Optional[bytes]:
-    """Send a CMD_BIG_DATA_V2 request and wait for the complete response."""
+    """Send a CMD_BIG_DATA_V2 request and wait for the complete response.
+
+    Drains the shared queue + resets the multi-packet accumulator before
+    each request so stale responses from prior commands cannot poison
+    the next read. This applies to sleep, SpO2, and temperature — they
+    all share one big_data_queue and one _bd_buf.
+    """
     if not client.has_v2:
         log.info("V2 not available, skipping big-data request")
         return None
+    # Drain stale items from prior requests
+    drained = 0
+    while True:
+        try:
+            client.big_data_queue.get_nowait()
+            drained += 1
+        except asyncio.QueueEmpty:
+            break
+    if hasattr(client, '_bd_buf'):
+        client._bd_buf = None
+        client._bd_size = 0
+    if drained:
+        log.info(f"Big-data drain before 0x{data_type:02x}: flushed {drained} stale packet(s)")
+    # Send request
     request = bytearray([0xBC, data_type, 0x01, 0x00, 0xFF, 0x00, 0xFF])
     await client.send_command(request)
     try:
-        return bytes(await asyncio.wait_for(client.big_data_queue.get(), timeout=15.0))
+        raw = bytes(await asyncio.wait_for(client.big_data_queue.get(), timeout=15.0))
+        head = raw[:32].hex() if len(raw) > 0 else "<empty>"
+        log.debug(f"Big-data resp 0x{data_type:02x}: len={len(raw)} head={head}")
+        return raw
     except asyncio.TimeoutError:
-        log.warning(f"Big-data timeout for type 0x{data_type:02x}")
+        log.warning(f"Big-data timeout for type 0x{data_type:02x} (no response in 15s)")
         return None
 
 
@@ -431,16 +454,27 @@ async def fetch_spo2_history(client: Client) -> list[dict]:
 
 
 async def fetch_temperature_history(client: Client) -> list[dict]:
-    """Fetch temperature data via CMD_BIG_DATA_V2 (types 0x25-0x29).
+    """Fetch temperature data via CMD_BIG_DATA_V2.
 
-    The ring stores 5 days of temperature history split across
-    big-data types 0x25-0x29 (one type per day, oldest to newest).
+    The R09 stores up to 8 days of skin temperature across big-data
+    types 0x23-0x2B (skipping 0x2A = SpO2). The slot→day mapping
+    rotates daily, so query 0x22-0x2C to catch border cases and
+    parse only responses whose dataId byte is 0x25 (temperature).
     """
     records = []
-    for data_type in range(0x25, 0x2A):  # 0x25 through 0x29 inclusive
+    TEMP_ID = 0x25
+    SPO2_TYPE = 0x2A
+    for data_type in range(0x22, 0x2D):
+        if data_type == SPO2_TYPE:
+            continue
         data = await _big_data_request(client, data_type)
-        if data:
-            records.extend(_parse_temperature_data(data))
+        if data is None:
+            continue
+        if len(data) < 6 or data[1] != TEMP_ID:
+            continue
+        parsed = _parse_temperature_data(data)
+        records.extend(parsed)
+        log.debug(f"  Temp type 0x{data_type:02x}: parsed {len(parsed)} records")
     return records
 
 
@@ -988,7 +1022,7 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
         except Exception as e:
             log.warning(f"SpO2 sync failed: {e}")
 
-        # 8. Temperature (cmd 0xBC + type 0x25, Gadgetbridge big-data)
+        # 8. Temperature (cmd 0xBC + types 0x23-0x2B, skip 0x2A, Gadgetbridge big-data)
         update_progress(sync_id, "Fetching temperature...")
         try:
             temp_records = await fetch_temperature_history(client)
@@ -997,6 +1031,37 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
             log.info(f"Temperature: {count} records")
         except Exception as e:
             log.warning(f"Temperature sync failed: {e}")
+
+        # 8b. Live temperature check — the ring pushes unsolicited cmd 115
+        #     device-notify packets (type 5 = temperature) during active
+        #     connection. Drain any that accumulated in queue[115] and save
+        #     the latest fresh reading. Fills the gap while the big-data
+        #     buffer recovers from a logger stall.
+        # 8b. Live temperature check — the ring pushes unsolicited cmd 115
+        #     device-notify packets (type 5 = temperature) during sustained
+        #     connections (Gadgetbridge). During brief sync windows the queue
+        #     is usually empty, but check anyway — costs nothing and captures
+        #     data when the ring happens to push during our connection window.
+        try:
+            live_temp = None
+            queue_115 = client.queues.get(115)
+            if queue_115:
+                while not queue_115.empty():
+                    try:
+                        pkt = queue_115.get_nowait()
+                        if len(pkt) >= 4 and pkt[1] == 5:
+                            temp_raw = struct.unpack_from("<H", pkt, 2)[0]
+                            temp_c = temp_raw / 100.0 if temp_raw > 0 else None
+                            if temp_c and 30 < temp_c < 45:
+                                live_temp = temp_c
+                    except asyncio.QueueEmpty:
+                        break
+            if live_temp:
+                upsert_temperature_single(live_temp)
+                total_records += 1
+                log.info(f"Temperature (live): {live_temp:.1f}C")
+        except Exception as e:
+            log.debug(f"Live temperature check: {e}")
 
         # 9. Stress history (cmd 0x37, multi-packet, 30-min intervals)
         update_progress(sync_id, "Fetching stress...")

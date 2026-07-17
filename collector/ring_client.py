@@ -186,6 +186,10 @@ class Client:
         self.queues: dict[int, asyncio.Queue] = {
             cmd: asyncio.Queue() for cmd in COMMAND_HANDLERS
         }
+        # Cmd 115 (Device Notify) — the ring pushes async notifications
+        # (temperature, battery, etc.) via this command with bit 7 set.
+        # Add an explicit queue so raw() can read them.
+        self.queues[115] = asyncio.Queue()
         self.record_to = record_to
         self.rx_char = None
 
@@ -246,20 +250,28 @@ class Client:
             logger.debug(f"Ignoring non-16-byte packet (len={len(packet)})")
             return
         packet_type = packet[0]
-        # High bit (0x80) is "error/ack" bit in the protocol — not a fatal error,
-        # just an async notification that the ring pushes (e.g. harvested sleep
-        # data, temperature, etc.). Log and skip rather than assert.
+        command = packet_type & 0x7F  # unmask error/ack bit
+        # High bit (0x80) is "error/ack" bit — async push notification.
+        # Handle known async types (device notify = temp, battery, etc.);
+        # skip unknown async packets.
         if packet_type >= 127:
-            logger.debug(f"Ring pushed async packet type=0x{packet_type:02x}")
-            return
+            if command == 115:
+                logger.debug(f"Device notify received: type={packet[1]}")
+            else:
+                logger.debug(f"Ring pushed async packet type=0x{packet_type:02x}")
+                return
 
         try:
-            if packet_type in COMMAND_HANDLERS:
-                result = COMMAND_HANDLERS[packet_type](packet)
+            if command in COMMAND_HANDLERS:
+                result = COMMAND_HANDLERS[command](packet)
                 if result is not None:
-                    self.queues[packet_type].put_nowait(result)
+                    self.queues[command].put_nowait(result)
                 else:
-                    logger.debug(f"No result returned from parser for {packet_type}")
+                    logger.debug(f"No result returned from parser for {command}")
+            elif command in self.queues:
+                # Raw pass-through for commands not in COMMAND_HANDLERS
+                # (e.g. cmd 115 device notify — placed directly in queue).
+                self.queues[command].put_nowait(packet)
             else:
                 logger.debug(f"Unhandled packet type {packet_type}")
         except Exception as e:

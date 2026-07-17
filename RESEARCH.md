@@ -80,7 +80,7 @@ The composite value works for trend/z-score analysis — this is exactly how all
 | HRV | cmd 0x39 | 30-min intervals, composite ms values, 3-day buffer |
 | Sleep | cmd 0xBC + type 0x27 | V2 big-data: per-session stages with timestamps |
 | SpO2 | cmd 0xBC + type 0x2A | V2 big-data: hourly min/max, averaged |
-| Temperature | cmd 0xBC + types 0x25-0x29 | V2 big-data: 30-min intervals, 5-day history (R09 exclusive). `temp_c = (raw/10)+20` |
+| Temperature | cmd 0xBC + types 0x23-0x2B (skip 0x2A) | V2 big-data: 30-min intervals, ~8-day history (R09 exclusive). `temp_c = (raw/10)+20`. Slots rotate daily — query full range 0x22-0x2C with dataId=0x25 check. |
 | Stress | cmd 0x37 | 30-min intervals, 0-99 scale |
 | Battery | cmd 0x03 | Battery percentage |
 | Goals | cmd 0x21 | Steps/calorie/distance targets |
@@ -122,7 +122,7 @@ The R09 firmware has several BLE behaviors requiring workarounds. See `AGENTS.md
 | HRV | 30-min | ~3 days | Composite single-byte (0-255 ms) |
 | Sleep | Per-session | ~7 days | Stages + durations via V2 characteristic |
 | SpO2 | Hourly | ~7 days | Min/max averaged to single % |
-| Temperature | 30-min | 5 days | Skin temp °C (R09 exclusive) |
+| Temperature | 30-min | ~8 days | Skin temp °C (R09 exclusive) |
 | Stress | 30-min | ~7 days | 0-99 scale |
 
 ### V2 Big-Data Protocol (sleep, SpO2, temperature)
