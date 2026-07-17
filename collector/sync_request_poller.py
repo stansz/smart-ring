@@ -209,6 +209,34 @@ def process_one(conn):
     return True
 
 
+def reap_stuck_rows(conn, stall_minutes: int = 10):
+    """Mark sync_log / sync_requests orphans as errored if stuck in running > N min."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            UPDATE sync_log
+            SET status = 'error',
+                completed_at = NOW(),
+                error = 'orphaned: process exited without finalizing'
+            WHERE status = 'running'
+              AND started_at < NOW() - (%s * interval '1 minute')
+              AND completed_at IS NULL
+        """, (stall_minutes,))
+        n_log = cur.rowcount
+        cur.execute("""
+            UPDATE sync_requests
+            SET status = 'error', completed_at = NOW(),
+                error = 'orphaned: exceeded ' || %s || ' min timeout'
+            WHERE status = 'running'
+              AND started_at < NOW() - (%s * interval '1 minute')
+        """, (stall_minutes, stall_minutes))
+        n_req = cur.rowcount
+        if n_log or n_req:
+            conn.commit()
+            log.info(f"Reaped {n_log} sync_log + {n_req} sync_request orphan(s)")
+        else:
+            conn.rollback()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--loop", action="store_true", help="Run forever, polling at --interval")
@@ -222,6 +250,7 @@ def main():
         try:
             while True:
                 try:
+                    reap_stuck_rows(conn)
                     while process_one(conn):
                         pass  # drain the queue
                 except psycopg2.OperationalError:

@@ -57,10 +57,10 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 
 | File | Purpose | Key Details |
 |------|---------|-------------|
-| `collector/ring_client.py` | BLE client wrapper | Timeout on BleakClient; V2 big-data service (sleep/SpO2/temp); `set_time_local()` (6 BCD bytes, no language byte, matches Gadgetbridge); forget/pair/disconnect BlueZ helpers |
-| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | `connect_with_retry()` (exponential backoff); 12-phase `update_progress()` to `sync_log.current_step`; `_compute_clock_drift_ms()`; all 8 data types via correct Gadgetbridge commands; `.astimezone()` timestamps |
+| `collector/ring_client.py` | BLE client wrapper | Timeout on BleakClient; V2 big-data service (sleep/SpO2/temp: types 0x23–0x2B, skip 0x2A); `set_time_local()` (6 BCD bytes, no language byte, matches Gadgetbridge); forget/pair/disconnect BlueZ helpers; `_handle_tx` unmasks bit-7 for cmd 115 device-notify routing |
+| `collector/sync_ring.py` | BLE collector, syncs ring → Postgres | `connect_with_retry()` (exponential backoff); 12-phase `update_progress()` to `sync_log.current_step`; `_compute_clock_drift_ms()`; all 8 data types via correct Gadgetbridge commands; `.astimezone()` timestamps; queue drain + `_bd_buf` reset between big-data requests prevents shared-queue desync |
 | `collector/analytics.py` | Health score computation | Sleep quality (5-component, Ohayon 2004 norms); HRV recovery (log-transform + 7-day z-score, Plews/Altini); Stress classification (Garmin/Firstbeat); Circadian HR; Resting HR |
-| `collector/sync_request_poller.py` | Host-side poller | Watches `sync_requests` every 30s, claims with `FOR UPDATE SKIP LOCKED`, runs `collector-wrapper.py`, marks complete/failed, runs analytics after sync |
+| `collector/sync_request_poller.py` | Host-side poller | Watches `sync_requests` every 30s, claims with `FOR UPDATE SKIP LOCKED`, runs `collector-wrapper.py`, marks complete/failed, runs analytics after sync; `reap_stuck_rows()` auto-cleans orphaned sync_log rows |
 | `collector/collector-wrapper.py` | Shim for poller | Injects `--forget` into sys.argv for R09 reconnect-bug workaround |
 | `collector/first_contact.py` | Read-only diagnostics | Battery, firmware, device info, `set_time_local()` — NO data sync |
 | `api/main.py` | FastAPI endpoints | `/api/raw/*` (8 types), `/api/readiness`, `/api/daily-activity`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/circadian-hr`, `/api/stress`, `/api/resting-hr`, `/api/mobile/sync` (phone Web Bluetooth), `/api/admin/{ring-status,health,sync-log,sync,sync-requests,sync-progress}` |
@@ -89,14 +89,19 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 - Battery indicator in nav bar (green/amber/red)
 - Sleep card: empty state when no data (no more stale fallback)
 - Dashboard no-cache header (Cache-Control: no-cache, no-store, must-revalidate)
+- Temp big-data range fixed: queries **0x22–0x2C** (skip 0x2A) with response dataId=0x25 check — catches all 8 rotating temp slots after discovering 0x23/0x24/0x2B held the current-day data that 0x25–0x29 missed
+- Big-data queue drain between requests prevents shared-queue race (was causing 15/0/15/0 flakiness)
+- Dashboard data-gap banner only reflects *today's* stale types (dropped yesterday-union false positive)
+- Poller auto-reaps orphaned `sync_log` rows (stuck `running` >10 min → errored)
 
 **Known gaps:**
-- 0x80-bit async packets not investigated (probably sleep/HRV/temp historical push)
+- **R09 firmware logger can hang silently** — background HR-log (cmd 0x15) runs as a separate firmware task from live PPG. When it hangs, HRV/SpO2/stress keep flowing but HR buffer goes empty. Detection (HRV present + HR empty) + auto-recovery (toggle HR-log setting) now in sync_ring.py. Data-quality staleness check + banner in dashboard. Full power-cycle (discharge→recharge) as fallback if toggle doesn't revive it. *Note: temp logger is part of the same background task — HR and temp stall together; HR-log toggle recovers both.*
+- 0x80-bit async packets partially handled — cmd 115 device-notify frames (type 5 = temperature) now routed to queue for live-temp capture during sync windows.
 - No auto-sync via systemd timer yet (manual + poller only)
 - HRV is composite single-byte (not true RR intervals) — z-score still works, RMSSD/pNN50 unavailable
 - Steps undercount vs wrist devices (rings inherently register fewer steps)
 - Phone steps not fetched (Web Bluetooth sync doesn't query step data — only HR/SpO2/temp/sleep/HRV)
-- **R09 firmware logger can hang silently** — background HR-log (cmd 0x15) + temperature logging run as a separate firmware task from live PPG measurement. When it hangs, HRV/SpO2/stress keep flowing (PPG still works) but HR/temp buffer goes empty. Detection (HRV present + HR/temp empty) + auto-recovery (toggle HR-log setting) now in sync_ring.py. Data-quality staleness check + banner in dashboard. Full power-cycle (discharge→recharge) as fallback if toggle doesn't revive it.
+- Temp sync fixed: R09 stores ~8 days of temp across big-data types **0x23–0x2B** (skip 0x2A = SpO2). The slot→day mapping rotates daily — the old range 0x25–0x29 only covered stale days. The fetch now queries 0x22–0x2C with a response-dataId check for 0x25.
 
 **See RESEARCH.md for:** BLE protocol command table, validated score formulas (with citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis (our analytics vs raw ring data), timezone design rationale, source dedup design.
 
@@ -105,6 +110,13 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 ---
 
 ## Recent Work Log (Jul 2026)
+
+### 2026-07-16 — Temp fetch fix: broadened type range + queue drain + banner + orphan cleanup
+- **Temp big-data range:** was querying 0x25–0x29 only (old days). Ring stores ~8 days at types 0x23–0x2B (skipping 0x2A = SpO2). Widened fetch to 0x22–0x2C with response dataId check. Unlocked current-day temp that was always on the ring.
+- **Queue drain:** added `_bd_buf` reset + `big_data_queue` drain before each `_big_data_request`. Eliminated 15/0/15/0 flakiness from shared-queue race with sleep type 0x27 collision.
+- **Dashboard banner:** dropped `|| yesterday` union — HRV/SpO2 falsly accused when yesterday had gaps.
+- **Ghost sync cleanup:** marked orphaned `sync_log` #89; added `reap_stuck_rows()` sweep to poller (auto-marks stuck `running` rows >10 min).
+- **Live temp:** cmd 115 device-notify routing fixed — `_handle_tx` now unmasks bit-7 for queue dispatch; dedicated `queues[115]` added.
 
 ### 2026-07-14 — Docs cleanup
 - Split bloated RESEARCH.md into focused files: pure research in RESEARCH.md, CFW/readiness backlog in TASKS.md, hardware specs in AGENTS.md. Net: -522 lines.

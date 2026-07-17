@@ -1587,7 +1587,6 @@
                         const res = await fetch('/api/data-quality?days=3');
                         const rows = await res.json();
                         const today = this.dateKey(new Date());
-                        const yesterday = this.dateKey(new Date(Date.now() - 86400000));
                         // Build per-day map
                         this._dataQualityByDay = {};
                         for (const r of rows) {
@@ -1595,8 +1594,9 @@
                             if (!this._dataQualityByDay[d]) this._dataQualityByDay[d] = {};
                             this._dataQualityByDay[d][r.data_type] = r;
                         }
-                        // Stale types for today (checked date, any stale type)
-                        const todayRows = rows.filter(r => r.day === today || r.day === yesterday);
+                        // Stale types for today only — yesterday gaps show in per-day
+                        // analytics; do NOT union them here (false-accuses healthy types).
+                        const todayRows = rows.filter(r => r.day === today);
                         this.staleTypes = [...new Set(
                             todayRows.filter(r => r.status === 'stale').map(r => r.data_type)
                         )];
@@ -2670,14 +2670,14 @@
             const batResp = await sendCmd(0x03);
             if (batResp && batResp.length > 1) batteryPct = batResp[1];
 
-            // Fetch temp (types 0x25-0x29 = 5 days). NOTE: 0x27 is the SLEEP
-            // type — querying it here yields sleep bytes parsed as garbage °C, so skip it.
+            // Fetch temp (types 0x23-0x2B, skip 0x2A = SpO2). Query 0x22-0x2C
+            // to catch border rotation days.
             _status('Fetching temperature…');
             const tempRecs = [];
-            for (let t = 0x25; t <= 0x29; t++) {
-                if (t === 0x27) continue;
+            for (let t = 0x22; t <= 0x2C; t++) {
+                if (t === 0x2A) continue;
                 const d = await sendBig(t);
-                if (!d || d.length < 6) continue;
+                if (!d || d.length < 6 || d[1] !== 0x25) continue;
                 const len = new DataView(d.buffer).getUint16(2, true);
                 let i = 6;
                 while (i + 50 <= 6 + len && i + 50 <= d.length) {

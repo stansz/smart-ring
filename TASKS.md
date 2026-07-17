@@ -2,9 +2,9 @@
 
 ## Temperature Fix ✅
 
-**Problem:** Ring stores 5 days of temperature across big-data types 0x25-0x29 (one per day, oldest to newest). Previous code only queried 0x25.
+**Problem:** Ring stores ~8 days of temperature across big-data types 0x23-0x2B (one per day, skipping 0x2A = SpO2). The slot→day mapping rotates daily. Previous code only queried 0x25-0x29, missing current-day data at 0x23/0x24/0x2B.
 
-**Fix:** `fetch_temperature_history()` loops 0x25-0x29. 153 records synced (5 nights, 30-min intervals, overnight skin temp).
+**Fix:** `fetch_temperature_history()` queries 0x22-0x2C (skip 0x2A) with response dataId=0x25 check. Queue drain + `_bd_buf` reset between requests prevents shared-queue desync. 329 records synced (9 days, 30-min intervals).
 
 ---
 
