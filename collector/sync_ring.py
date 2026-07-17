@@ -56,6 +56,7 @@ class SyncResult:
     battery_pct: Optional[int] = None
     fw_version: Optional[str] = None
     error: Optional[str] = None
+    warnings: Optional[str] = None
     time_sync_acked: Optional[bool] = None
     logger_stalled: bool = False
     logger_auto_recovery: bool = False
@@ -79,6 +80,8 @@ def log_sync_complete(sync_id: int, result: SyncResult):
         ack_flag = 1 if result.time_sync_acked else 0
     status = "completed" if not result.error else "error"
     error_msg = result.error
+    if result.warnings:
+        error_msg = (result.error + "; " if result.error else "") + result.warnings
     if result.logger_auto_recovery:
         log.info("Logger auto-recovery: HR-log setting was toggled to restart ring logger")
     if result.logger_stalled and not result.logger_auto_recovery:
@@ -314,7 +317,7 @@ async def _big_data_request(client: Client, data_type: int) -> Optional[bytes]:
     try:
         raw = bytes(await asyncio.wait_for(client.big_data_queue.get(), timeout=15.0))
         head = raw[:32].hex() if len(raw) > 0 else "<empty>"
-        log.debug(f"Big-data resp 0x{data_type:02x}: len={len(raw)} head={head}")
+        log.info(f"Big-data resp 0x{data_type:02x}: len={len(raw)} head={head}")
         return raw
     except asyncio.TimeoutError:
         log.warning(f"Big-data timeout for type 0x{data_type:02x} (no response in 15s)")
@@ -423,6 +426,7 @@ def _parse_temperature_data(data: bytes) -> list[dict]:
         days_ago = data[idx]; idx += 1
         idx += 1  # skip extra byte (observed as 0x1e)
         target_date = (local_now - timedelta(days=days_ago)).date()
+        block_start = idx
         for hour in range(24):
             t00 = data[idx] & 0xFF; idx += 1
             t30 = data[idx] & 0xFF; idx += 1
@@ -434,6 +438,8 @@ def _parse_temperature_data(data: bytes) -> list[dict]:
                 temp_c = (t30 / 10.0) + 20
                 ts = datetime.combine(target_date, datetime.min.time().replace(hour=hour, minute=30)).astimezone()
                 records.append({"ts": ts, "temp_c": round(temp_c, 1)})
+        non_zero = sum(1 for b in data[block_start:idx] if b > 0)
+        log.info(f"  Temp block daysAgo={days_ago} date={target_date}: {non_zero}/48 non-zero bytes")
     return records
 
 
@@ -1028,7 +1034,11 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
             temp_records = await fetch_temperature_history(client)
             count = upsert_temperature_list(temp_records)
             total_records += count
-            log.info(f"Temperature: {count} records")
+            log.info(f"Temperature: {count} new records inserted")
+            today = datetime.now().date()
+            if not any(r["ts"].astimezone().date() == today for r in temp_records):
+                result.warnings = "no temp for today (ring firmware may not have flushed yet)"
+                log.info("Temp audit: no records for today in ring big-data buffer")
         except Exception as e:
             log.warning(f"Temperature sync failed: {e}")
 
@@ -1084,36 +1094,35 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
             log.debug(f"Goals fetch failed: {e}")
 
         # ------------------------------------------------------------
-        # 11. Stall detection + auto-recovery
-        # Signal: ring IS worn (HRV data for today) but HR log returned
-        # NoData for today → the ring's background HR-logger task hung.
-        # Toggle the HR-log setting to re-kick the firmware logger task
-        # so the next sync (after one interval) picks up fresh HR.
+        # 11. Stall detection + auto-recovery — DISABLED
+        # The dashboard data-quality banner now surfaces HR stalls, so we
+        # handle them manually (toggle HR-log in Gadgetbridge or power-cycle).
+        # Logic preserved below for reference; re-enable by uncommenting.
         # ------------------------------------------------------------
-        today_hr = sum(1 for r in hr_records
-                       if r["ts"].astimezone().date() == datetime.now().date())
-        today_hrv = sum(1 for r in hrv_records
-                        if r["ts"].astimezone().date() == datetime.now().date())
-        if today_hrv > 0 and today_hr == 0:
-            result.logger_stalled = True
-            log.warning(
-                "HR logger STALLED: HRV present for today (%d records) "
-                "but HR log is empty. Attempting auto-recovery via "
-                "HR-log setting toggle.", today_hrv)
-            update_progress(sync_id, "Recovering HR logger...")
-            try:
-                cur_settings = await client.get_heart_rate_log_settings()
-                interval = cur_settings.interval if cur_settings.interval else 15
-                await client.set_heart_rate_log_settings(False, 1)
-                await asyncio.sleep(0.5)
-                await client.set_heart_rate_log_settings(True, interval)
-                result.logger_auto_recovery = True
-                log.info(
-                    "HR log setting toggled off→on (interval=%d min). "
-                    "Ring logger should resume on next measurement interval.",
-                    interval)
-            except Exception as e:
-                log.warning("HR log auto-recovery toggle FAILED: %s", e)
+        # today_hr = sum(1 for r in hr_records
+        #                if r["ts"].astimezone().date() == datetime.now().date())
+        # today_hrv = sum(1 for r in hrv_records
+        #                 if r["ts"].astimezone().date() == datetime.now().date())
+        # if today_hrv > 0 and today_hr == 0:
+        #     result.logger_stalled = True
+        #     log.warning(
+        #         "HR logger STALLED: HRV present for today (%d records) "
+        #         "but HR log is empty. Attempting auto-recovery via "
+        #         "HR-log setting toggle.", today_hrv)
+        #     update_progress(sync_id, "Recovering HR logger...")
+        #     try:
+        #         cur_settings = await client.get_heart_rate_log_settings()
+        #         interval = cur_settings.interval if cur_settings.interval else 15
+        #         await client.set_heart_rate_log_settings(False, 1)
+        #         await asyncio.sleep(0.5)
+        #         await client.set_heart_rate_log_settings(True, interval)
+        #         result.logger_auto_recovery = True
+        #         log.info(
+        #             "HR log setting toggled off→on (interval=%d min). "
+        #             "Ring logger should resume on next measurement interval.",
+        #             interval)
+        #     except Exception as e:
+        #         log.warning("HR log auto-recovery toggle FAILED: %s", e)
 
     finally:
         result.records_synced = total_records
