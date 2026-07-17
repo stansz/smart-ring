@@ -1698,6 +1698,22 @@
                     }
                     return best;
                 },
+                _tsToDayMinutes(ts, dayKey) {
+                    const d = new Date(ts);
+                    const [y, mo, day] = dayKey.split('-').map(Number);
+                    // If the timestamp crosses midnight (e.g. nap after midnight for
+                    // a day-key that's the prior date), normalize to 0–1440 range.
+                    let mins = d.getHours() * 60 + d.getMinutes();
+                    const tsDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    if (tsDate !== dayKey) {
+                        // If ts is the next day, keep going past 1440; if previous day, wrap negative.
+                        // For sleep, most common case is early-morning stages belonging to the
+                        // sleep session that started the previous evening.
+                        const dayMidnight = new Date(y, mo - 1, day).getTime();
+                        mins = (d.getTime() - dayMidnight) / 60000;
+                    }
+                    return mins;
+                },
 
                 renderDayOverview() {
                     this.renderDayRing(this.dailyActivity[this.dateKey(this.selectedDate)]);
@@ -1719,15 +1735,27 @@
                     const steps = (r && r.hourly_steps) || new Array(24).fill(0);
                     const max = Math.max(...steps, 1);
                     let segs = '';
+                    // --- Sleep overlay: draw each stage as its own arc at true
+                    // temporal resolution (not hourly). Angle = minutes/1440*360.
+                    let sleepSegs = '';
+                    const stageMin = { deep: 0, rem: 0, light: 0, awake: 0 };
+                    for (const s of this._sleepStages) {
+                        if (!stageColors[s.stage]) continue;
+                        const sMin = this._tsToDayMinutes(s.start_ts, sel);
+                        const eMin = this._tsToDayMinutes(s.end_ts, sel);
+                        if (eMin <= sMin) continue;
+                        const a0 = (sMin / 1440) * 360;
+                        const a1 = (eMin / 1440) * 360;
+                        const dur = Math.round((eMin - sMin));
+                        stageMin[s.stage] = (stageMin[s.stage] || 0) + dur;
+                        const tip = `${stageLabel[s.stage]} · ${dur}m`;
+                        sleepSegs += `<path class="ringbar" d="${this._arc(cx, cy, baseOut, baseIn, a0, a1)}" fill="${stageColors[s.stage]}" data-tip="${tip}"/>`;
+                    }
                     for (let h = 0; h < 24; h++) {
                         const a0 = h * 15 + 0.7, a1 = (h + 1) * 15 - 0.7; // gap between segments
-                        const ss = this._sleepStageForHour(this._sleepStages, sel, h);
-                        // 1) status baseline: sleep / worn-or-active / off
+                        // 1) status baseline: worn / off (sleep overlay drawn on top)
                         let baseFill, baseTip;
-                        if (ss && stageColors[ss]) {
-                            baseFill = stageColors[ss];
-                            baseTip = `${h}:00 · ${stageLabel[ss]} sleep`;
-                        } else if (worn[h] > 0 || steps[h] > 0) {
+                        if (worn[h] > 0 || steps[h] > 0) {
                             baseFill = wornBase;
                             baseTip = `${h}:00 · worn${steps[h] > 0 ? ' · ' + steps[h] + ' steps' : ''}`;
                         } else {
@@ -1737,7 +1765,7 @@
                         segs += `<path class="ringbar" d="${this._arc(cx, cy, baseOut, baseIn, a0, a1)}" fill="${baseFill}" data-tip="${baseTip}"/>`;
                         // 2) activity bar (height ∝ steps) — green by intensity
                         const v = steps[h];
-                        if (v > 0 && !(ss && stageColors[ss])) {
+                        if (v > 0) {
                             const top = barIn + (v / max) * barMax;
                             segs += `<path class="ringbar" d="${this._arc(cx, cy, top, barIn, a0, a1)}" fill="#10b981" opacity="0.95" data-tip="${h}:00–${h + 1}:00 · ${v} steps"/>`;
                         }
@@ -1766,10 +1794,14 @@
                     // Sleep total for the day (for the side legend)
                     const sleepMin = this._sleepStages.reduce((a, s) => a + (s.duration_minutes || 0), 0);
                     const sleepH = Math.floor(sleepMin / 60), sleepM = sleepMin % 60;
+                    const fmtMin = (m) => m > 0 ? `${Math.floor(m/60)}h ${m%60}m` : '—';
                     const legendItems = [
                         ['#10b981', 'Steps', (r && r.steps_total) ? (r.steps_total).toLocaleString() : '—'],
+                        ['#4338ca', 'Deep', fmtMin(stageMin.deep)],
+                        ['#a855f7', 'REM', fmtMin(stageMin.rem)],
+                        ['#60a5fa', 'Light', fmtMin(stageMin.light)],
+                        ['#fb923c', 'Awake', fmtMin(stageMin.awake)],
                         ['#d1d5db', 'Worn', wornH ? wornH + 'h' : '—'],
-                        ['#4338ca', 'Sleep', sleepMin ? `${sleepH}h ${sleepM}m` : '—'],
                         [grey, 'Off', '—']
                     ];
                     const valCol = this.darkMode ? '#e5e7eb' : '#374151';
@@ -1784,7 +1816,7 @@
 
                     el.innerHTML = `
                         <svg viewBox="-18 -18 276 276" class="w-full" style="width:360px; max-width:100%">
-                            ${segs}${labels}
+                            ${segs}${sleepSegs}${labels}
                             <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="30" font-weight="700" fill="${centerTxt}">${centerTop}</text>
                             <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="10" fill="${centerSubTxt}">steps</text>
                             <text x="${cx}" y="${cy + 32}" text-anchor="middle" font-size="10" font-weight="500" fill="${centerSubTxt}">${centerSub}</text>
