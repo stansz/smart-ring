@@ -828,42 +828,71 @@ class Analytics:
             return 10
 
         count = 0
+        weights = {"hrv": 0.35, "sleep": 0.30, "activity": 0.20, "rhr": 0.15}
         for r in rows:
             day = r['day']
-            # --- HRV sub-score (35%) ---
-            hrv = _hrv_to_score(r['hrv_zscore'])
-            # --- Sleep sub-score (30%) ---
-            slp = int(r['sleep_score']) if r['sleep_score'] is not None else 50
-            # --- Activity sub-score (20%) ---
+
+            # Determine which sub-scores have real data (not defaulted/missing).
+            has_hrv      = r['hrv_zscore'] is not None
+            has_sleep    = r['sleep_score'] is not None
+            has_activity = r['steps_total'] is not None
+            has_rhr      = r['resting_hr_approx'] is not None
+            available_weight = sum(
+                w for k, w in weights.items()
+                if {"hrv": has_hrv, "sleep": has_sleep,
+                    "activity": has_activity, "rhr": has_rhr}[k]
+            )
+
+            # --- Individual sub-scores (None = unavailable) ---
+            hrv  = _hrv_to_score(r['hrv_zscore']) if has_hrv else None
+            slp  = int(r['sleep_score']) if has_sleep else None
             steps = r['steps_total'] or 0
-            act_steps = min(100, int(steps / steps_goal * 70))
-            # active minutes bonus: count hours with >=500 steps
-            act = min(100, act_steps)
-            # --- RHR sub-score (15%) ---
-            rhr_val = r['resting_hr_approx']
-            rhr_s = 50
-            if rhr_val:
-                delta = rhr_val - rhr_baseline
-                rhr_s = max(0, min(100, 60 - delta * 3))
+            act_steps = min(100, int(steps / steps_goal * 70)) if has_activity else None
+            act  = min(100, act_steps) if has_activity else None
+            rhr_s = None
+            if has_rhr:
+                delta = r['resting_hr_approx'] - rhr_baseline
+                rhr_s  = max(0, min(100, 60 - delta * 3))
 
-            # Weighted composite
-            score = round(0.35 * hrv + 0.30 * slp + 0.20 * act + 0.15 * rhr_s)
+            # --- Exclude & re-weight composite ---
+            sub_scores = [
+                (hrv, weights["hrv"]),
+                (slp, weights["sleep"]),
+                (act, weights["activity"]),
+                (rhr_s, weights["rhr"]),
+            ]
+            if available_weight > 0:
+                score = round(sum(s * w for s, w in sub_scores if s is not None)
+                              / available_weight)
+            else:
+                score = 0
 
-            # Contributors (deltas from neutral = 50)
-            contrib = {
-                "hrv":     round((hrv - 50) * 0.35),
-                "sleep":   round((slp - 50) * 0.30),
-                "activity": round((act - 50) * 0.20),
-                "rhr":     round((rhr_s - 50) * 0.15),
-            }
+            missing = [
+                k for k, v in {"hrv": has_hrv, "sleep": has_sleep,
+                               "activity": has_activity, "rhr": has_rhr}.items()
+                if not v
+            ]
+            confidence = "partial" if missing else "full"
+
+            # Contributors (deltas from neutral = 50; only for available components)
+            contrib = {}
+            if hrv is not None:
+                contrib["hrv"] = round((hrv - 50) * weights["hrv"])
+            if slp is not None:
+                contrib["sleep"] = round((slp - 50) * weights["sleep"])
+            if act is not None:
+                contrib["activity"] = round((act - 50) * weights["activity"])
+            if rhr_s is not None:
+                contrib["rhr"] = round((rhr_s - 50) * weights["rhr"])
 
             with self.conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO readiness_score
                         (day, score, hrv_score, sleep_score, activity_score, rhr_score,
                          hrv_zscore, steps, resting_hr, hrv_rmssd,
-                         sleep_total_min, rhr_baseline, contributors, computed_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                         sleep_total_min, rhr_baseline, contributors,
+                         confidence, missing_components, computed_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     ON CONFLICT (day) DO UPDATE SET
                         score=EXCLUDED.score, hrv_score=EXCLUDED.hrv_score,
                         sleep_score=EXCLUDED.sleep_score, activity_score=EXCLUDED.activity_score,
@@ -873,15 +902,90 @@ class Analytics:
                         sleep_total_min=EXCLUDED.sleep_total_min,
                         rhr_baseline=EXCLUDED.rhr_baseline,
                         contributors=EXCLUDED.contributors,
+                        confidence=EXCLUDED.confidence,
+                        missing_components=EXCLUDED.missing_components,
                         computed_at=NOW()
                 """, (day, score, hrv, slp, act, rhr_s,
                       r['hrv_zscore'], r['steps_total'], r['resting_hr_approx'],
                       r['hrv_rmssd'], r['sleep_total_min'], rhr_baseline,
-                      json.dumps(contrib)))
+                      json.dumps(contrib), confidence, missing))
             count += 1
         self.conn.commit()
         if count:
-            log.info(f"  Readiness: {count} days updated (baseline RHR={rhr_baseline} bpm)")
+            partial = sum(1 for r in rows if r.get('resting_hr_approx') is None or r.get('hrv_zscore') is None)
+            log.info(f"  Readiness: {count} days updated (baseline RHR={rhr_baseline} bpm)"
+                     + (f", {partial} with partial confidence" if partial else ""))
+
+    # =================== Data quality ===================
+
+    def compute_data_quality(self, days: int = 7):
+        """Per-type freshness check: flag stale/missing data.
+
+        For each day, if ANY type has data (ring was worn + synced that day)
+        but a specific type has 0 records, mark it as 'stale'.
+        Days with zero records across ALL types are marked 'missing'
+        (ring not worn / no sync). Otherwise 'ok'.
+        """
+        log.info("Computing data quality...")
+        types = {
+            "heart_rate":   "raw_heart_rate",
+            "spo2":         "raw_spo2",
+            "temperature":  "raw_temperature",
+            "hrv":          "raw_hrv",
+            "steps":        "raw_steps",
+            "stress":       "raw_stress",
+        }
+        with self.conn.cursor() as cur:
+            # Gather per-type, per-day sample counts
+            day_counts: dict[str, dict[str, int]] = {}  # day -> {type: count}
+            for data_type, table in types.items():
+                cur.execute(f"""
+                    SELECT (ts AT TIME ZONE 'America/Vancouver')::date AS day,
+                           COUNT(*) AS cnt, MAX(ts) AS last_ts
+                    FROM {table}
+                    WHERE ts >= NOW() - INTERVAL %s
+                    GROUP BY 1
+                """, (f"{days} days",))
+                for row in cur.fetchall():
+                    d = str(row["day"])
+                    day_counts.setdefault(d, {})[data_type] = row["cnt"]
+                    day_counts[d].setdefault(f"{data_type}_last_ts", row["last_ts"])
+
+            # Classify each day: stale detection is cross-type — if any type
+            # has data for a day but a specific type doesn't, it's stale.
+            for d, counts in day_counts.items():
+                any_data = any(
+                    counts.get(t, 0) > 0 for t in types
+                )
+                for data_type in types:
+                    cnt = counts.get(data_type, 0)
+                    if any_data and cnt == 0:
+                        status = "stale"
+                    elif not any_data:
+                        status = "missing"
+                    else:
+                        status = "ok"
+                    last_ts = counts.get(f"{data_type}_last_ts")
+                    cur.execute("""
+                        INSERT INTO data_quality (day, data_type, last_ts,
+                                                  sample_count, status, checked_at)
+                        VALUES (%s, %s, %s, %s, %s, NOW())
+                        ON CONFLICT (day, data_type) DO UPDATE SET
+                            last_ts = EXCLUDED.last_ts,
+                            sample_count = EXCLUDED.sample_count,
+                            status = EXCLUDED.status,
+                            checked_at = EXCLUDED.checked_at
+                    """, (d, data_type, last_ts, cnt, status))
+            self.conn.commit()
+            stale_types = [t for t in types
+                           if any(day_counts.get(d, {}).get(t, 0) == 0
+                                  and any(day_counts.get(d, {}).get(t2, 0) > 0 for t2 in types)
+                                  for d in day_counts)]
+            if stale_types:
+                log.info(f"  Data quality: stale types = {stale_types}, "
+                         f"checked {len(day_counts)} days")
+            else:
+                log.info(f"  Data quality: all types fresh ({len(day_counts)} days)")
 
     # =================== Orchestration ===================
 
@@ -928,6 +1032,11 @@ class Analytics:
                 log.info(f"  Resting HR: {resting['resting_hr']:.0f} bpm ({resting['day']})")
         except Exception as e:
             log.error(f"Resting HR failed: {e}", exc_info=True)
+
+        try:
+            self.compute_data_quality()
+        except Exception as e:
+            log.error(f"Data quality check failed: {e}", exc_info=True)
 
         log.info("=== Analytics complete ===")
 

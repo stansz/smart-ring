@@ -57,6 +57,8 @@ class SyncResult:
     fw_version: Optional[str] = None
     error: Optional[str] = None
     time_sync_acked: Optional[bool] = None
+    logger_stalled: bool = False
+    logger_auto_recovery: bool = False
 
 
 def get_db():
@@ -75,6 +77,12 @@ def log_sync_complete(sync_id: int, result: SyncResult):
     ack_flag = None
     if result.time_sync_acked is not None:
         ack_flag = 1 if result.time_sync_acked else 0
+    status = "completed" if not result.error else "error"
+    error_msg = result.error
+    if result.logger_auto_recovery:
+        log.info("Logger auto-recovery: HR-log setting was toggled to restart ring logger")
+    if result.logger_stalled and not result.logger_auto_recovery:
+        log.warning("HR logger STALLED but auto-recovery was not attempted")
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -82,7 +90,7 @@ def log_sync_complete(sync_id: int, result: SyncResult):
                     battery_pct = %s, clock_drift_ms = %s, status = %s, error = %s
                 WHERE id = %s
             """, (result.records_synced, result.battery_pct, ack_flag,
-                  "completed" if not result.error else "error", result.error, sync_id))
+                  status, error_msg, sync_id))
 
 
 def update_progress(sync_id: Optional[int], step: str):
@@ -900,6 +908,7 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
         # The colmi_r02_client library's HeartRateLogParser is stateful and
         # only returns results for today's data. We handle the multi-packet
         # protocol ourselves, following Gadgetbridge's ColmiR0xDeviceSupport.
+        hr_records = []
         log.info("Syncing heart rate history...")
         update_progress(sync_id, "Fetching heart rate...")
         try:
@@ -949,6 +958,7 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
             log.error(f"Steps sync failed: {e}")
 
         # 5. Sync HRV (cmd 0x39, Gadgetbridge CMD_SYNC_HRV)
+        hrv_records = []
         update_progress(sync_id, "Fetching HRV...")
         try:
             hrv_records = await fetch_hrv_history(client)
@@ -1007,6 +1017,38 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
                 log.info(f"Goals: steps={goals['steps_goal']} cal={goals['calories_goal']} dist={goals['distance_m_goal']}m")
         except Exception as e:
             log.debug(f"Goals fetch failed: {e}")
+
+        # ------------------------------------------------------------
+        # 11. Stall detection + auto-recovery
+        # Signal: ring IS worn (HRV data for today) but HR log returned
+        # NoData for today → the ring's background HR-logger task hung.
+        # Toggle the HR-log setting to re-kick the firmware logger task
+        # so the next sync (after one interval) picks up fresh HR.
+        # ------------------------------------------------------------
+        today_hr = sum(1 for r in hr_records
+                       if r["ts"].astimezone().date() == datetime.now().date())
+        today_hrv = sum(1 for r in hrv_records
+                        if r["ts"].astimezone().date() == datetime.now().date())
+        if today_hrv > 0 and today_hr == 0:
+            result.logger_stalled = True
+            log.warning(
+                "HR logger STALLED: HRV present for today (%d records) "
+                "but HR log is empty. Attempting auto-recovery via "
+                "HR-log setting toggle.", today_hrv)
+            update_progress(sync_id, "Recovering HR logger...")
+            try:
+                cur_settings = await client.get_heart_rate_log_settings()
+                interval = cur_settings.interval if cur_settings.interval else 15
+                await client.set_heart_rate_log_settings(False, 1)
+                await asyncio.sleep(0.5)
+                await client.set_heart_rate_log_settings(True, interval)
+                result.logger_auto_recovery = True
+                log.info(
+                    "HR log setting toggled off→on (interval=%d min). "
+                    "Ring logger should resume on next measurement interval.",
+                    interval)
+            except Exception as e:
+                log.warning("HR log auto-recovery toggle FAILED: %s", e)
 
     finally:
         result.records_synced = total_records

@@ -96,6 +96,7 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 - HRV is composite single-byte (not true RR intervals) — z-score still works, RMSSD/pNN50 unavailable
 - Steps undercount vs wrist devices (rings inherently register fewer steps)
 - Phone steps not fetched (Web Bluetooth sync doesn't query step data — only HR/SpO2/temp/sleep/HRV)
+- **R09 firmware logger can hang silently** — background HR-log (cmd 0x15) + temperature logging run as a separate firmware task from live PPG measurement. When it hangs, HRV/SpO2/stress keep flowing (PPG still works) but HR/temp buffer goes empty. Detection (HRV present + HR/temp empty) + auto-recovery (toggle HR-log setting) now in sync_ring.py. Data-quality staleness check + banner in dashboard. Full power-cycle (discharge→recharge) as fallback if toggle doesn't revive it.
 
 **See RESEARCH.md for:** BLE protocol command table, validated score formulas (with citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis (our analytics vs raw ring data), timezone design rationale, source dedup design.
 
@@ -122,3 +123,4 @@ Unified hero panel: 24h activity ring (radial step bars + sleep overlay) alongsi
 - **Secrets:** Never commit. Update `.env.example` for new env vars.
 - **BLE protocol:** Cross-reference `colmi.puxtril.com` and Gadgetbridge source (`yawell/ring` namespace).
 - **Runtime:** Collector = bare metal venv (`venv/bin/python3`). API + DB = Podman containers (restart with `systemctl --user`).
+- **NEVER run raw ad-hoc Python one-liners to talk to the ring.** The R09 is BLE-flaky and needs the proper forget+repair+wake-ping flow that only `sync_ring.py --forget` handles. Raw `bluetoothctl` or ad-hoc `Client()` attempts will fail with EOFError/connect errors and waste time. For diagnostics use `first_contact.py`. For sync use `sync_ring.py --forget`. For any settings reads/writes, either extend those scripts or run them inside an active sync_ring.py connection.**

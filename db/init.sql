@@ -185,7 +185,11 @@ CREATE TABLE IF NOT EXISTS readiness_score (
     steps INT,
     resting_hr INT,
     hrv_rmssd NUMERIC(5,2),
+    sleep_total_min INT,
+    rhr_baseline INT,
     contributors JSONB,               -- {hrv: +5, sleep: -3, activity: +12, rhr: -2}
+    confidence TEXT DEFAULT 'full',    -- 'full' | 'partial' (partial = one or more sub-scores missing)
+    missing_components TEXT[] DEFAULT '{}', -- e.g. {'rhr'} for types missing real data
     computed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -223,3 +227,17 @@ CREATE INDEX IF NOT EXISTS idx_sync_requests_status ON sync_requests(status, req
 -- This is what prevents a race when two POSTs try to queue a sync simultaneously.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_requests_one_active ON sync_requests(status)
     WHERE status IN ('pending', 'running');
+
+-- Data quality: per-type freshness checked after each sync.
+-- Stale detection: if ANY type has data for a day (ring worn + synced)
+-- but a specific type does NOT, flag it as stale. Days with no data from
+-- any type are marked 'missing' (ring not worn / no sync that day).
+CREATE TABLE IF NOT EXISTS data_quality (
+    day DATE NOT NULL,
+    data_type VARCHAR(32) NOT NULL,
+    last_ts TIMESTAMPTZ,
+    sample_count INT DEFAULT 0,
+    status VARCHAR(16) NOT NULL DEFAULT 'ok',  -- ok | stale | missing
+    checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (day, data_type)
+);
