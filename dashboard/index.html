@@ -1312,10 +1312,12 @@
                         const tempData = byDate(tempAll);
                         const hrvData = byDate(hrvAll);
 
-                        // Fall back to all data if selected date has nothing
-                        const spo2Final = spo2Data.length ? spo2Data : (this.isToday() ? spo2All : []);
-                        const tempFinal = tempData.length ? tempData : (this.isToday() ? tempAll : []);
-                        const hrvFinal = hrvData.length ? hrvData : (this.isToday() ? hrvAll : []);
+                        // Use only selected-date data — do NOT fall back to
+                        // historical data when today is empty (that showed
+                        // yesterday's temp as if it were today's).
+                        const spo2Final = spo2Data;
+                        const tempFinal = tempData;
+                        const hrvFinal = hrvData;
 
                         const range = (d, k) => {
                             const vals = d.map(x => x[k]).filter(v => v != null);
