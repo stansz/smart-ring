@@ -94,11 +94,11 @@ def get_daily_activity(days: int = 14):
 
 @app.get("/api/readiness")
 def get_readiness(days: int = 7):
-    """Unified readiness score (0-100 Oura-style) with sub-scores + context."""
+    """Unified readiness score (0-100 WHOOP-style) with sub-scores + context."""
     with SessionLocal() as db:
         rows = db.execute(text("""
-            SELECT day, score, hrv_score, sleep_score, activity_score, rhr_score,
-                   hrv_zscore, steps, resting_hr, hrv_rmssd,
+            SELECT day, score, hrv_score, sleep_score, rhr_score,
+                   hrv_zscore, resting_hr, hrv_rmssd,
                    sleep_total_min, rhr_baseline, contributors,
                    confidence, missing_components
             FROM readiness_score

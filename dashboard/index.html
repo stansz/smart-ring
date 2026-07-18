@@ -200,8 +200,7 @@
                         <circle cx="50" cy="50" r="40" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
                         <circle cx="50" cy="50" r="32" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
                         <circle cx="50" cy="50" r="24" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
-                        <circle cx="50" cy="50" r="16" fill="none" class="text-gray-200 dark:text-gray-700" stroke-width="6" stroke="currentColor"/>
-                        <!-- Value rings (outer→inner: Sleep, HRV, Activity, RHR) -->
+                        <!-- Value rings (outer→inner: Sleep, HRV, RHR) -->
                         <circle cx="50" cy="50" r="40" fill="none" stroke-width="6" stroke-linecap="round"
                             stroke="#6366f1"
                             :style="`stroke-dasharray: 251; stroke-dashoffset: ${251 * (1 - (readinessSleep || 0) / 100)}`"/>
@@ -209,11 +208,8 @@
                             stroke="#a855f7"
                             :style="`stroke-dasharray: 201; stroke-dashoffset: ${201 * (1 - (readinessHrv || 0) / 100)}`"/>
                         <circle cx="50" cy="50" r="24" fill="none" stroke-width="6" stroke-linecap="round"
-                            stroke="#10b981"
-                            :style="`stroke-dasharray: 151; stroke-dashoffset: ${151 * (1 - (readinessActivity || 0) / 100)}`"/>
-                        <circle cx="50" cy="50" r="16" fill="none" stroke-width="6" stroke-linecap="round"
                             stroke="#f43f5e"
-                            :style="`stroke-dasharray: 101; stroke-dashoffset: ${101 * (1 - (readinessRhr || 0) / 100)}`"/>
+                            :style="`stroke-dasharray: 151; stroke-dashoffset: ${151 * (1 - (readinessRhr || 0) / 100)}`"/>
                     </svg>
                     <div class="absolute inset-0 flex flex-col items-center justify-center">
                         <span class="text-4xl font-bold text-gray-900 dark:text-gray-100" x-text="readinessScore != null ? readinessScore : '—'"></span>
@@ -231,10 +227,6 @@
                     <span class="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
                         <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#a855f7"></span>
                         HRV <span class="font-semibold text-purple-600 dark:text-purple-400" x-text="readinessHrv || '—'"></span>
-                    </span>
-                    <span class="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
-                        <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#10b981"></span>
-                        Activity <span class="font-semibold text-emerald-600 dark:text-emerald-400" x-text="readinessActivity || '—'"></span>
                     </span>
                     <span class="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
                         <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" style="background:#f43f5e"></span>
@@ -323,10 +315,6 @@
                     <div class="text-center">
                         <p class="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
                         <p class="font-bold text-sm mt-0.5 text-teal-500 dark:text-teal-400" x-text="spo2Latest != null ? spo2Latest + '%' : '—'"></p>
-                    </div>
-                    <div class="text-center">
-                        <p class="text-gray-400 dark:text-gray-500">🌡️ Temp</p>
-                        <p class="font-bold text-sm mt-0.5 text-orange-500 dark:text-orange-400" x-text="tempLatest != null ? tempLatest + '°C' : '—'"></p>
                     </div>
                     <div class="text-center">
                         <p class="text-gray-400 dark:text-gray-500">Resting HR</p>
@@ -548,6 +536,15 @@
                     <div id="analyticsRestingHrChart" class="chart-host" style="min-height:140px">
                         <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
                     </div>
+                </div>
+                <!-- Skin Temp Trend Chart -->
+                <div class="border-t border-gray-100 dark:border-gray-700 pt-4">
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Skin Temperature Trend</h3>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">Daily average °C. Shows overnight baseline over time.</p>
+                    <div id="analyticsTempChart" class="chart-host" style="min-height:140px">
+                        <p class="text-sm text-gray-400 dark:text-gray-500">Loading...</p>
+                    </div>
+                </div>
 </div>
         </div>
         </div>
@@ -808,12 +805,12 @@
                 readinessScore: null,
                 readinessSleep: null,
                 readinessHrv: null,
-                readinessActivity: null,
                 readinessRhr: null,
-                readinessLabel: null,
+                readinessDay: null,
+                readinessScore: null, readinessLabel: null, readinessConfidence: 'full', readinessMissing: [],
                 readinessContribText: '',
                 readinessSleepDetail: '', readinessHrvDetail: '',
-                readinessActivityDetail: '', readinessRhrDetail: '',
+                readinessRhrDetail: '',
                 readinessDay: null,
                 readinessConfidence: null,
                 readinessMissing: [],
@@ -1019,11 +1016,12 @@
 
                 async loadAnalyticsTrends() {
                     const days = this.analyticsRange || 7;
-                    const [recoveryRes, sleepRes, stressRes, rhrRes] = await Promise.allSettled([
+                    const [recoveryRes, sleepRes, stressRes, rhrRes, tempRes] = await Promise.allSettled([
                         fetch('/api/recovery?days=' + days),
                         fetch('/api/sleep?days=' + days),
                         fetch('/api/stress?days=' + days),
-                        fetch('/api/resting-hr?days=' + days)
+                        fetch('/api/resting-hr?days=' + days),
+                        fetch('/api/raw/temperature?hours=' + (days * 24) + '&limit=2000')
                     ]);
                     let recovery = [], sleep = [], stress = [], restingHr = [];
                     if (recoveryRes.status === 'fulfilled') recovery = await recoveryRes.value.json();
@@ -1037,6 +1035,22 @@
                         });
                     }
                     if (rhrRes.status === 'fulfilled') restingHr = await rhrRes.value.json();
+                    // Temperature: aggregate raw readings into daily averages
+                    let tempDaily = [];
+                    if (tempRes.status === 'fulfilled') {
+                        const tempAll = await tempRes.value.json();
+                        const byDay = {};
+                        for (const t of tempAll) {
+                            const d = this.dateKey(new Date(t.ts));
+                            if (!byDay[d]) byDay[d] = { sum: 0, n: 0 };
+                            byDay[d].sum += t.temp_c;
+                            byDay[d].n += 1;
+                        }
+                        // Convert to sorted array of {day, avg_temp}
+                        tempDaily = Object.entries(byDay)
+                            .map(([day, v]) => ({ day, avg_temp: Math.round(v.sum / v.n * 10) / 10 }))
+                            .sort((a, b) => a.day.localeCompare(b.day));
+                    }
                     this.renderAnalyticsTrendChart('analyticsHrvChart', recovery, 'z_score',
                         'Recovery (z-score)', -3, 3, '#3b82f6', false);
                     this.renderAnalyticsTrendChart('analyticsSleepChart', sleep, 'score',
@@ -1045,6 +1059,8 @@
                         'Stress', 0, 100, '#f59e0b', true);
                     this.renderAnalyticsTrendChart('analyticsRestingHrChart', restingHr, 'resting_hr',
                         'Resting HR', 40, 80, '#6366f1', true);
+                    this.renderAnalyticsTrendChart('analyticsTempChart', tempDaily, 'avg_temp',
+                        'Skin Temp °C', 35.0, 38.0, '#f97316', true);
                 },
 
                 renderAnalyticsTrendChart(elId, data, key, label, yMin, yMax, color, fillArea) {
@@ -1296,27 +1312,23 @@
 
                 async loadHealthMetrics() {
                     try {
-                        const [spo2, temp, hrv] = await Promise.allSettled([
+                        const [spo2, hrv] = await Promise.allSettled([
                             fetch('/api/raw/spo2?hours=168&limit=200'),
-                            fetch('/api/raw/temperature?hours=168&limit=100'),
                             fetch('/api/raw/hrv?hours=168&limit=200')
                         ]);
                         const spo2All = spo2.status === 'fulfilled' ? this.clipFuture(await spo2.value.json()) : [];
-                        const tempAll = temp.status === 'fulfilled' ? this.clipFuture(await temp.value.json()) : [];
                         const hrvAll = hrv.status === 'fulfilled' ? this.clipFuture(await hrv.value.json()) : [];
 
                         // Filter to selected date
                         const selKey = this.dateKey(this.selectedDate);
                         const byDate = (arr) => arr.filter(d => this.dateKey(new Date(d.ts)) === selKey);
                         const spo2Data = byDate(spo2All);
-                        const tempData = byDate(tempAll);
                         const hrvData = byDate(hrvAll);
 
                         // Use only selected-date data — do NOT fall back to
                         // historical data when today is empty (that showed
                         // yesterday's temp as if it were today's).
                         const spo2Final = spo2Data;
-                        const tempFinal = tempData;
                         const hrvFinal = hrvData;
 
                         const range = (d, k) => {
@@ -1327,10 +1339,6 @@
                             this.spo2Latest = spo2Final[0].spo2_pct;
                             this.spo2Range = range(spo2Final, 'spo2_pct');
                         } else { this.spo2Latest = null; this.spo2Range = null; }
-                        if (tempFinal.length) {
-                            this.tempLatest = Number(tempFinal[0].temp_c).toFixed(1);
-                            this.tempRange = range(tempFinal, 'temp_c');
-                        } else { this.tempLatest = null; this.tempRange = null; }
                         if (hrvFinal.length) {
                             this.hrvLatest = hrvFinal[0].hrv_value;
                             this.hrvRange = range(hrvFinal, 'hrv_value');
@@ -1612,27 +1620,25 @@
                         this.readinessScore = r.score;
                         this.readinessSleep = r.sleep_score;
                         this.readinessHrv = r.hrv_score;
-                        this.readinessActivity = r.activity_score;
                         this.readinessRhr = r.rhr_score;
                         this.readinessDay = r.day;
                         this.readinessConfidence = r.confidence || 'full';
                         this.readinessMissing = r.missing_components || [];
                         this.readinessLabel = r.score >= 80 ? 'Excellent' : r.score >= 60 ? 'Good' : r.score >= 40 ? 'Fair' : 'Low';
                         const c = r.contributors || {};
-                        const names = { hrv: 'HRV', sleep: 'Sleep', activity: 'Activity', rhr: 'RHR' };
+                        const names = { hrv: 'HRV', sleep: 'Sleep', rhr: 'RHR' };
                         this.readinessContribText = Object.entries(c)
                             .map(([k, v]) => `${v >= 0 ? '+' : ''}${v} ${names[k] || k}`).join(' · ');
                         const m = r.sleep_total_min || 0;
                         this.readinessSleepDetail = `${Math.floor(m/60)}h ${m%60}m`;
                         this.readinessHrvDetail = r.hrv_zscore ? `z=${r.hrv_zscore.toFixed(1)} · ${r.hrv_rmssd || 0}ms` : '';
-                        this.readinessActivityDetail = r.steps ? `${r.steps.toLocaleString()} steps` : '';
                         this.readinessRhrDetail = r.resting_hr ? `${r.resting_hr} bpm` + (r.rhr_baseline ? ` · baseline ${r.rhr_baseline}` : '') : '';
                     } else {
                         this.readinessScore = null; this.readinessSleep = null; this.readinessHrv = null;
-                        this.readinessActivity = null; this.readinessRhr = null; this.readinessDay = null;
+                        this.readinessRhr = null; this.readinessDay = null;
                         this.readinessLabel = null; this.readinessContribText = '';
                         this.readinessSleepDetail = ''; this.readinessHrvDetail = '';
-                        this.readinessActivityDetail = ''; this.readinessRhrDetail = '';
+                        this.readinessRhrDetail = '';
                     }
                 },
 
@@ -2060,23 +2066,20 @@
 
                 async loadVitalsChart() {
                     try {
-                        const [hrRes, spo2Res, tempRes] = await Promise.all([
+                        const [hrRes, spo2Res] = await Promise.all([
                             fetch('/api/raw/heart-rate?hours=168&limit=500'),
-                            fetch('/api/raw/spo2?hours=168&limit=200'),
-                            fetch('/api/raw/temperature?hours=168&limit=200')
+                            fetch('/api/raw/spo2?hours=168&limit=200')
                         ]);
                         const hrAll = this.clipFuture(await hrRes.json());
                         const spo2All = this.clipFuture(await spo2Res.json());
-                        const tempAll = this.clipFuture(await tempRes.json());
                         const selKey = this.dateKey(this.selectedDate);
                         const byDate = (arr) => arr.filter(d => this.dateKey(new Date(d.ts)) === selKey);
                         const hrDay = byDate(hrAll);
                         const spo2Day = byDate(spo2All);
-                        const tempDay = byDate(tempAll);
                         if (this.selectedDate) {
                             this.vitalsSubtitleText = this.formatSelectedDate() + ' — hourly averages';
                         }
-                        this.renderVitalsChart(hrDay, spo2Day, tempDay);
+                        this.renderVitalsChart(hrDay, spo2Day);
                     } catch (e) { console.error('loadVitalsChart', e); }
                 },
 
@@ -2099,16 +2102,16 @@
                     return d;
                 },
 
-                renderVitalsChart(hrData, spo2Data, tempData) {
+                renderVitalsChart(hrData, spo2Data) {
                     const el = document.getElementById('vitalsChart');
                     if (!el) return;
-                    if (!hrData.length && !spo2Data.length && !tempData.length) {
+                    if (!hrData.length && !spo2Data.length) {
                         el.innerHTML = '<p class="text-sm text-gray-400 dark:text-gray-500">No vitals data for this day</p>';
                         return;
                     }
                     // Aggregate by hour
                     const byHour = {};
-                    for (let h = 0; h < 24; h++) byHour[h] = { hr: [], spo2: [], temp: [] };
+                    for (let h = 0; h < 24; h++) byHour[h] = { hr: [], spo2: [] };
                     for (const r of hrData) {
                         const h = new Date(r.ts).getHours();
                         if (byHour[h]) byHour[h].hr.push(r.bpm);
@@ -2117,25 +2120,17 @@
                         const h = new Date(s.ts).getHours();
                         if (byHour[h]) byHour[h].spo2.push(s.spo2_pct);
                     }
-                    for (const t of tempData) {
-                        const h = new Date(t.ts).getHours();
-                        if (byHour[h]) byHour[h].temp.push(Number(t.temp_c));
-                    }
-                    const hrAvg = [], spo2Avg = [], tempAvg = [];
+                    const hrAvg = [], spo2Avg = [];
                     for (let h = 0; h < 24; h++) {
                         const hrs = byHour[h].hr;
                         hrAvg.push(hrs.length ? hrs.reduce((a, b) => a + b, 0) / hrs.length : null);
                         const sps = byHour[h].spo2;
                         spo2Avg.push(sps.length ? sps.reduce((a, b) => a + b, 0) / sps.length : null);
-                        const tps = byHour[h].temp;
-                        tempAvg.push(tps.length ? tps.reduce((a, b) => a + b, 0) / tps.length : null);
                     }
 
                     const hrMin = 40, hrMax = 160;
                     const spo2Min = 88, spo2Max = 100;
-                    const tempMin = 34.5, tempMax = 38.5;
                     const dark = this.darkMode;
-                    const axisColor = dark ? '#9ca3af' : '#6b7280';
                     const gridColor = dark ? '#374151' : '#e5e7eb';
                     // Use CSS variables for responsive sizing
                     const pad = 10;
@@ -2145,13 +2140,11 @@
                     const x0 = 63;
                     const syHr = v => pad + plotH - ((v - hrMin) / (hrMax - hrMin)) * plotH;
                     const sySp = v => pad + plotH - ((v - spo2Min) / (spo2Max - spo2Min)) * plotH;
-                    const syTp = v => pad + plotH - ((v - tempMin) / (tempMax - tempMin)) * plotH;
 
-                    const hrPts = [], spPts = [], tpPts = [];
+                    const hrPts = [], spPts = [];
                     for (let i = 0; i < 24; i++) {
                         if (hrAvg[i] != null) hrPts.push([x0 + i * xScale, syHr(hrAvg[i])]);
                         if (spo2Avg[i] != null) spPts.push([x0 + i * xScale, sySp(spo2Avg[i])]);
-                        if (tempAvg[i] != null) tpPts.push([x0 + i * xScale, syTp(tempAvg[i])]);
                     }
                     const hrPath = this.smoothPath(hrPts);
 
@@ -2163,54 +2156,42 @@
                         grid += `<line x1="${x0}" y1="${y.toFixed(1)}" x2="${w - 110}" y2="${y.toFixed(1)}" stroke="${gridColor}" stroke-dasharray="2,2"/>`;
                         grid += `<text x="${x0 - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="#3b82f6" opacity="0.8">${v}</text>`;
                     }
-                    // Right-axis labels (SpO₂ inner, Temp outer)
+                    // Right-axis labels (SpO₂)
                     for (let i = 0; i <= 2; i++) {
                         const v = spo2Min + (spo2Max - spo2Min) / 2 * i;
                         const y = sySp(v);
                         grid += `<text x="${w - 100}" y="${(y + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="#14b8a6" opacity="0.8">${v}%</text>`;
                     }
-                    for (let i = 0; i <= 3; i++) {
-                        const v = tempMin + (tempMax - tempMin) / 3 * i;
-                        const y = syTp(v);
-                        grid += `<text x="${w - 58}" y="${(y + 3).toFixed(1)}" text-anchor="start" font-size="9" fill="#f97316" opacity="0.8">${v.toFixed(1)}°</text>`;
-                    }
                     // Hour labels (12h am/pm)
                     const fmtHour = (hr) => hr === 0 ? '12a' : hr === 12 ? '12p' : hr < 12 ? hr + 'a' : (hr - 12) + 'p';
                     for (let h2 = 0; h2 < 24; h2 += 3) {
-                        grid += `<text x="${(x0 + h2 * xScale).toFixed(1)}" y="${h - 2}" text-anchor="middle" font-size="9" fill="${axisColor}">${fmtHour(h2)}</text>`;
+                        grid += `<text x="${(x0 + h2 * xScale).toFixed(1)}" y="${h - 2}" text-anchor="middle" font-size="9" fill="${dark ? '#9ca3af' : '#6b7280'}">${fmtHour(h2)}</text>`;
                     }
 
                     // SpO₂ dots + optional faint connecting line
                     const spDots = spPts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#14b8a6" opacity="0.9"/>`).join('');
                     const spLine = spPts.length >= 2 ? `<path d="${this.smoothPath(spPts)}" fill="none" stroke="#14b8a6" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>` : '';
-                    // Temp dots + faint connecting line
-                    const tpDots = tpPts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="2.5" fill="#f97316" opacity="0.85"/>`).join('');
-                    const tpLine = tpPts.length >= 2 ? `<path d="${this.smoothPath(tpPts)}" fill="none" stroke="#f97316" stroke-width="1" stroke-dasharray="3,3" opacity="0.45"/>` : '';
 
                     const hrLineEl = hrPath ? `<path class="chart-line" d="${hrPath}" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>` : '';
 
                     el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" class="chart-svg w-full" preserveAspectRatio="xMidYMid meet" style="max-height:200px; height:auto;">
                         ${grid}
                         ${hrLineEl}
-                        ${tpLine}
                         ${spLine}
-                        ${tpDots}
                         ${spDots}
                         <g id="vitalsCross" opacity="0">
                             <line id="vcLine" x1="${x0}" x2="${x0}" y1="${pad}" y2="${pad + plotH}" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3"/>
                             <circle id="vcHr" r="3.5" fill="#3b82f6" opacity="0"/>
                             <circle id="vcSp" r="3.5" fill="#14b8a6" opacity="0"/>
-                            <circle id="vcTp" r="2.5" fill="#f97316" opacity="0"/>
                             <text id="vcHrT" text-anchor="middle" font-size="9" font-weight="bold" fill="#3b82f6"></text>
                             <text id="vcSpT" text-anchor="middle" font-size="9" font-weight="bold" fill="#14b8a6"></text>
-                            <text id="vcTpT" text-anchor="middle" font-size="9" font-weight="bold" fill="#f97316"></text>
                         </g>
                         <rect id="vitalsOverlay" x="${x0}" y="${pad}" width="${plotW}" height="${plotH}" fill="transparent" style="cursor:crosshair"/>
                     </svg>`;
-                    this._attachVitalsTooltip(hrAvg, spo2Avg, tempAvg);
+                    this._attachVitalsTooltip(hrAvg, spo2Avg);
                 },
 
-                _attachVitalsTooltip(hrAvg, spo2Avg, tempAvg) {
+                _attachVitalsTooltip(hrAvg, spo2Avg) {
                     const el = document.getElementById('vitalsChart');
                     if (!el) return;
                     const svg = el.querySelector('svg');
@@ -2221,10 +2202,9 @@
                     const plotW = w - 170, plotH = h - pad * 2;
                     const x0 = 63;
                     const xScale = plotW / 23;
-                    const hrMin = 40, hrMax = 160, spo2Min = 88, spo2Max = 100, tempMin = 34.5, tempMax = 38.5;
+                    const hrMin = 40, hrMax = 160, spo2Min = 88, spo2Max = 100;
                     const syHr = v => pad + plotH - ((v - hrMin) / (hrMax - hrMin)) * plotH;
                     const sySp = v => pad + plotH - ((v - spo2Min) / (spo2Max - spo2Min)) * plotH;
-                    const syTp = v => pad + plotH - ((v - tempMin) / (tempMax - tempMin)) * plotH;
                     let tip = el.querySelector('.chart-tooltip');
                     if (!tip) { tip = document.createElement('div'); tip.className = 'chart-tooltip'; el.appendChild(tip); }
                     const move = (e) => {
@@ -2247,12 +2227,10 @@
                         };
                         setDot('#vcHr', '#vcHrT', hrAvg[i], syHr, '');
                         setDot('#vcSp', '#vcSpT', spo2Avg[i], sySp, '%');
-                        setDot('#vcTp', '#vcTpT', tempAvg[i], syTp, '°');
                         let html = `<div style="font-weight:600;margin-bottom:2px">${i}:00</div>`;
                         if (hrAvg[i] != null) html += `<div style="color:#93c5fd">HR ${Math.round(hrAvg[i])} bpm</div>`;
                         if (spo2Avg[i] != null) html += `<div style="color:#14b8a6">SpO₂ ${Math.round(spo2Avg[i])}%</div>`;
-                        if (tempAvg[i] != null) html += `<div style="color:#f97316">Temp ${tempAvg[i].toFixed(1)}°C</div>`;
-                        if (hrAvg[i] == null && spo2Avg[i] == null && tempAvg[i] == null) html += '<div style="color:#cbd5e1">no data</div>';
+                        if (hrAvg[i] == null && spo2Avg[i] == null) html += '<div style="color:#cbd5e1">no data</div>';
                         tip.innerHTML = html;
                         const rect = el.getBoundingClientRect();
                         tip.style.left = (e.clientX - rect.left) + 'px';

@@ -1036,9 +1036,14 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
             total_records += count
             log.info(f"Temperature: {count} new records inserted")
             today = datetime.now().date()
-            if not any(r["ts"].astimezone().date() == today for r in temp_records):
-                result.warnings = "no temp for today (ring firmware may not have flushed yet)"
-                log.info("Temp audit: no records for today in ring big-data buffer")
+            yesterday = today - timedelta(days=1)
+            has_today = any(r["ts"].astimezone().date() == today for r in temp_records)
+            has_yesterday = any(r["ts"].astimezone().date() == yesterday for r in temp_records)
+            if not has_yesterday:
+                # Real anomaly: yesterday's temp should have committed by now
+                result.warnings = "temp: yesterday's data still missing — ring may not have published"
+                log.warning("Temp anomaly: yesterday's block absent from ring buffer")
+            # Normal case (today pending, yesterday present) → silent. No log, no warning.
         except Exception as e:
             log.warning(f"Temperature sync failed: {e}")
 
