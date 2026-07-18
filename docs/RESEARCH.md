@@ -139,26 +139,29 @@ Tracked as complement to HRV (Altini: "HRV is more sensitive, HR is more specifi
 
 ## Readiness Score (0–100)
 
-**Implemented July 2026.** Stored in `readiness_score` table, computed daily by `analytics.py`.
+**Implemented July 2026. Simplified July 2026 — dropped Activity (circular logic).** Stored in `readiness_score` table, computed daily by `analytics.py`.
 
 ### Formula
 
 ```
-readiness = 0.35*HRV + 0.30*Sleep + 0.20*Activity + 0.15*RHR
+readiness = 0.44*HRV + 0.37*Sleep + 0.19*RHR
 ```
 
-Each sub-score normalized 0–100:
+Three pillars (WHOOP-style recovery — pure overnight recovery signals, no same-day activity):
 
 | Pillar | Weight | Computation | Normalization |
 |--------|--------|-------------|---------------|
-| **HRV** | 35% | z-score from 7-day baseline | z≥3→100, z=1→80, z=0→55, z≤-1→10 |
-| **Sleep** | 30% | `sleep_quality.score` (0-100) | As-is (already 0-100) |
-| **Activity** | 20% | Steps vs goal (default 8000) + active-minute bonus | capped at 100 |
-| **RHR** | 15% | Deviation from 30-day median resting HR | delta × 3 offset; lower RHR = higher score |
+| **HRV** | 44% | z-score from 7-day baseline (calendar-day ln-RMSSD) | z≥3→100, z=1→80, z=0→55, z≤-1→10 |
+| **Sleep** | 37% | `sleep_quality.score` (0-100) with session-clustering fix | As-is (already 0-100) |
+| **RHR** | 19% | Deviation from 30-day median of overnight-minimum HR | `60 - delta×3`; lower RHR = higher score |
+
+Activity (same-day steps) was intentionally removed — it's circular to score "readiness for today" using today's own activity. Previous-day activity strain could be a future addition (Oura uses prior-day + 14-day activity balance).
+
+If a pillar is missing data for a day, the remaining pillars are re-weighted to 100%.
 
 ### Contributors
 
-Each pillar gets a "contributor" score = (sub_score - 50) × weight, showing whether it's pushing readiness UP (+) or DOWN (−). Displayed as e.g. "+18 HRV · +9 Sleep · -6 Activity · +6 RHR."
+Each pillar gets a "contributor" score = (sub_score − 50) × weight, showing whether it's pushing readiness UP (+) or DOWN (−). Displayed as e.g. "+18 HRV · +9 Sleep · +6 RHR."
 
 ### How Commercial Wearables Compare
 

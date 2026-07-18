@@ -96,7 +96,7 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 - Poller auto-reaps orphaned `sync_log` rows (stuck `running` >10 min → errored)
 
 **Known gaps:**
-- **R09 firmware logger can hang silently** — background HR-log (cmd 0x15) runs as a separate firmware task from live PPG. When it hangs, HRV/SpO2/stress keep flowing but HR buffer goes empty. Detection (HRV present + HR empty) + auto-recovery (toggle HR-log setting) now in sync_ring.py. Data-quality staleness check + banner in dashboard. Full power-cycle (discharge→recharge) as fallback if toggle doesn't revive it. *Note: temp logger is part of the same background task — HR and temp stall together; HR-log toggle recovers both.*
+- **R09 firmware logger can hang silently** — background HR-log (cmd 0x15) runs as a separate firmware task from live PPG. When it hangs, HRV/SpO2/stress keep flowing but HR buffer goes empty. Detection (HRV present + HR empty) implemented but auto-recovery is DISABLED (was unreliable). Data-quality staleness check + banner in dashboard. Manual toggle (via Gadgetbridge) or full power-cycle (discharge→recharge) needed if stall occurs. *Note: temp logger is part of the same background task — HR and temp stall together.*
 - 0x80-bit async packets partially handled — cmd 115 device-notify frames (type 5 = temperature) now routed to queue for live-temp capture during sync windows.
 - No auto-sync via systemd timer yet (manual + poller only)
 - HRV is composite single-byte (not true RR intervals) — z-score still works, RMSSD/pNN50 unavailable
@@ -114,7 +114,14 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 
 ## Recent Work Log (Jul 2026)
 
-### 2026-07-17 — Docs restructure + temp publish-cadence finding
+### 2026-07-18 — Readiness overhaul: 3-pillar WHOOP-style, sleep/RHR/temp fixes
+- **Readiness — drop activity, switch to 3-pillar:** activity (same-day steps) removed as circular — "readiness for today" shouldn't use today's activity. Reweighted: HRV 44% / Sleep 37% / RHR 19%. Dropped `activity_score` and `steps` columns from `readiness_score` table + schema. Updated `/api/readiness` and dashboard readiness ring.
+- **RHR fix:** readiness was using `daily_activity.hr_avg` (24h average, ~70-82 bpm) as "resting HR." Switched to `hr_min` (overnight minimum, ~52-57 bpm) — a 25 bpm correction. Baseline dropped from 82→57 bpm.
+- **Sleep scoring fix:** sleep stages from `raw_sleep` were grouped by calendar day, splitting midnight-spanning sessions and mixing two different nights' stages into one Frankenstein score. Now clusters stages by temporal gaps (4h+) into sessions, assigns to wake date. Fixes 07-11 (score 43→59) and other fragmented days.
+- **Temp warning fix:** `sync_ring.py:1040` warning ("no temp for today, firmware may not have flushed") fired every sync on a normal state (today-pending is expected cadence). Now silent on normal; only warns if yesterday's temp is also missing.
+- **Data-quality fix:** `data_quality` table flagged temperature "stale" every day (today-empty is normal). Now marks temp `ok` on the current day — only past days check for actual staleness.
+- **Dashboard:** removed temp axis from vitals chart (always blank for today), added skin temp trend chart to Analytics tab.
+- **Battery investigation:** confirmed syncs use proper `--forget` flow and tear down cleanly. HR interval changed from 30→15 min at some point (doubles PPG uptime). Average drain ~12%/day projects to ~8 days — consistent with 5-6 day reports at 10-min intervals. Overnight cliff drops likely gauge noise, not real capacity loss.
 - **New `docs/` folder.** Moved `RESEARCH.md`, `ROADMAP.md`, `research/HRV-RECOVERY-SCORING-DEEP-DIVE.md` into `docs/`. Created `docs/RING_BEHAVIOR.md` as the canonical home for empirical R09 firmware behavior (connection quirks, per-data-type reference, logger stall, time-sync). Trimmed RESEARCH.md to methodology/formulas + pointers.
 - **Temp publish cadence (finding, no code change):** investigated why today's temp was empty. Confirmed via collector.log that the fetch is healthy — the ring returns 7 completed day-blocks (`daysAgo` 1–7) but no `daysAgo=0` block. The history buffer only exposes completed days; today's temp isn't committed until late evening / day rollover. Documented in `docs/RING_BEHAVIOR.md`. Action: re-check tomorrow to confirm it lands.
 - **Gadgetbridge worn/not-worn:** confirmed from GB source (`ColmiActivitySampleProvider` + `fillGaps`) that the R09 has no wear sensor — GB renders hourly step samples + gap-filled `UNKNOWN/NOT_MEASURED` dummies, producing the on/off cycling. Not a ring defect.
