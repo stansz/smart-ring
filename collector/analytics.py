@@ -294,13 +294,40 @@ class Analytics:
             log.info("  No sleep stage data available")
             return
 
-        # Group by day
-        by_day: Dict = {}
+        # Cluster stages into logical sleep sessions by temporal proximity.
+        # A gap > SESSION_GAP_MINUTES between consecutive stages marks a
+        # session boundary. This avoids splitting a single night's sleep
+        # across two calendar days when bedtime is before midnight — the
+        # ring stores each stage with start_ts.date() as its day, but that
+        # fragments the session. Each session is scored as a unit and
+        # assigned to its wake date (last end_ts.date()).
+        SESSION_GAP_MINUTES = 240  # 4 hours → new sleep session
+        all_stages.sort(key=lambda s: s['start_ts'])
+        sessions: List[List[Dict]] = []
+        current: List[Dict] = []
         for s in all_stages:
-            day = s['day']
+            if current:
+                prev_end = current[-1]['end_ts']
+                if prev_end and s['start_ts']:
+                    gap = (s['start_ts'] - prev_end).total_seconds() / 60
+                    if gap > SESSION_GAP_MINUTES:
+                        sessions.append(current)
+                        current = []
+            current.append(s)
+        if current:
+            sessions.append(current)
+
+        # Merge sessions that share the same wake date
+        by_day: Dict = {}
+        for sess in sessions:
+            valid = [s for s in sess if s['end_ts']]
+            if not valid:
+                continue
+            wake_dt = max(s['end_ts'] for s in valid)
+            day = wake_dt.date()
             if day not in by_day:
                 by_day[day] = []
-            by_day[day].append(s)
+            by_day[day].extend(sess)
 
         # Get temperature data for temp_drop_c
         temp_data = self._get_overnight_temps()
@@ -768,13 +795,16 @@ class Analytics:
     # =================== Readiness Score ===================
 
     def compute_readiness_score(self, days: int = 30):
-        """Unified 0-100 readiness score (Oura-style).
+        """Unified 0-100 readiness score (WHOOP-style recovery).
 
-        Weighted composite of four pillars, each normalized 0-100:
-          HRV     (35%) — z-score from daily_recovery
-          Sleep   (30%) — sleep_quality.score
-          Activity (20%) — steps vs goal + active minutes
-          RHR     (15%) — deviation from 30-day baseline (lower = better)
+        Weighted composite of three pillars, each normalized 0-100:
+          HRV   (44%) — z-score from daily_recovery
+          Sleep (37%) — sleep_quality.score
+          RHR   (19%) — deviation from 30-day baseline (lower = better)
+
+        Activity (same-day steps) was intentionally removed — it's circular
+        logic to score "readiness for today" using today's own activity.
+        Previous-day activity strain could be a future addition.
 
         Stores one row per day into readiness_score.
         """
@@ -795,9 +825,7 @@ class Analytics:
                        sq.total_sleep_minutes AS sleep_total_min,
                        dr.z_score AS hrv_zscore,
                        dr.rmssd AS hrv_rmssd,
-                       da.steps_total,
-                       da.worn_minutes,
-                       da.hr_avg AS resting_hr_approx
+                       da.hr_min AS resting_hr_approx
                 FROM days d
                 LEFT JOIN sleep_quality sq ON d.day = sq.day
                 LEFT JOIN daily_recovery dr ON d.day = dr.day
@@ -805,13 +833,9 @@ class Analytics:
                 ORDER BY d.day
             """, (days, days, days))
             rows = cur.fetchall()
-            # Personal goals for activity score
-            cur.execute("SELECT steps_goal FROM ring_goals ORDER BY ts DESC LIMIT 1")
-            goal_row = cur.fetchone()
-        steps_goal = int(goal_row['steps_goal']) if goal_row and goal_row['steps_goal'] else 8000
 
-        # RHR baseline: 30-day median resting HR (from daily_activity.hr_avg overnight proxy,
-        # or computed_resting_hr. For now use the 30-day median of whatever daily HR we have.)
+        # RHR baseline: 30-day median of overnight-minimum HR (daily_activity.hr_min).
+        # This is the day's lowest recorded HR, typically during deep sleep (1-5 AM).
         rhr_vals = [r['resting_hr_approx'] for r in rows if r['resting_hr_approx']]
         rhr_baseline = sorted(rhr_vals)[len(rhr_vals)//2] if rhr_vals else 60
 
@@ -828,27 +852,22 @@ class Analytics:
             return 10
 
         count = 0
-        weights = {"hrv": 0.35, "sleep": 0.30, "activity": 0.20, "rhr": 0.15}
+        weights = {"hrv": 0.44, "sleep": 0.37, "rhr": 0.19}
         for r in rows:
             day = r['day']
 
             # Determine which sub-scores have real data (not defaulted/missing).
             has_hrv      = r['hrv_zscore'] is not None
             has_sleep    = r['sleep_score'] is not None
-            has_activity = r['steps_total'] is not None
             has_rhr      = r['resting_hr_approx'] is not None
             available_weight = sum(
                 w for k, w in weights.items()
-                if {"hrv": has_hrv, "sleep": has_sleep,
-                    "activity": has_activity, "rhr": has_rhr}[k]
+                if {"hrv": has_hrv, "sleep": has_sleep, "rhr": has_rhr}[k]
             )
 
             # --- Individual sub-scores (None = unavailable) ---
             hrv  = _hrv_to_score(r['hrv_zscore']) if has_hrv else None
             slp  = int(r['sleep_score']) if has_sleep else None
-            steps = r['steps_total'] or 0
-            act_steps = min(100, int(steps / steps_goal * 70)) if has_activity else None
-            act  = min(100, act_steps) if has_activity else None
             rhr_s = None
             if has_rhr:
                 delta = r['resting_hr_approx'] - rhr_baseline
@@ -858,7 +877,6 @@ class Analytics:
             sub_scores = [
                 (hrv, weights["hrv"]),
                 (slp, weights["sleep"]),
-                (act, weights["activity"]),
                 (rhr_s, weights["rhr"]),
             ]
             if available_weight > 0:
@@ -868,8 +886,7 @@ class Analytics:
                 score = 0
 
             missing = [
-                k for k, v in {"hrv": has_hrv, "sleep": has_sleep,
-                               "activity": has_activity, "rhr": has_rhr}.items()
+                k for k, v in {"hrv": has_hrv, "sleep": has_sleep, "rhr": has_rhr}.items()
                 if not v
             ]
             confidence = "partial" if missing else "full"
@@ -880,24 +897,22 @@ class Analytics:
                 contrib["hrv"] = round((hrv - 50) * weights["hrv"])
             if slp is not None:
                 contrib["sleep"] = round((slp - 50) * weights["sleep"])
-            if act is not None:
-                contrib["activity"] = round((act - 50) * weights["activity"])
             if rhr_s is not None:
                 contrib["rhr"] = round((rhr_s - 50) * weights["rhr"])
 
             with self.conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO readiness_score
-                        (day, score, hrv_score, sleep_score, activity_score, rhr_score,
-                         hrv_zscore, steps, resting_hr, hrv_rmssd,
+                        (day, score, hrv_score, sleep_score, rhr_score,
+                         hrv_zscore, resting_hr, hrv_rmssd,
                          sleep_total_min, rhr_baseline, contributors,
                          confidence, missing_components, computed_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     ON CONFLICT (day) DO UPDATE SET
                         score=EXCLUDED.score, hrv_score=EXCLUDED.hrv_score,
-                        sleep_score=EXCLUDED.sleep_score, activity_score=EXCLUDED.activity_score,
+                        sleep_score=EXCLUDED.sleep_score,
                         rhr_score=EXCLUDED.rhr_score, hrv_zscore=EXCLUDED.hrv_zscore,
-                        steps=EXCLUDED.steps, resting_hr=EXCLUDED.resting_hr,
+                        resting_hr=EXCLUDED.resting_hr,
                         hrv_rmssd=EXCLUDED.hrv_rmssd,
                         sleep_total_min=EXCLUDED.sleep_total_min,
                         rhr_baseline=EXCLUDED.rhr_baseline,
@@ -905,8 +920,8 @@ class Analytics:
                         confidence=EXCLUDED.confidence,
                         missing_components=EXCLUDED.missing_components,
                         computed_at=NOW()
-                """, (day, score, hrv, slp, act, rhr_s,
-                      r['hrv_zscore'], r['steps_total'], r['resting_hr_approx'],
+                """, (day, score, hrv, slp, rhr_s,
+                      r['hrv_zscore'], r['resting_hr_approx'],
                       r['hrv_rmssd'], r['sleep_total_min'], rhr_baseline,
                       json.dumps(contrib), confidence, missing))
             count += 1
@@ -951,6 +966,10 @@ class Analytics:
                     day_counts.setdefault(d, {})[data_type] = row["cnt"]
                     day_counts[d].setdefault(f"{data_type}_last_ts", row["last_ts"])
 
+            # Most recent day with any data = "today". Temperature has a 1-day
+            # publish cadence (history buffer exposes completed days only), so
+            # today's temp is normally pending — not stale.
+            today_str = max(day_counts.keys()) if day_counts else None
             # Classify each day: stale detection is cross-type — if any type
             # has data for a day but a specific type doesn't, it's stale.
             for d, counts in day_counts.items():
@@ -960,7 +979,13 @@ class Analytics:
                 for data_type in types:
                     cnt = counts.get(data_type, 0)
                     if any_data and cnt == 0:
-                        status = "stale"
+                        # Temperature publishes completed days only — today's
+                        # temp is absent until the ring commits it (readable
+                        # tomorrow). Only flag stale for completed (past) days.
+                        if data_type == "temperature" and d == today_str:
+                            status = "ok"
+                        else:
+                            status = "stale"
                     elif not any_data:
                         status = "missing"
                     else:

@@ -172,22 +172,20 @@ CREATE TABLE IF NOT EXISTS daily_activity (
     computed_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Unified readiness score (Oura-style 0-100, composited from HRV/Sleep/Activity/RHR).
+-- Unified readiness score (WHOOP-style recovery, 0-100, composited from HRV/Sleep/RHR).
 -- One row per day; computed in analytics.py after all sub-scores are available.
 CREATE TABLE IF NOT EXISTS readiness_score (
     day DATE PRIMARY KEY,
     score INT NOT NULL DEFAULT 0,      -- 0-100 composite
     hrv_score INT DEFAULT 0,           -- 0-100 (from z-score mapping)
     sleep_score INT DEFAULT 0,         -- 0-100 (from sleep_quality)
-    activity_score INT DEFAULT 0,      -- 0-100 (steps vs goal + active min)
     rhr_score INT DEFAULT 0,           -- 0-100 (lower RHR = better)
     hrv_zscore NUMERIC(5,2),
-    steps INT,
     resting_hr INT,
     hrv_rmssd NUMERIC(5,2),
     sleep_total_min INT,
     rhr_baseline INT,
-    contributors JSONB,               -- {hrv: +5, sleep: -3, activity: +12, rhr: -2}
+    contributors JSONB,               -- {hrv: +5, sleep: -3, rhr: -2}
     confidence TEXT DEFAULT 'full',    -- 'full' | 'partial' (partial = one or more sub-scores missing)
     missing_components TEXT[] DEFAULT '{}', -- e.g. {'rhr'} for types missing real data
     computed_at TIMESTAMPTZ DEFAULT NOW()
