@@ -63,22 +63,14 @@ python3 collector/sync_ring.py --forget  # full sync to Postgres (with R09 recon
 # Or use the dashboard: click "Sync Now" in the Admin tab
 ```
 
-## Research
+## Documentation
 
-All technical research, architecture, validated score formulas, and deployment details live in **[RESEARCH.md](RESEARCH.md)**.
+Detailed docs live in **[`docs/`](docs/)**:
 
-Topics covered:
-- Hardware specs & model comparison (R02 → R12)
-- BLE protocol (Nordic UART + V2 big-data characteristic)
-- Data availability (stored vs realtime) — all 8 data types documented
-- **Validated score formulas** with peer-reviewed citations:
-  - Sleep quality (5-component, Ohayon 2004 architecture norms, Oura reverse-engineering)
-  - HRV recovery (Altini/Plews z-score framework, ln-transform, 7-day baseline)
-  - Stress classification (Garmin/Firstbeat thresholds, circadian awareness)
-- BLE quirks & reconnect bug (R09 firmware 3.10.21)
-- Deployment topology (bare metal + Podman containers)
-- Custom firmware roadmap
-- Oura comparison & bottom-line analysis
+- **[`docs/RING_BEHAVIOR.md`](docs/RING_BEHAVIOR.md)** — empirical Colmi R09 behavior: connection quirks, per-data-type reference (interval / buffer / publish cadence / format), V2 big-data protocol, background-logger stall, time-sync.
+- **[`docs/RESEARCH.md`](docs/RESEARCH.md)** — hardware specs, validated score formulas (with peer-reviewed citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis, Oura comparison.
+- **[`docs/ROADMAP.md`](docs/ROADMAP.md)** — mobile sync design (WebBluetooth PWA + Gadgetbridge fork options).
+- **[`AGENTS.md`](AGENTS.md)** — operational/deployment context (architecture, service commands, current state).
 
 ## Development
 

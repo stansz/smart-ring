@@ -2,7 +2,7 @@
 
 > **Phase 1 + 2a implemented July 2026.** Web Bluetooth PWA sync works end-to-end:
 > phone (Android Chrome) → ring over BLE → `/api/mobile/sync` → Postgres → dedup → analytics.
-> See AGENTS.md for details.
+> See `../AGENTS.md` for details.
 
 ## Goal
 

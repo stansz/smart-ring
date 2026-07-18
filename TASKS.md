@@ -95,7 +95,7 @@
 | — | Live temp/pulse during workout |
 | — | Gadgetbridge fork for Android native sync |
 
-### CFW Roadmap (from RESEARCH.md)
+### CFW Roadmap (from docs/RESEARCH.md)
 
 Stock firmware is the starting point. Custom firmware mods to explore:
 

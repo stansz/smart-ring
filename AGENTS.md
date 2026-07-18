@@ -1,6 +1,6 @@
 # AGENTS.md — Smart Ring Project
 
-> Agent-facing context. This file is **lean** — details go in RESEARCH.md or git history.
+> Agent-facing context. This file is **lean** — details go in `docs/` (research, device behavior, roadmap) or git history.
 > Update this when architecture, key files, or current state changes.
 
 ---
@@ -66,8 +66,9 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 | `api/main.py` | FastAPI endpoints | `/api/raw/*` (8 types), `/api/readiness`, `/api/daily-activity`, `/api/goals`, `/api/recovery`, `/api/sleep`, `/api/circadian-hr`, `/api/stress`, `/api/resting-hr`, `/api/mobile/sync` (phone Web Bluetooth), `/api/admin/{ring-status,health,sync-log,sync,sync-requests,sync-progress}` |
 | `dashboard/index.html` | Single-page UI (3 tabs) | Pure SVG charts (no Chart.js); Catmull-Rom smoothing + hover tooltips; Hero panel (24h activity ring with radial step bars + sleep overlay + tap tooltips + Readiness Score 0–100 with 4 sub-scores + contributors); Web Bluetooth phone sync (multi-packet HR/HRV handlers, write-without-response, 12-phase progress); Vitals chart (HR+SpO2+Temp triple-axis); sleep donut + empty state; Analytics tab (pipeline ref + trend charts); sync button (spinner + elapsed timer + progress badge + auto-refresh + error banner); battery indicator; dark mode; date navigation; server-computed dials (daily_activity table) |
 | `db/init.sql` | Postgres schema | ~20 tables (8 raw + daily_activity + readiness_score + sleep_quality + daily_recovery + hrv_trends + circadian_hr + stress_classification + sync_log + sync_requests + ring_status + ring_goals) |
-| `RESEARCH.md` | Reference knowledge | BLE quirks & reconnect bug; protocol command mapping; validated score formulas; value-add analysis (our analytics vs ring/Gadgetbridge raw data) |
-| `ROADMAP.md` | Planned future work | Mobile sync design (WebBluetooth PWA + Gadgetbridge fork options); not yet implemented |
+| `docs/RING_BEHAVIOR.md` | Device behavior | Empirical R09 firmware behavior: connection quirks, per-data-type reference (interval/buffer/publish cadence), logger stall, time-sync protocol |
+| `docs/RESEARCH.md` | Reference knowledge | Validated score formulas (with citations); readiness gap analysis (Oura vs WHOOP vs Garmin); value-add analysis; hardware specs |
+| `docs/ROADMAP.md` | Planned future work | Mobile sync design (WebBluetooth PWA + Gadgetbridge fork options) |
 
 ---
 
@@ -101,9 +102,11 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 - HRV is composite single-byte (not true RR intervals) — z-score still works, RMSSD/pNN50 unavailable
 - Steps undercount vs wrist devices (rings inherently register fewer steps)
 - Phone steps not fetched (Web Bluetooth sync doesn't query step data — only HR/SpO2/temp/sleep/HRV)
-- Temp sync fixed: R09 stores ~8 days of temp across big-data types **0x23–0x2B** (skip 0x2A = SpO2). The slot→day mapping rotates daily — the old range 0x25–0x29 only covered stale days. The fetch now queries 0x22–0x2C with a response-dataId check for 0x25.
+- Temp sync: R09 stores ~8 days of temp across big-data types **0x23–0x2B** (skip 0x2A = SpO2). The slot→day mapping rotates daily — fetch queries 0x22–0x2C with a response-dataId check for 0x25. **Publish cadence:** the history buffer only exposes *completed* days (`daysAgo` 1–7); today's temp (`daysAgo=0`) is absent until the ring commits it (late evening / day rollover). So "today" temp usually isn't fetchable until tonight or tomorrow — this is firmware behavior, not a fetch bug. See `docs/RING_BEHAVIOR.md`.
 
-**See RESEARCH.md for:** BLE protocol command table, validated score formulas (with citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis (our analytics vs raw ring data), timezone design rationale, source dedup design.
+**See `docs/RING_BEHAVIOR.md` for:** connection quirks, read-only sync, per-data-type reference (commands · interval · buffer · publish cadence · format), V2 big-data protocol, background-logger stall, time-sync protocol.
+
+**See `docs/RESEARCH.md` for:** validated score formulas (with citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis (our analytics vs raw ring data), timezone design rationale, source dedup design.
 
 **See TASKS.md for:** CFW roadmap, readiness score improvement backlog, future feature plans.
 
@@ -111,8 +114,13 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 
 ## Recent Work Log (Jul 2026)
 
+### 2026-07-17 — Docs restructure + temp publish-cadence finding
+- **New `docs/` folder.** Moved `RESEARCH.md`, `ROADMAP.md`, `research/HRV-RECOVERY-SCORING-DEEP-DIVE.md` into `docs/`. Created `docs/RING_BEHAVIOR.md` as the canonical home for empirical R09 firmware behavior (connection quirks, per-data-type reference, logger stall, time-sync). Trimmed RESEARCH.md to methodology/formulas + pointers.
+- **Temp publish cadence (finding, no code change):** investigated why today's temp was empty. Confirmed via collector.log that the fetch is healthy — the ring returns 7 completed day-blocks (`daysAgo` 1–7) but no `daysAgo=0` block. The history buffer only exposes completed days; today's temp isn't committed until late evening / day rollover. Documented in `docs/RING_BEHAVIOR.md`. Action: re-check tomorrow to confirm it lands.
+- **Gadgetbridge worn/not-worn:** confirmed from GB source (`ColmiActivitySampleProvider` + `fillGaps`) that the R09 has no wear sensor — GB renders hourly step samples + gap-filled `UNKNOWN/NOT_MEASURED` dummies, producing the on/off cycling. Not a ring defect.
+
 ### 2026-07-16 — Temp fetch fix: broadened type range + queue drain + banner + orphan cleanup
-- **Temp big-data range:** was querying 0x25–0x29 only (old days). Ring stores ~8 days at types 0x23–0x2B (skipping 0x2A = SpO2). Widened fetch to 0x22–0x2C with response dataId check. Unlocked current-day temp that was always on the ring.
+- **Temp big-data range:** was querying 0x25–0x29 only (stale days). Ring stores ~8 days at types 0x23–0x2B (skipping 0x2A = SpO2). Widened fetch to 0x22–0x2C with response dataId check, unlocking backfill of the prior days' temp. (Note: the current day is still subject to the publish cadence above.)
 - **Queue drain:** added `_bd_buf` reset + `big_data_queue` drain before each `_big_data_request`. Eliminated 15/0/15/0 flakiness from shared-queue race with sleep type 0x27 collision.
 - **Dashboard banner:** dropped `|| yesterday` union — HRV/SpO2 falsly accused when yesterday had gaps.
 - **Ghost sync cleanup:** marked orphaned `sync_log` #89; added `reap_stuck_rows()` sweep to poller (auto-marks stuck `running` rows >10 min).
@@ -131,7 +139,7 @@ Unified hero panel: 24h activity ring (radial step bars + sleep overlay) alongsi
 
 ## Agent Notes
 
-- **When editing:** Update the work log above. Keep it lean — details in RESEARCH.md or commit messages.
+- **When editing:** Update the work log above. Keep it lean — details in `docs/` or commit messages.
 - **Secrets:** Never commit. Update `.env.example` for new env vars.
 - **BLE protocol:** Cross-reference `colmi.puxtril.com` and Gadgetbridge source (`yawell/ring` namespace).
 - **Runtime:** Collector = bare metal venv (`venv/bin/python3`). API + DB = Podman containers (restart with `systemctl --user`).
