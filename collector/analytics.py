@@ -10,7 +10,7 @@ raw sensor data and persists them to computed tables:
   - stress_classification (daily stress levels + classification)
   - circadian_hr      (HR by hour-of-day — already works)
 
-Formula references (see RESEARCH.md):
+Formula references (see docs/RESEARCH.md):
   - Sleep: Ohayon et al. (2004) meta-analysis for architecture norms;
     Oura reverse-engineering (Chheda) for component weights.
   - HRV: Plews/Buchheit/Altini framework — ln(RMSSD) z-score vs 7-day

@@ -1,6 +1,6 @@
 # Smart Ring Research
 
-*Hardware specs, BLE protocol, validated score formulas, and design rationale. For operational details (deployment, setup, BLE workarounds) see `AGENTS.md`.*
+*Hardware specs, validated score formulas, and analytics methodology. For empirical device behavior (connection quirks, data buffers, publish cadence, firmware workarounds) see [`RING_BEHAVIOR.md`](RING_BEHAVIOR.md). For operational/deployment details see `../AGENTS.md`.*
 
 ## Hardware Target: Colmi R09
 
@@ -51,101 +51,11 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 | **Gadgetbridge** | Open-source Android client (F-Droid). Supports R02/R03/R06/R09. Primary protocol reference for command set and V2 big-data characteristic. |
 | **colmi.puxtril.com** | Community BLE protocol documentation site. Command reference for Nordic UART + V2 big-data service. |
 
-## Open Questions (All Resolved)
-
-### Does syncing wipe data from the ring? ✅ READ-ONLY
-
-**Confirmed read-only on firmware RT09_3.10.21.** Syncing reads data without clearing it. Tested both within-connection (two fetches, same session) and across-disconnect (fetch → disconnect → reconnect → fetch). Both returned identical data.
-
-Data persists on the ring regardless of read or disconnect. The ring's storage is an age-based circular buffer (~7 days). Under normal operation, data is only lost when it ages out.
-
-**Caveat (R09 firmware quirk):** The background logging task (cmd 0x15 HeartRateLog + temperature) runs as a separate firmware task from live PPG measurement. It can hang silently — the ring continues real-time measurement (HRV, SpO₂, stress still flow), but new HR/temp samples stop being written to the on-board buffer. When this happens, the buffer returns NoData/empty for the affected days, and no client (our collector, Gadgetbridge, phone) can recover data the ring never wrote.
-
-**Detection signal:** HRV present for today (ring worn + measuring) but HR log/temp empty → logger stalled. Auto-recovery: toggle `set_heart_rate_log_settings(False→True)` to re-kick the firmware logger task (implemented in `sync_ring.py`). If the toggle doesn't revive it, a full power-cycle (discharge → recharge) is needed.
-
-Multiple devices (phone + Linux collector) can sync independently without data loss (for data the ring *did* record).
-
-### What is the HRV data format? ✅ COMPOSITE VALUE
-
-The ring stores a **composite HRV value** (single byte, 0-255, in milliseconds) — NOT true RR intervals. Fetched via `CMD_SYNC_HRV` (0x39) with per-day offset (0-6). Buffer is ~3 days.
-
-The composite value works for trend/z-score analysis — this is exactly how all commercial rings work (PPG-derived values against personal baselines). RMSSD and pNN50 (which require RR intervals) are **NOT available**.
-
-### What commands does the R09 actually use? ✅ ALL RESOLVED
-
-| Data Type | Command | Notes |
-|-----------|---------|-------|
-| Heart Rate | cmd 0x15 | 5-min intervals, multi-packet per day, 288 slots |
-| Steps | cmd 0x43 | 15-min slots with calories + distance (slots 0–95 per day) |
-| HRV | cmd 0x39 | 30-min intervals, composite ms values, 3-day buffer |
-| Sleep | cmd 0xBC + type 0x27 | V2 big-data: per-session stages with timestamps |
-| SpO2 | cmd 0xBC + type 0x2A | V2 big-data: hourly min/max, averaged |
-| Temperature | cmd 0xBC + types 0x23-0x2B (skip 0x2A) | V2 big-data: 30-min intervals, ~8-day history (R09 exclusive). `temp_c = (raw/10)+20`. Slots rotate daily — query full range 0x22-0x2C with dataId=0x25 check. |
-| Stress | cmd 0x37 | 30-min intervals, 0-99 scale |
-| Battery | cmd 0x03 | Battery percentage |
-| Goals | cmd 0x21 | Steps/calorie/distance targets |
-| Device Info | GATT 0x180A | Hardware + firmware version |
-
-### R09 Time Sync Protocol
-
-The R09 firmware reads the set_time BCD bytes as **local wall-clock values** (not UTC). Three implementations compared:
-
-| Aspect | Gadgetbridge | Our `set_time_local()` | Library `set_time_packet()` |
-|--------|-------------|----------------------|---------------------------|
-| Timezone | LOCAL | LOCAL | UTC |
-| Data bytes | 6 (year/month/day/hour/min/sec) | 6 (same) | 7 (+ language flag) |
-| Encoding | BCD | BCD | BCD |
-
-The library's UTC approach shifts the ring's "midnight" by the host's UTC offset, causing data to land in wrong time slots. Our 6-byte local packet matches Gadgetbridge byte-for-byte.
-
-The ring acknowledges `set_time` with a 16-byte capability packet. The library's `client.py` silently discards this via `empty_parse` — we override with `_pass_through` so the ack is captured. After sending, we wait 3s for the response to confirm the ring processed the command.
-
-**Drift measurement pitfall:** Do NOT measure clock drift as `max(HR ts) - now()`. With 30-min HR sampling, this always shows -10 to -30 min "drift" — that's sampling lag, not clock error. Any data-freshness-based check will false-alarm when the ring is off the finger.
-
-## BLE Quirks (R09 Firmware 3.10.21)
-
-The R09 firmware has several BLE behaviors requiring workarounds. See `AGENTS.md` for the operational details (forget+repair procedure, retry backoff). Key facts:
-
-1. **Aggressive sleep** — stops advertising ~30s after disconnect. RSSI drops from -68 to -127.
-2. **Reconnect bug (Linux/BlueZ specific)** — BlueZ holds stale GATT state after disconnect. Does NOT happen on Android.
-3. **Single BLE connection** — hardware limitation of the RF03 SoC. Only one device can connect at a time.
-4. **bluetoothctl vs bleak conflict** — pair → disconnect → bleak connect (see AGENTS.md for procedure).
-
-## Data Availability
-
-### Stored on ring (syncable historically, ~3-7 day buffer)
-
-| Data Type | Interval | Buffer | Format |
-|-----------|----------|--------|--------|
-| Heart Rate | 5-min | ~7 days | Processed BPM, 288 slots/day |
-| Steps/Activity | 15-min | ~7 days | Steps + calories + distance per slot |
-| HRV | 30-min | ~3 days | Composite single-byte (0-255 ms) |
-| Sleep | Per-session | ~7 days | Stages + durations via V2 characteristic |
-| SpO2 | Hourly | ~7 days | Min/max averaged to single % |
-| Temperature | 30-min | ~8 days | Skin temp °C (R09 exclusive) |
-| Stress | 30-min | ~7 days | 0-99 scale |
-
-### V2 Big-Data Protocol (sleep, SpO2, temperature)
-
-These use a second BLE service (`de5bf728`) separate from Nordic UART:
-- **Request**: write raw bytes to COMMAND char (`de5bf72a`) — no 16-byte framing
-- **Response**: notify on NOTIFY_V2 char (`de5bf729`) — multi-packet, accumulate until `length + 6` bytes (header bytes [2:3] = uint16 LE total length)
-
-### Real-time only (NOT stored — requires active BLE connection)
-
-- Raw PPG (photoplethysmogram waveform)
-- Raw accelerometer (x/y/z at full rate)
-- Live HR (current BPM reading)
-
-The 512KB flash can't hold continuous waveform data. For raw PPG you must be actively connected and streaming — drains the 15mAh battery in ~4-6 hours.
-
-### HRV data limitations
-
-The ring provides a composite HRV value — not RR intervals. This means:
-- ❌ True RMSSD and pNN50 cannot be computed
-- ✅ Trend analysis works: composite value tracks meaningfully day-to-day
-- ✅ Z-score recovery works: uses personal baseline + SD, robust to monotonic transform
-- ✅ All commercial rings (Oura, WHOOP) use PPG-derived values the same way
+> **Device behavior has moved.** Connection quirks, read-only sync, the per-data-type
+> reference (commands · interval · buffer · **publish cadence** · format), the V2 big-data
+> protocol, the background-logger stall, and the time-sync protocol now live in
+> **[`RING_BEHAVIOR.md`](RING_BEHAVIOR.md)** — including the temperature publish-cadence
+> finding (history buffer exposes completed days only).
 
 ## Validated Score Formulas
 
@@ -311,7 +221,7 @@ From the most comprehensive comparative study of wearable readiness scores:
 | Number of contributors | 9 | 3 | 4 | More granular than WHOOP, less than Oura |
 | Time-to-first-score | ~2 weeks | ~4 weeks | ~7 days | ✅ Faster |
 
-See `TASKS.md` for prioritized improvement roadmap.
+See `../TASKS.md` for prioritized improvement roadmap.
 
 ## Source Dedup (Phone vs Ring)
 
