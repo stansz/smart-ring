@@ -1,7 +1,7 @@
 # Collector / Analytics Cleanup Plan
 
 > Branch: `refactor/collector-package`
-> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 pending
+> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 complete ✅ · Phase 4 pending
 
 ---
 
@@ -170,31 +170,48 @@ collector/jobs/
 
 ---
 
-## Phase 3 — Split `sync_ring.py` (1254 → <300 lines)
+## Phase 3 — Split `sync_ring.py` (1079 → 284 lines) ✅ COMPLETE
 
+Commit: pending on `refactor/collector-package`
+
+**New `collector/protocol/` package:**
 ```
-collector/
-  protocol/
-    ble.py          = existing ring_client.py content (timeout, V2, packet dispatch, BlueZ helpers)
-    parsers/
-      hr.py
-      hrv.py
-      sleep.py
-      spo2.py
-      temp.py
-      stress.py
-      steps.py
-      goals.py
-    db.py           upsert_many(table, records, source='ring')
-    state.py        sync_log start/update/complete, ring_status insert, current_step writer
-    time_sync.py    set_time_local wrapper + ack verification (PRESERVE EXACT BEHAVIOR)
-  sync_ring.py      orchestrator only: argparse, connect_with_retry, _collect_data, main()
+collector/protocol/
+  __init__.py           re-exports SyncResult, upserts, sync state
+  db.py                 SyncResult, sync_log start/complete/progress, ring_status,
+                        make_packet, _read_multi_packet, all upsert_*()
+  scanner.py            scan_ring()
+  connect.py            connect_with_retry + forget+repair flow
+  time_sync.py          sync_time_to_ring() — SACRED code, see below
+  parsers/
+    _big_data.py        big_data_request() shared helper (drain queue + reset buf)
+    hr.py               fetch_hr_history + upsert_heart_rate
+    hrv.py              fetch_hrv_history
+    sleep.py            fetch_sleep_history + _parse_sleep_data
+    spo2.py             fetch_spo2_history + _parse_spo2_data
+    temp.py             fetch_temperature_history + drain_live_temperature
+    stress.py           fetch_stress_history
+    steps.py            fetch_steps (15-min slot handling)
+    goals.py            fetch_goals (Gadgetbridge layout)
 ```
 
-Tasks:
-- [ ] Phase 3 [SACRED]: PRESERVE `set_time_local()` BCD encoding EXACTLY
-- [ ] Phase 3 [SACRED]: PRESERVE `queues[1]` ack verification (3s timeout)
-- [ ] Phase 3 [SACRED]: Working code wins over `colmi_r02_client` upstream
+**Sacred time-sync preserved verbatim:**
+- `sync_time_to_ring()` calls `client.set_time_local()` (the carefully tuned BCD encoder)
+- `set_time_local()` in `ring_client.py` is untouched: 6 BCD bytes, no language flag, matches Gadgetbridge `ColmiR0xDeviceSupport.setDateTime()` byte-for-byte
+- `await asyncio.wait_for(client.queues[1].get(), timeout=3.0)` ack verification intact
+- `clock_drift_ms` 1/0/NULL ack-bit semantics in sync_log unchanged
+- No "improvements" against `colmi_r02_client` upstream applied anywhere in the protocol layer
+
+**Verified:**
+- All files compile cleanly (`python3 -m py_compile`)
+- Imports work end-to-end (orchestrator + protocol + parsers + first_contact)
+- `--help` output identical for `sync_ring` and `first_contact`
+- Argparse surface preserved (`sync`/`scan` subcommand, `--no-retry`, `--attempts`, `--no-forget`)
+- `first_contact.py` updated to import `connect_with_retry` from `collector.protocol.connect`
+
+**Line counts:**
+- `sync_ring.py`: 1079 → 284
+- `collector/protocol/`: ~1100 lines total (split out, net ~zero growth, much higher cohesion)
 
 ---
 
@@ -226,7 +243,6 @@ Tasks:
 - [ ] Drop `Base`, `DeclarativeBase`, `create_all` (no ORM models exist)
 - [ ] Move raw `text(...)` SQL to `api/queries/*.py`
 - [ ] Rewrite `/api/mobile/sync` as generic `upsert_many(table, records, source='phone')`
-- [ ] Fix SQL injection: `/api/resting-hr` uses bind params, not f-string
 - [ ] Drop duplicate dedup in API (analytics owns it)
 
 ---
@@ -288,6 +304,7 @@ Tasks:
 
 - [x] **Migrate `/etc/timezone` reads → `$TZ` env var everywhere** — analytics.py + api/main.py both fixed; uses $TZ → /etc/timezone → America/Vancouver fallback chain, bind params
 - [x] **Fix hardcoded `'America/Vancouver'` in `analytics.py` `compute_data_quality`** — now uses `DATE(ts)` against session TZ set in `__init__`
+- [x] **Merge redundant `wear_hourly_rows` query in `compute_daily_activity`** — single CTE with `ARRAY_AGG(DISTINCT EXTRACT(HOUR FROM ts)::int)`
 
 ---
 

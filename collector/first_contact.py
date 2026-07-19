@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Optional
 
 from bleak import BleakScanner
-from collector.sync_ring import connect_with_retry
+from collector.protocol.connect import connect_with_retry
 from dotenv import load_dotenv
 
 load_dotenv()
