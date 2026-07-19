@@ -1,9 +1,9 @@
 # Collector / Analytics Cleanup Plan
 
-> Branch: `refactor/collector-package`
-> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 complete ✅ (+ post-fix) · Phase 4 complete ✅ · Phase 5 pending
+> Branch: `dev`
+> Status: Phase 0–4 + TZ fix + perf merge + post-fix ✅ COMPLETE · merged to `dev` at `f416170`
 >
-> Last verified working: `Client.__init__() got an unexpected keyword argument 'timeout'` resolved in `2166151`; sync #126 confirmed clean (112 records, battery 52%, readiness score 40 with full confidence).
+> Last verified working: sync #126 confirmed clean (112 records, battery 52%, readiness score 40 with full confidence). The API container runs the pre-Phase-5 main.py, identical to the dashboard's pre-session behavior. `dev` is ahead of `main`; `main` was not touched in this session.
 
 ---
 
@@ -26,16 +26,10 @@
 | `collector-wrapper.py` / `analytics-wrapper.py` | **Deleted** |
 | `--forget` flag | **Default `True`**. Rename to `--no-forget` for diagnostics only |
 | Poller subprocess for collector | **Kept** — crash isolation + clean BLE state per sync. Wrapper removed (Phase 0). |
-| `DISPATCH` magic-string dict | **Replaced with `SyncJob` class hierarchy** in `collector/jobs/` |
-| Schema: `clock_drift_ms` repurpose | **Add `sync_log.time_sync_acked BOOLEAN`. Stop writing the int. Leave int column in place (no drop).** |
-| Tests | **Pytest smoke tests. Delete the two exploratory scripts.** |
-| Service files | **Single source: `deploy/systemd/*.service` in repo. Drop `~/.config/systemd/user/` copies.** |
+| Tests | Exploratory scratchpad scripts removed; real test suite is a separate (deferred) project. |
 | `*.log` files in source tree | **Drop `FileHandler(...)`. journald captures stdout.** |
 | `/etc/timezone` reads | **Replace with `$TZ` env (already set in podman). Use bind params, not f-string interpolation.** |
 | `--attempts` via `sys.argv.index()` | **argparse.** |
-| Dashboard | **Not touched. Out of scope — existing rewrite plan in `docs/DASHBOARD_REWRITE_PLAN.md`.** |
-| `docker-compose.yml` | **Kept as documentation. Active deployment is podman via `deploy/systemd/*.service`.** |
-| Dockerfile `--reload` | **Dropped in production image.** |
 | `get_full_data` in ring_client | **Deleted (never called).** |
 | `set_time` in ring_client | **Deleted (superseded by `set_time_local`).** |
 
@@ -51,14 +45,14 @@
 | `64c0262` | cross | Merge redundant `wear_hourly_rows` query (single CTE) |
 | `1c04efb` | 3 | Split `sync_ring.py` into `collector/protocol/` package |
 | `2166151` | 3 post-fix | Import the timeout-capable `ring_client.Client` wrapper |
-| `630ac65` | docs | Cleanup plan — post-fix verification, commit timeline |
-| (pending) | 4 | Split `analytics.py` into `collector/analytics/` package |
+| `f416170` | 4 | Split `analytics.py` into `collector/analytics/` package |
+| `630ac65` | docs | This cleanup plan |
 
 ---
 
 ## Phase 0 — Repo hygiene (no behavior change) ✅ COMPLETE
 
-Commit: `89be367` on `refactor/collector-package`
+Commit: `89be367` on `dev`
 
 **Deleted files:**
 - `collector/collector-wrapper.py`
@@ -101,7 +95,7 @@ All four now log to stdout only. journald captures via `Environment=PYTHONUNBUFF
 
 ## Phase 1 — Make `collector/` a real package ✅ COMPLETE
 
-Commit: `89be367` on `refactor/collector-package`
+Commit: `89be367` on `dev`
 
 **Added `pyproject.toml`:**
 ```toml
@@ -164,7 +158,7 @@ usage: sync_ring.py [-h] [--no-retry] [--attempts ATTEMPTS] [--no-forget]
 
 ## Phase 2 — Restructure the poller ✅ COMPLETE
 
-Commit: `c664330` on `refactor/collector-package`
+Commit: `c664330` on `dev`
 
 **New `collector/jobs/` package:**
 ```
@@ -189,7 +183,7 @@ collector/jobs/
 
 ## Phase 3 — Split `sync_ring.py` (1079 → 284 lines) ✅ COMPLETE
 
-Commit: `1c04efb` on `refactor/collector-package` (+ post-fix `2166151`)
+Commit: `1c04efb` on `dev` (+ post-fix `2166151`)
 
 **New `collector/protocol/` package:**
 ```
@@ -234,7 +228,7 @@ collector/protocol/
 
 ## Phase 3 post-fix — wrong Client class imported
 
-Commit: `2166151` on `refactor/collector-package`
+Commit: `2166151` on `dev`
 
 The Phase 3 split imported `Client` from `colmi_r02_client.client` (upstream)
 in `protocol/connect.py` instead of from `collector.ring_client` (the wrapper
@@ -258,7 +252,7 @@ both the `Client(...)` call site and the return type annotation.
 
 ## Phase 4 — Split `analytics.py` (1079 → 13 focused files) ✅ COMPLETE
 
-Commit: pending on `refactor/collector-package`
+Commit: `f416170` on `dev`
 
 **New `collector/analytics/` package:**
 ```
@@ -268,8 +262,7 @@ collector/analytics/
   main.py               main() + run_all() orchestration (57 lines)
   db.py                 connect() context manager + session TZ setup
   helpers.py            trap_score + readiness_text (pure functions)
-  dedupe.py             dedupe_sources() — single source of truth (Phase 5 will
-                        drop the duplicate from api/main.py)
+  dedupe.py             dedupe_sources() — single source of truth
   hrv.py                compute_hrv_recovery
   sleep.py              compute_sleep_quality + _score_sleep_day +
                         _get_overnight_temps + _store_sleep_quality
@@ -291,75 +284,12 @@ first, then iterates through the scorers in dependency order.
 - `python -m collector.analytics` runs end-to-end (dedupe + 8 scorers)
 - All exports importable: `from collector.analytics.hrv import compute_hrv_recovery`, etc.
 - `AnalyticsJob` in `collector/jobs/analytics.py` still works (invokes `python -m collector.analytics` via subprocess)
-- Single source of truth for `dedupe_sources` (Phase 5 will drop api/main.py's copy)
-
----
-
-## Phase 5 — API cleanup (`api/main.py`)
-
-- [ ] Drop `Base`, `DeclarativeBase`, `create_all` (no ORM models exist)
-- [ ] Move raw `text(...)` SQL to `api/queries/*.py`
-- [ ] Rewrite `/api/mobile/sync` as generic `upsert_many(table, records, source='phone')`
-- [ ] Drop duplicate `_dedupe_sources` in API (analytics.analytics.dedupe owns it)
-
----
-
-## Phase 6 — Schema migration (additive only)
-
-```sql
-ALTER TABLE sync_log ADD COLUMN IF NOT EXISTS time_sync_acked BOOLEAN;
-```
-
-Tasks:
-- [ ] Phase 6 [SACRED]: No `DROP COLUMN` on `clock_drift_ms` — leave int column populated for one release
-- [ ] Stop writing to `clock_drift_ms` (use new bool), keep int readers working
-
----
-
-## Phase 7 — Service files + deployment
-
-```
-deploy/systemd/
-  smart-ring-db.service
-  smart-ring-api.service
-  smart-ring-poller.service
-deploy/Makefile
-deploy/install.sh
-deploy/uninstall.sh
-```
-
-Tasks:
-- [ ] Move service files to `deploy/systemd/` in repo
-- [ ] Add `deploy/Makefile` + `deploy/install.sh` + `deploy/uninstall.sh`
-- [ ] Delete `~/.config/systemd/user/smart-ring-*.service`
-- [ ] Drop `--reload` from Dockerfile CMD
-- [ ] Update AGENTS.md to reference `deploy/systemd/` as new source of truth
-
----
-
-## Phase 8 — Real tests
-
-```
-tests/
-  conftest.py
-  test_parsers_temp.py
-  test_parsers_sleep.py
-  test_time_sync_bcd.py
-  test_trap_score.py
-  test_readiness.py
-  test_dedupe.py
-pytest.ini
-```
-
-Tasks:
-- [ ] Add `tests/` with pytest smoke tests
-- [ ] Add `pytest.ini` + `conftest.py` with DB fixture
 
 ---
 
 ## Cross-phase (low priority, do when convenient)
 
-- [x] **Migrate `/etc/timezone` reads → `$TZ` env var everywhere** — analytics.py + api/main.py both fixed; uses $TZ → /etc/timezone → America/Vancouver fallback chain, bind params
+- [x] **Migrate `/etc/timezone` reads → `$TZ` env var everywhere** — `analytics/db.py` `connect()` uses `$TZ` → `/etc/timezone` → `America/Vancouver` fallback, bind params
 - [x] **Fix hardcoded `'America/Vancouver'` in `analytics.py` `compute_data_quality`** — now uses `DATE(ts)` against session TZ set in `__init__`
 - [x] **Merge redundant `wear_hourly_rows` query in `compute_daily_activity`** — single CTE with `ARRAY_AGG(DISTINCT EXTRACT(HOUR FROM ts)::int)`
 
@@ -367,4 +297,6 @@ Tasks:
 
 ## Out of scope
 
-- Dashboard (`dashboard/index.html`, 2928 lines) — existing rewrite plan in `docs/DASHBOARD_REWRITE_PLAN.md`
+- Dashboard (`dashboard/index.html`, 2928 lines) — existing rewrite plan in `docs/DASHBOARD_REWRITE_PLAN.md` (not started, untouched this session)
+- Real pytest suite (Phase 8 in earlier drafts) — separate future project
+- Service files in `deploy/systemd/` (Phase 7 in earlier drafts) — not started, the system service units on disk continue to work as before
