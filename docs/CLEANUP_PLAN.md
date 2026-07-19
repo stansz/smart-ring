@@ -1,7 +1,7 @@
 # Collector / Analytics Cleanup Plan
 
 > Branch: `refactor/collector-package`
-> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 pending
+> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 pending
 
 ---
 
@@ -23,8 +23,8 @@
 |---|---|
 | `collector-wrapper.py` / `analytics-wrapper.py` | **Deleted** |
 | `--forget` flag | **Default `True`**. Rename to `--no-forget` for diagnostics only |
-| Poller subprocess for collector | **Replace with direct function call (same interpreter)** |
-| `DISPATCH` magic-string dict | **Replace with `SyncJob` class hierarchy** |
+| Poller subprocess for collector | **Kept** — crash isolation + clean BLE state per sync. Wrapper removed (Phase 0). |
+| `DISPATCH` magic-string dict | **Replaced with `SyncJob` class hierarchy** in `collector/jobs/` |
 | Schema: `clock_drift_ms` repurpose | **Add `sync_log.time_sync_acked BOOLEAN`. Stop writing the int. Leave int column in place (no drop).** |
 | Tests | **Pytest smoke tests. Delete the two exploratory scripts.** |
 | Service files | **Single source: `deploy/systemd/*.service` in repo. Drop `~/.config/systemd/user/` copies.** |
@@ -145,23 +145,28 @@ usage: sync_ring.py [-h] [--no-retry] [--attempts ATTEMPTS] [--no-forget]
 
 ---
 
-## Phase 2 — Restructure the poller
+## Phase 2 — Restructure the poller ✅ COMPLETE
 
-`sync_request_poller.py` becomes thin orchestrator. Subprocess calls `python -m collector.sync_ring` directly (no wrapper).
+Commit: `c664330` on `refactor/collector-package`
 
+**New `collector/jobs/` package:**
 ```
 collector/jobs/
-  __init__.py
-  base.py         # abstract SyncJob: claim(), run(), finalize()
-  ring_sync.py    # executes `python -m collector.sync_ring --no-forget`
-  analytics.py    # executes `python -m collector.analytics`
+  __init__.py      # exports SyncJob, RingSyncJob, AnalyticsJob
+  base.py          # abstract SyncJob with _run_subprocess helper
+  ring_sync.py     # RingSyncJob — runs sync_ring.py subprocess
+  analytics.py     # AnalyticsJob — runs analytics.py subprocess
 ```
 
-Tasks:
-- [ ] Replace `DISPATCH` dict + `ANALYTICS_ONLY` magic string with `SyncJob` class hierarchy
-- [ ] Add hard `ModuleNotFoundError` if `bleak` missing from venv (no silent fallback to `sys.executable`)
-- [ ] `reap_stuck_rows` always commits (remove conditional rollback)
-- [ ] Set session `TIME ZONE` from `$TZ` at poller startup
+**Poller (`sync_request_poller.py`) is now a thin orchestrator:**
+- Replaced `DISPATCH` dict + `ANALYTICS_ONLY` magic string with `JOBS` factory mapping to `SyncJob` subclasses
+- Adding a new request type = new `SyncJob` subclass + entry in `JOBS`
+- Hard error if venv Python missing (no silent fallback to `sys.executable`)
+- `reap_stuck_rows` always commits (removed conditional rollback)
+- DB session `TIME ZONE` set from `$TZ` env (with `/etc/timezone` fallback) at startup
+- Poller reconnects and re-sets TZ on `psycopg2.OperationalError`
+
+**Verified:** All imports work, `py_compile` clean, old symbols (`DISPATCH`, `ANALYTICS_ONLY`, `COLLECTOR_WRAPPER`, `run_collector`, `run_analytics`) gone.
 
 ---
 
@@ -281,9 +286,8 @@ Tasks:
 
 ## Cross-phase (low priority, do when convenient)
 
-- [ ] Migrate `/etc/timezone` reads → `$TZ` env var everywhere
-- [ ] Fix hardcoded `'America/Vancouver'` in `analytics.py` `compute_data_quality`
-- [ ] Merge redundant `wear_hourly_rows` query in `compute_daily_activity`
+- [x] **Migrate `/etc/timezone` reads → `$TZ` env var everywhere** — analytics.py + api/main.py both fixed; uses $TZ → /etc/timezone → America/Vancouver fallback chain, bind params
+- [x] **Fix hardcoded `'America/Vancouver'` in `analytics.py` `compute_data_quality`** — now uses `DATE(ts)` against session TZ set in `__init__`
 
 ---
 
