@@ -26,7 +26,6 @@ from bleak import BleakClient, BleakScanner
 from colmi_r02_client import (
     battery,
     blink_twice,
-    date_utils,
     hr,
     hr_settings,
     packet,
@@ -359,13 +358,7 @@ class Client:
     ) -> Optional[list[int]]:
         return await self._poll_real_time_reading(reading_type)
 
-    async def set_time(self, ts: datetime) -> None:
-        logger.warning("set_time() is deprecated — use set_time_local() instead. "
-                       "The library's set_time_packet sends UTC BCD bytes but "
-                       "the R09 firmware reads them as local wall-clock values.")
-        await self.send_packet(set_time.set_time_packet(ts))
 
-    async def set_time_local(self, ts: datetime) -> None:
         """Set ring time using LOCAL hour/minute/second components.
 
         The upstream ``set_time_packet`` always converts to UTC before
@@ -468,16 +461,3 @@ class Client:
             replies -= 1
         return results
 
-    async def get_full_data(self, start: datetime, end: datetime):
-        heart_rate_logs = []
-        sport_detail_logs = []
-        for d in date_utils.dates_between(start, end):
-            heart_rate_logs.append(await self.get_heart_rate_log(d))
-            sport_detail_logs.append(await self.get_steps(d))
-        # Return a simple object so sync_ring.py can access .heart_rates / .sport_details
-        from types import SimpleNamespace
-        return SimpleNamespace(
-            address=self.address,
-            heart_rates=heart_rate_logs,
-            sport_details=sport_detail_logs,
-        )

@@ -15,14 +15,7 @@ import logging
 import os
 import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
-
-# Allow running first_contact.py directly: add the project root to sys.path
-# so `from collector import ...` works.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from bleak import BleakScanner
 from collector.sync_ring import connect_with_retry
@@ -30,16 +23,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-LOG_DIR = Path(__file__).resolve().parent
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_DIR / "first_contact.log"),
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
@@ -126,8 +113,7 @@ async def first_contact(address: str, *, attempts: int = 5, wake_ping: bool = Tr
     if battery_pct is not None and battery_pct < 15:
         print("\n⚠️  Battery is low — charge the ring before proceeding.")
     else:
-        print("\n✓ Ready for Step 4: run test_open_questions.py")
-        print("  python3 collector/test_open_questions.py")
+        print("\n✓ Ready for sync: run `venv/bin/python3 -m collector.sync_ring --forget`")
 
     return 0
 

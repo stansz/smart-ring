@@ -33,17 +33,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from pathlib import Path
-
-LOG_DIR = Path(__file__).resolve().parent
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_DIR / "analytics.log"),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 

@@ -32,20 +32,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-LOG_DIR = Path(__file__).resolve().parent
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_DIR / "sync_request_poller.log"),
-        logging.StreamHandler(),
-    ],
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smart_ring:changeme@localhost:5432/smart_ring")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-COLLECTOR_WRAPPER = PROJECT_ROOT / "collector" / "collector-wrapper.py"
+COLLECTOR_SCRIPT = PROJECT_ROOT / "collector" / "sync_ring.py"
 
 # Use venv Python for collector scripts (needs bleak, colmi_r02_client, etc.)
 # Fall back to sys.executable if venv doesn't exist yet (will fail gracefully).
@@ -54,7 +50,7 @@ COLLECTOR_PYTHON = VENV_PYTHON if VENV_PYTHON.is_file() else sys.executable
 
 # Map requested_by values to (script, python_path) tuples
 DISPATCH = {
-    "admin-ui": (COLLECTOR_WRAPPER, COLLECTOR_PYTHON),
+    "admin-ui": (COLLECTOR_SCRIPT, COLLECTOR_PYTHON),
 }
 
 # Special requested_by value: skip the collector, just recompute analytics.
