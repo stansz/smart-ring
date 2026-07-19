@@ -1,7 +1,7 @@
 # Collector / Analytics Cleanup Plan
 
 > Branch: `refactor/collector-package`
-> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 complete ✅ (+ post-fix) · Phase 4 pending
+> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 complete ✅ (+ post-fix) · Phase 4 complete ✅ · Phase 5 pending
 >
 > Last verified working: `Client.__init__() got an unexpected keyword argument 'timeout'` resolved in `2166151`; sync #126 confirmed clean (112 records, battery 52%, readiness score 40 with full confidence).
 
@@ -50,7 +50,9 @@
 | `800eea2` | cross | TZ cleanup — bind params, `$TZ` env, session TZ in `__init__` |
 | `64c0262` | cross | Merge redundant `wear_hourly_rows` query (single CTE) |
 | `1c04efb` | 3 | Split `sync_ring.py` into `collector/protocol/` package |
-| `2166151` | 3 post-fix | Import the timeout-capable `ring_client.Client` wrapper (upstream doesn't accept `timeout`) |
+| `2166151` | 3 post-fix | Import the timeout-capable `ring_client.Client` wrapper |
+| `630ac65` | docs | Cleanup plan — post-fix verification, commit timeline |
+| (pending) | 4 | Split `analytics.py` into `collector/analytics/` package |
 
 ---
 
@@ -254,26 +256,42 @@ both the `Client(...)` call site and the return type annotation.
 
 ---
 
-## Phase 4 — Split `analytics.py` (1080 → <200)
+## Phase 4 — Split `analytics.py` (1079 → 13 focused files) ✅ COMPLETE
 
+Commit: pending on `refactor/collector-package`
+
+**New `collector/analytics/` package:**
 ```
 collector/analytics/
-  __init__.py           run_all() — orchestrator
-  hrv.py                compute_hrv_recovery + trap_score helpers
-  sleep.py              compute_sleep_quality + _score_sleep_day + session clustering
+  __init__.py           re-exports main
+  __main__.py           enables `python -m collector.analytics`
+  main.py               main() + run_all() orchestration (57 lines)
+  db.py                 connect() context manager + session TZ setup
+  helpers.py            trap_score + readiness_text (pure functions)
+  dedupe.py             dedupe_sources() — single source of truth (Phase 5 will
+                        drop the duplicate from api/main.py)
+  hrv.py                compute_hrv_recovery
+  sleep.py              compute_sleep_quality + _score_sleep_day +
+                        _get_overnight_temps + _store_sleep_quality
   stress.py             compute_stress + _peak_sustained
   circadian.py          compute_circadian_hr
   rhr.py                compute_resting_hr
-  daily_activity.py     compute_daily_activity
+  daily_activity.py     compute_daily_activity (with merged wear_hourly CTE)
   readiness.py          compute_readiness_score + z→score mapping
   data_quality.py       compute_data_quality
-  dedupe.py             dedupe_sources (single source of truth)
-collector/analytics.py  re-exports `from collector.analytics import main`
 ```
 
-Tasks:
-- [ ] Split into `collector/analytics/` package
-- [ ] Single `dedupe_sources()` source of truth (analytics owns it, api drops its copy)
+**Architecture change:** `Analytics` class is gone. Each scorer is a
+standalone function taking a DB connection. `main.py:run_all()` opens the
+connection via `db.connect()` (context manager), calls `dedupe_sources`
+first, then iterates through the scorers in dependency order.
+
+**Verified:**
+- `python -m py_compile` clean on all 13 files
+- `python -m collector.analytics` runs end-to-end (dedupe + 8 scorers)
+- All exports importable: `from collector.analytics.hrv import compute_hrv_recovery`, etc.
+- `AnalyticsJob` in `collector/jobs/analytics.py` still works (invokes `python -m collector.analytics` via subprocess)
+- Single source of truth for `dedupe_sources` (Phase 5 will drop api/main.py's copy)
 
 ---
 
@@ -282,7 +300,7 @@ Tasks:
 - [ ] Drop `Base`, `DeclarativeBase`, `create_all` (no ORM models exist)
 - [ ] Move raw `text(...)` SQL to `api/queries/*.py`
 - [ ] Rewrite `/api/mobile/sync` as generic `upsert_many(table, records, source='phone')`
-- [ ] Drop duplicate dedup in API (analytics owns it)
+- [ ] Drop duplicate `_dedupe_sources` in API (analytics.analytics.dedupe owns it)
 
 ---
 
