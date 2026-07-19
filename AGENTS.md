@@ -126,6 +126,9 @@ venv/bin/python3 collector/first_contact.py          # diagnostic
 - **Temp publish cadence (finding, no code change):** investigated why today's temp was empty. Confirmed via collector.log that the fetch is healthy — the ring returns 7 completed day-blocks (`daysAgo` 1–7) but no `daysAgo=0` block. The history buffer only exposes completed days; today's temp isn't committed until late evening / day rollover. Documented in `docs/RING_BEHAVIOR.md`. Action: re-check tomorrow to confirm it lands.
 - **Gadgetbridge worn/not-worn:** confirmed from GB source (`ColmiActivitySampleProvider` + `fillGaps`) that the R09 has no wear sensor — GB renders hourly step samples + gap-filled `UNKNOWN/NOT_MEASURED` dummies, producing the on/off cycling. Not a ring defect.
 
+### 2026-07-18 — Dashboard rewrite plan: React + Vite + TypeScript
+- **Stack decision:** replace Alpine.js + Tailwind Play CDN with React + Vite + TypeScript + Recharts + TanStack Query. Dev server on :5173 proxies /api → :8000. Legacy dashboard untouched until full feature parity. Full plan: `docs/DASHBOARD_REWRITE_PLAN.md`.
+
 ### 2026-07-16 — Temp fetch fix: broadened type range + queue drain + banner + orphan cleanup
 - **Temp big-data range:** was querying 0x25–0x29 only (stale days). Ring stores ~8 days at types 0x23–0x2B (skipping 0x2A = SpO2). Widened fetch to 0x22–0x2C with response dataId check, unlocking backfill of the prior days' temp. (Note: the current day is still subject to the publish cadence above.)
 - **Queue drain:** added `_bd_buf` reset + `big_data_queue` drain before each `_big_data_request`. Eliminated 15/0/15/0 flakiness from shared-queue race with sleep type 0x27 collision.
