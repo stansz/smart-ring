@@ -687,28 +687,25 @@ class Analytics:
             # SpO2 — all require skin contact; steps excluded as bag movement
             # can trigger them). Apply value thresholds to filter out off-finger
             # noise (PPG sensors produce garbage readings from ambient light).
+            # Single round-trip via CTE: same UNION ALL, two projections.
             cur.execute("""
-                SELECT DATE(ts) AS day,
-                       COUNT(DISTINCT EXTRACT(HOUR FROM ts))::int AS active_hours,
-                       MIN(ts) AS wear_first, MAX(ts) AS wear_last
-                FROM (
+                WITH skin AS (
                     SELECT ts FROM raw_heart_rate WHERE ts >= NOW() - INTERVAL '14 days'
-                    UNION ALL SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days' AND hrv_value >= 15
-                    UNION ALL SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days' AND spo2_pct BETWEEN 85 AND 100
-                ) all_ts
+                    UNION ALL
+                    SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days' AND hrv_value >= 15
+                    UNION ALL
+                    SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days' AND spo2_pct BETWEEN 85 AND 100
+                )
+                SELECT
+                    DATE(ts) AS day,
+                    COUNT(DISTINCT EXTRACT(HOUR FROM ts))::int AS active_hours,
+                    MIN(ts) AS wear_first,
+                    MAX(ts) AS wear_last,
+                    ARRAY_AGG(DISTINCT EXTRACT(HOUR FROM ts)::int) AS hours
+                FROM skin
                 GROUP BY 1
             """)
             wear_rows = cur.fetchall()
-            # Per-hour wear map: which hours have skin-contact readings
-            cur.execute("""
-                SELECT DISTINCT DATE(ts) AS day, EXTRACT(HOUR FROM ts)::int AS hr
-                FROM (
-                    SELECT ts FROM raw_heart_rate WHERE ts >= NOW() - INTERVAL '14 days'
-                    UNION ALL SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days' AND hrv_value >= 15
-                    UNION ALL SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days' AND spo2_pct BETWEEN 85 AND 100
-                ) all_ts
-            """)
-            wear_hourly_rows = cur.fetchall()
 
         steps_by_day: Dict = {}
         for r in steps_rows:
@@ -738,13 +735,15 @@ class Analytics:
         # Wear timestamps per day (from all biometric types, not just HR)
         wear_by_day = {r['day']: {'first': r['wear_first'], 'last': r['wear_last'],
                                    'hours': r['active_hours']} for r in wear_rows}
-        # Per-hour wear map for the 24h ring display
+        # Per-hour wear map for the 24h ring display — built from the same
+        # CTE result via the 'hours' array column.
         wear_hourly_by_day: Dict = {}
-        for r in wear_hourly_rows:
+        for r in wear_rows:
             d = r['day']
             arr = wear_hourly_by_day.setdefault(d, [0] * 24)
-            if 0 <= r['hr'] < 24:
-                arr[r['hr']] = 1
+            for hr in r['hours'] or []:
+                if 0 <= hr < 24:
+                    arr[hr] = 1
 
         count = 0
         for d in sorted(set(steps_by_day) | set(hr_by_day) | set(wear_by_day)):
