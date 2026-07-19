@@ -300,3 +300,111 @@ first, then iterates through the scorers in dependency order.
 - Dashboard (`dashboard/index.html`, 2928 lines) — existing rewrite plan in `docs/DASHBOARD_REWRITE_PLAN.md` (not started, untouched this session)
 - Real pytest suite (Phase 8 in earlier drafts) — separate future project
 - Service files in `deploy/systemd/` (Phase 7 in earlier drafts) — not started, the system service units on disk continue to work as before
+
+---
+
+## Next steps: API cleanup
+
+**Scope:** bring `api/` to the same modular shape as `collector/`. End state: same dashboard behavior, but with cleaner code under the hood. No new features. No behavior changes.
+
+**Why it matters:** the dashboard works, but `api/main.py` still has the cruft (inline SQL, dead dedup, f-string TZ in one spot) the original ask flagged. The collector/poller/analytics side is clean; `api/` should match, so future fixes are cheaper and the structure matches.
+
+**Hard constraints (already established on `dev`):**
+1. Time-sync code is sacred — no change to `set_time_local()` BCD encoding, `queues[1]` ack verification, or time-sync `tz` handling.
+2. No destructive migrations — DB schema is the source of truth; API is a thin SQL layer on top.
+3. R09 firmware quirks preserved — no "cleanup" of the working time-sync or reconnection flow.
+4. Working dashboard is the success metric — after every step, `curl http://localhost:8000/health` returns 200 and `/api/sync-log`, `/api/readiness`, `/api/raw/heart-rate` return their current shapes with no schema changes.
+
+### Step 1 — drop `Base`, `DeclarativeBase`, `create_all` (no-op ORM code)
+
+**Why first:** zero-risk cleanup. `api/main.py` imports `DeclarativeBase` from SQLAlchemy, defines a `Base` class, and calls `Base.metadata.create_all(bind=engine)` in lifespan. There are no ORM models anywhere in the codebase. This code does literally nothing.
+
+**What to do:**
+- Delete `class Base(DeclarativeBase): pass` from `api/main.py`.
+- Delete `Base.metadata.create_all(bind=engine)` from the `lifespan` context manager.
+- Delete the `from sqlalchemy.orm import sessionmaker, DeclarativeBase` import (change to `from sqlalchemy.orm import sessionmaker`).
+- Confirm no `Base` references remain: `grep -n "DeclarativeBase\|create_all" api/`.
+
+**Verify:**
+- `git diff api/main.py` — read the diff, confirm it's just deletions.
+- `python3 -c "from api.main import app; print('ok')"` — must succeed.
+- After rebuild + restart: `curl http://localhost:8000/health` returns 200.
+- After rebuild + restart: `podman exec smart-ring-api grep "create_all\|DeclarativeBase" /app/main.py` returns nothing.
+
+**Reversibility:** trivial. The deleted lines are 5 lines of no-op code. `git revert` restores them exactly.
+
+### Step 2 — drop `_dedupe_sources` from `api/main.py` (analytics already owns dedup)
+
+**Why second:** another zero-behavior-change cleanup. `analytics/dedupe.py:dedupe_sources()` runs at the start of every analytics pass. The API's `_dedupe_sources()` ran on every `/api/mobile/sync`. The API's copy is redundant.
+
+**What to do:**
+- Read `api/main.py` and find the `_dedupe_sources` function definition and its call site in `mobile_sync`.
+- Delete the function definition.
+- Delete the call site from `mobile_sync`.
+- Confirm no references remain: `grep -n "_dedupe_sources" api/`.
+
+**Verify:**
+- `git diff api/main.py` — read the diff, confirm just deletions.
+- After rebuild + restart: `curl -X POST http://localhost:8000/api/mobile/sync -H "Content-Type: application/json" -d '{"device_id":"x","records":{},"synced_at":"2026-01-01T00:00:00Z"}'` returns 200 with `{"accepted":0,"skipped":0,"errors":[]}`.
+- The next analytics pass (after the next ring sync) will dedupe via `analytics/dedupe.py:dedupe_sources()`. Verify with `psql -c "SELECT source, COUNT(*) FROM raw_heart_rate GROUP BY source;"` after a sync.
+
+**Reversibility:** trivial. `git revert` restores the function.
+
+### Step 3 — extract raw SQL to `api/queries.py` (read-side cleanup)
+
+**Why third:** bigger than 1 and 2, isolated to the read side. Doesn't touch write paths or runtime behavior. `collector/` already follows this pattern — API catching up is consistent.
+
+**What to do:**
+- Create `api/queries.py` with one named constant per query. Match the existing pattern: bind params throughout, no f-string interpolation.
+- Update `api/main.py` so each endpoint's body becomes `db.execute(text(queries.NAME), params)` instead of inline `text("""SELECT ...""")`.
+- No behavior changes. No schema changes.
+
+**Verify:**
+- `git diff api/main.py` — same endpoints, same params, but inline SQL replaced with named constants.
+- After rebuild + restart: spot-check 3 endpoints that hit different tables — `curl /api/readiness`, `curl /api/raw/heart-rate`, `curl /api/sync-log`. All return 200 with the same response shapes they had before.
+- End-to-end: trigger a ring sync via the dashboard, confirm readiness/sleep scores populate as before.
+
+**Reversibility:** trivial. The SQL is the same SQL — just relocated. `git revert` brings it back to inline.
+
+### Step 4 — rewrite `/api/mobile/sync` with generic `upsert_many` (write-side dispatcher)
+
+**Why last:** touches the most complex endpoint. The risk is higher than the previous steps because phone-sync is a different code path than ring-sync. Get Steps 1–3 right first so the pattern is proven before doing this one.
+
+**What to do:**
+- Create `api/upsert.py` with one `upsert_many(table, records, source)` function.
+- Refactor `mobile_sync` so the per-type INSERT blocks become a single dispatch loop driven by a table-to-key mapping.
+- No behavior changes: same SQL, same response shape, same dedup cadence (already shifted to analytics in Step 2).
+
+**Verify:**
+- `git diff api/main.py` and `git diff api/upsert.py` — read carefully. The shape of the SQL inside `upsert_many` must match what each existing per-type INSERT was doing (bind params, `ON CONFLICT` keys).
+- After rebuild + restart: POST to `/api/mobile/sync` with one record of each type (heart_rate, spo2, hrv, sleep, temperature, stress, steps). Response should be `{"accepted": N, "skipped": 0, "errors": []}` and the DB should contain those rows.
+- Specifically test the `raw_sleep` case which has `ON CONFLICT DO UPDATE` (not `DO NOTHING`) — conflict path must still update `end_ts` and `duration_minutes`.
+
+**Reversibility:** moderate. SQL is identical; the dispatch logic is more moving parts. `git revert` restores the explicit per-type blocks.
+
+### What we are NOT doing in this plan
+
+- No `time_sync_acked` column (that was Phase 6, reverted). Separate plan if needed.
+- No `deploy/systemd/` directory. Separate housekeeping.
+- No pytest suite. Step 4 verification is the manual testing for now.
+- No dashboard rewrite. Out of scope.
+
+### Operational protocol for the next session
+
+These rules fix the failure mode that burned us this session. Non-negotiable.
+
+1. **One step per session.** Not all four. Each step is independently shippable and reversible. If a step blows up, you've lost ~30 minutes max, not ~3 hours.
+2. **You read the diff.** I show the diff, you read it, you confirm. I do not claim "verified" without showing the actual image contents.
+3. **I do not run operational commands.** No `podman build`, no `podman restart`, no `systemctl`, no `podman exec grep`. I can read (`cat`, `grep`, `head`); I do not write or restart.
+4. **You run the build + restart.** Sequence: `podman build --no-cache -t smart-ring-api:latest api/` (you run), `sudo systemctl restart smart-ring-api` (you run).
+5. **Verification by image inspection, not by HTTP.** Show exactly what to check inside the container: `podman exec smart-ring-api grep "PATTERN" /app/main.py` and similar. If the image doesn't have the change baked in, the change isn't live — no matter what `curl` says.
+6. **Don't push until you've seen the verification yourself.** `git push origin dev` only happens after you've read the image contents and confirmed the code is live.
+
+### Estimated cost per step
+
+- Step 1: ~10 minutes — 5 line deletions, one file, one rebuild, one verification.
+- Step 2: ~15 minutes — one function deletion + one call site, one rebuild, one verification.
+- Step 3: ~60 minutes — read every endpoint, lift SQL into `queries.py`, update each call site. Most reading, least editing.
+- Step 4: ~45 minutes — read per-type INSERTs carefully, build dispatch correctly, verify phone-sync end-to-end.
+
+Total across all four: ~2.5 hours, spread across 4 sessions (one per step).
