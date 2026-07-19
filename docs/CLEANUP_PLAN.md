@@ -408,3 +408,82 @@ These rules fix the failure mode that burned us this session. Non-negotiable.
 - Step 4: ~45 minutes — read per-type INSERTs carefully, build dispatch correctly, verify phone-sync end-to-end.
 
 Total across all four: ~2.5 hours, spread across 4 sessions (one per step).
+
+---
+
+## Tier 1 follow-up: pytest suite (separate from API cleanup)
+
+**Why this exists separately from the API plan:** the API cleanup is best done without tests in flight (each step is small enough to verify manually, and the verification protocol above pins that down). Tests are best done *before* the codebase is touched again, so they pin down the current behavior as the regression net for all future work.
+
+**Goal:** a `tests/` directory with smoke-level coverage of the modules most likely to silently break in a future refactor. Not exhaustive coverage — a regression net, not a test suite.
+
+### What's in scope
+
+1. **Parser tests** (`tests/test_parsers_temp.py`, `tests/test_parsers_sleep.py`): golden-byte parsing. Hand-craft a known-good ring response for sleep and temp, parse it, assert the records come out right.
+
+2. **Time-sync BCD encoding test** (`tests/test_time_sync_bcd.py`): regression net for the sacred code. Construct a known `datetime`, run it through `set_time_local`'s BCD pipeline (extracted as a pure helper if needed), assert byte-for-byte match against Gadgetbridge's reference.
+
+3. **Trap-score math** (`tests/test_trap_score.py`): boundary cases for the trapezoidal scoring function (4.0, 7.0, 9.0, 10.0 — each should be 0 or 100 at the edges, 100 in the middle, linear in between).
+
+4. **`dedupe_sources` smoke test** (`tests/test_dedupe.py`): seed two `raw_heart_rate` rows at the same `ts` (one phone, one ring), call `dedupe_sources`, assert phone row is gone and ring row remains.
+
+5. **`connect_with_retry` mock test**: stub `BleakClient`/`BleakScanner`, verify the wake-ping → forget+repair → connect → retry sequence fires in the right order on transient errors. (Skippable if it's too coupled to mocks; the manual verification protocol above is the fallback.)
+
+### What's NOT in scope
+
+- No coverage goals (no "80% lines" or similar). Tests that exist are tests that earn their keep.
+- No CI workflow integration. Tests run locally via `pytest` from the venv. Add CI when the suite has enough value to justify the workflow file.
+- No mocks of the database for the analytics scorers. The `_score_sleep_day` math is what matters, not the SQL — extract it to a pure helper first if needed, then test the helper.
+- No mocking of the FastAPI app for the API tests. The API cleanup steps above are small enough that the manual verification protocol (you read the diff, you verify the image) is the test for now. Add `httpx.AsyncClient` tests if the API grows.
+
+### File layout
+
+```
+tests/
+  __init__.py
+  conftest.py                  # small fixture set: temp DB, golden bytes
+  test_parsers_temp.py
+  test_parsers_sleep.py
+  test_time_sync_bcd.py
+  test_trap_score.py
+  test_dedupe.py
+pytest.ini                     # minimal config — no surprises
+```
+
+### Operational protocol (same rules as the API cleanup)
+
+1. **One test file per session.** Same one-step-at-a-time discipline. ~30 minutes max per session.
+2. **You read the diff.** I write the test, commit it locally. You read.
+3. **You run the tests.** `venv/bin/python3 -m pytest tests/`. I do not run them. (If a test fails, that's the entire point — read the failure, decide what's broken.)
+4. **Don't push until you've seen the tests pass yourself.**
+
+### Estimated cost
+
+- One parser test (temp or sleep): ~30 minutes including golden-byte fixture.
+- Time-sync BCD test: ~30 minutes (extracting the helper may add 15 min).
+- Trap-score: ~15 minutes.
+- Dedupe smoke: ~30 minutes (DB setup is the slow part).
+- Connect-mock or skip: ~30 min if done, 0 if skipped.
+
+Total: ~2.5 hours, spread across 3–5 sessions. Same pace as the API cleanup.
+
+### Recommended order
+
+1. **Trap-score first** (15 min, pure function, fastest win). Pin down the scoring math.
+2. **Time-sync BCD second** (30 min, regression net for the sacred code). This is the one that prevents "did my refactor break Gadgetbridge compatibility?" from being a question.
+3. **Dedupe smoke third** (30 min, real DB). Verifies the current dedup is correct before any more analytical work.
+4. **Parser tests last** (30 min each, slowest because they need fixture data). Optional but high-value if/when the parsers get touched.
+
+Skip Step 5 (connect mock) unless someone is going to refactor the connection flow soon. It's overhead without payoff.
+
+### Sequencing vs the API cleanup
+
+The recommendation in the response that drafted this section was: **pytest before any more API cleanup work.** Reason: pytest pins the current behavior, and Step 3 of the API cleanup (extracting raw SQL) is the riskiest of the four because "this endpoint returns the same JSON after the refactor" is hard to verify manually across all endpoints.
+
+If you want to do API cleanup first instead: that's fine. The tests will catch any regressions the manual verification protocol misses. The sequencing is a recommendation, not a hard requirement.
+
+### What this is NOT
+
+This is not a test-driven-development project. It's not a CI setup. It's not a comprehensive coverage push. It's an immune system for the parts of the codebase most likely to silently break during future cleanup work. Build what's earnable, skip what isn't.
+
+---
