@@ -89,15 +89,21 @@ class Analytics:
         self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         # Set session timezone to host's local timezone so EXTRACT(HOUR)
         # and DATE() use local time, not the container's UTC.
+        # $TZ env first, then /etc/timezone, then America/Vancouver fallback.
+        local_tz = os.getenv("TZ", "") or self._read_etc_timezone() or "America/Vancouver"
+        with self.conn.cursor() as cur:
+            cur.execute("SET TIME ZONE %s", (local_tz,))
+        self.conn.commit()
+        log.info(f"Analytics DB session timezone: {local_tz}")
+
+    @staticmethod
+    def _read_etc_timezone() -> str:
+        """Read /etc/timezone. Returns '' if unavailable."""
         try:
-            with open('/etc/timezone') as f:
-                local_tz = f.read().strip()
-            with self.conn.cursor() as cur:
-                cur.execute(f"SET TIME ZONE '{local_tz}'")
-            self.conn.commit()
-            log.info(f"Analytics DB session timezone: {local_tz}")
-        except Exception as e:
-            log.warning(f"Could not set DB timezone: {e}")
+            with open("/etc/timezone") as f:
+                return f.read().strip()
+        except Exception:
+            return ""
 
     # =================== Source dedup ===================
 
@@ -944,11 +950,12 @@ class Analytics:
             "stress":       "raw_stress",
         }
         with self.conn.cursor() as cur:
-            # Gather per-type, per-day sample counts
+            # Gather per-type, per-day sample counts.
+            # DATE() uses session TZ, set in __init__ from $TZ or /etc/timezone.
             day_counts: dict[str, dict[str, int]] = {}  # day -> {type: count}
             for data_type, table in types.items():
                 cur.execute(f"""
-                    SELECT (ts AT TIME ZONE 'America/Vancouver')::date AS day,
+                    SELECT DATE(ts) AS day,
                            COUNT(*) AS cnt, MAX(ts) AS last_ts
                     FROM {table}
                     WHERE ts >= NOW() - INTERVAL %s

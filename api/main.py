@@ -181,7 +181,9 @@ def get_data_quality(days: int = 7):
 @app.get("/api/resting-hr")
 def get_resting_hr(days: int = 30):
     """Daily resting HR: average bpm between 1:00–5:00 AM local time."""
-    # Timezone from env var or system /etc/timezone, fallback to America/Vancouver
+    # Timezone from env var or system /etc/timezone, fallback to America/Vancouver.
+    # Use bind params (no string interpolation) — the schema is fixed but the
+    # pattern is wrong and worth fixing while we're here.
     tz = os.getenv("TZ", "")
     if not tz:
         try:
@@ -190,18 +192,18 @@ def get_resting_hr(days: int = 30):
         except Exception:
             tz = "America/Vancouver"
     with SessionLocal() as db:
-        rows = db.execute(text(f"""
+        rows = db.execute(text("""
             SELECT
-                (ts AT TIME ZONE '{tz}')::date AS day,
+                (ts AT TIME ZONE :tz)::date AS day,
                 ROUND(AVG(bpm))::int AS resting_hr,
                 COUNT(*) AS samples
             FROM raw_heart_rate
             WHERE
-                EXTRACT(HOUR FROM ts AT TIME ZONE '{tz}') BETWEEN 1 AND 5
-                AND ts >= NOW() - INTERVAL ':days days'
+                EXTRACT(HOUR FROM ts AT TIME ZONE :tz) BETWEEN 1 AND 5
+                AND ts >= NOW() - INTERVAL :interval
             GROUP BY 1
             ORDER BY 1 DESC
-        """), {"days": days}).mappings().all()
+        """), {"tz": tz, "interval": f"{days} days"}).mappings().all()
     return [dict(r) for r in rows]
 
 
