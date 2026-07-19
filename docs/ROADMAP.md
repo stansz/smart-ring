@@ -81,7 +81,7 @@ Ring syncs when away from home → data reaches Linux box Postgres → analytics
 
 - **Auth:** API key via `X-Device-Key` header or Tailscale IP allowlist
 - **Upsert:** `ON CONFLICT (ts) DO NOTHING` — idempotent, no duplicates
-- **Triggers:** `collector/analytics.py` after commit
+- **Triggers:** `python -m collector.analytics` (via poller or direct) after commit
 - **Returns:** `{ "accepted": 42, "duplicates_skipped": 3 }`
 - **All arrays optional** — only send what changed
 

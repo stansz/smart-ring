@@ -26,8 +26,6 @@ from bleak import BleakClient, BleakScanner
 from colmi_r02_client import (
     battery,
     blink_twice,
-    hr,
-    hr_settings,
     packet,
     real_time,
     reboot,
@@ -358,7 +356,7 @@ class Client:
     ) -> Optional[list[int]]:
         return await self._poll_real_time_reading(reading_type)
 
-
+    async def set_time_local(self, ts: datetime) -> None:
         """Set ring time using LOCAL hour/minute/second components.
 
         The upstream ``set_time_packet`` always converts to UTC before
@@ -401,33 +399,6 @@ class Client:
         data["fw_version"] = fw_version.decode("utf-8")
 
         return data
-
-    async def get_heart_rate_log(self, target: Optional[datetime] = None):
-        if target is None:
-            target = date_utils.start_of_day(date_utils.now())
-        await self.send_packet(hr.read_heart_rate_packet(target))
-        return await asyncio.wait_for(
-            self.queues[hr.CMD_READ_HEART_RATE].get(),
-            timeout=2,
-        )
-
-    async def get_heart_rate_log_settings(self):
-        await self.send_packet(hr_settings.READ_HEART_RATE_LOG_SETTINGS_PACKET)
-        return await asyncio.wait_for(
-            self.queues[hr_settings.CMD_HEART_RATE_LOG_SETTINGS].get(),
-            timeout=2,
-        )
-
-    async def set_heart_rate_log_settings(self, enabled: bool, interval: int) -> None:
-        await self.send_packet(
-            hr_settings.hr_log_settings_packet(
-                hr_settings.HeartRateLogSettings(enabled, interval)
-            )
-        )
-        await asyncio.wait_for(
-            self.queues[hr_settings.CMD_HEART_RATE_LOG_SETTINGS].get(),
-            timeout=2,
-        )
 
     async def get_steps(self, target: datetime, today: Optional[datetime] = None):
         if today is None:

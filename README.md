@@ -109,12 +109,12 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 
 ### How it works
 ```
-Ring → BLE sync (on-demand) → Postgres raw tables → analytics.py → computed score tables
+Ring → BLE sync (on-demand) → Postgres raw tables → `python -m collector.analytics` → computed score tables
                                     ↑                                          ↓
                                FastAPI API ←←←←←←←←←←←←←←←←←←←←←←←←← Dashboard
 ```
 
-The poller watches for sync requests every 30s, runs the collector, then runs analytics.py to recompute all scores. Fully automated after clicking "Sync Now".
+The poller watches for sync requests every 30s, runs the collector, then runs `python -m collector.analytics` to recompute all scores. Fully automated after clicking "Sync Now".
 
 ## Attributions & Licensing
 
