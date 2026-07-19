@@ -245,6 +245,7 @@ def main():
 
     conn = psycopg2.connect(DATABASE_URL)
     log.info(f"Poller started (loop={args.loop}, interval={args.interval}s)")
+    reap_stuck_rows(conn, stall_minutes=2)  # cleanup any requests orphaned by restart
 
     if args.loop:
         try:

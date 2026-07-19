@@ -27,28 +27,38 @@ Private, self-hosted health tracking built around the **Colmi R09** (~$45 CAD). 
 
 ```
 Ring ──BLE──> Linux Box (bare metal, forget+repair each sync)
-                ├─ smart-ring-poller.service  (systemd user unit, 30s loop)
-                │    └─ watches sync_requests → runs sync_ring.py --forget
-                ├─ smart-ring-db.service      (rootless Podman, Postgres 16, port localhost:5432)
-                └─ smart-ring-api.service     (rootless Podman, FastAPI, port localhost:8000)
+                ├─ smart-ring-poller.service  (system systemd, User=sz, 30s poll)
+                │    └─ watches sync_requests → runs sync_ring.py
+                ├─ smart-ring-db.service      (system systemd, User=sz, rootless Podman)
+                └─ smart-ring-api.service     (system systemd, User=sz, rootless Podman)
                      └─ serves dashboard, all API endpoints
+
+Source files: ~/.config/systemd/user/smart-ring-*.service (edit here)
+Active:       /etc/systemd/system/smart-ring-*.service (sudo cp to deploy)
 ```
 
 **Key facts:**
-- **Collector is bare metal only** — needs BlueZ/DBus for BLE. Quadlets are host-specific (`~/.config/containers/systemd/`), NOT in repo.
+- **Services are SYSTEM-LEVEL, not user-level.** User systemd on this distro (systemd 255.4 + podman 4.9.3, Linux Mint) does NOT scan `~/.config/systemd/user/` at boot. Services live in `/etc/systemd/system/` with `User=sz`. Deploy with `sudo cp` + `sudo systemctl daemon-reload`. Source files in `~/.config/systemd/user/` for editing only.
+- **DO NOT use `systemctl --user` for autostart.** It fails silently at boot. Use `sudo systemctl` for status, restart, enable, everything.
+- **DO NOT use podman quadlet for user containers.** User quadlet generates transient units in `/run/` that conflict with persistent units. Use plain `.service` files with `ExecStart=podman run`.
+- **Collector is bare metal only** — needs BlueZ/DBus for BLE. The ring's `forget_ring()` frees it for phone pairing after each sync.
 - **R09 single-connection limit:** Linux box holds BLE during sync, then `forget_ring()` frees it for phone pairing.
-- **Poller** (`smart-ring-poller.service`): DB-only poll at 30s interval, zero BLE between syncs. Runs `sync_ring.py --forget` via `collector-wrapper.py`.
-- **`docker-compose.yml`** kept as fallback reference, not used locally.
-- **Services start at boot** (lingering enabled).
+- **Poller** (`smart-ring-poller.service`): DB-only poll at 30s interval, zero BLE between syncs. Runs `sync_ring.py` via `collector-wrapper.py`.
+- **Cancel stuck syncs:** Dashboard Cancel button → `POST /api/admin/cancel-sync`. Clears both sync_requests AND sync_log stuck rows.
+- **Sync log is the real culprit for stuck status.** When dashboard shows "running" but sync_requests looks clean, check `SELECT * FROM sync_log WHERE status='running'` — the poller being killed mid-sync leaves orphaned sync_log rows.
 
 ### Service Commands
 ```bash
-systemctl --user status smart-ring-db smart-ring-api smart-ring-poller
-systemctl --user restart smart-ring-api              # after code change
+sudo systemctl status smart-ring-db smart-ring-api smart-ring-poller
+sudo systemctl restart smart-ring-api              # after code change in api/
+sudo systemctl restart smart-ring-poller           # after code change in collector/
+sudo journalctl -u smart-ring-db -f                # container logs
 podman exec smart-ring-db psql -U smart_ring -d smart_ring   # DB shell
 podman build -t smart-ring-api:latest /home/sz/code/smart-ring/api
 venv/bin/python3 collector/sync_ring.py --forget     # manual sync
 venv/bin/python3 collector/first_contact.py          # diagnostic
+sudo cp ~/.config/systemd/user/smart-ring-*.service /etc/systemd/system/  # deploy after edits
+sudo systemctl daemon-reload                         # after any .service edit
 ```
 
 ---
@@ -152,5 +162,9 @@ Unified hero panel: 24h activity ring (radial step bars + sleep overlay) alongsi
 - **When editing:** Update the work log above. Keep it lean — details in `docs/` or commit messages.
 - **Secrets:** Never commit. Update `.env.example` for new env vars.
 - **BLE protocol:** Cross-reference `colmi.puxtril.com` and Gadgetbridge source (`yawell/ring` namespace).
-- **Runtime:** Collector = bare metal venv (`venv/bin/python3`). API + DB = Podman containers (restart with `systemctl --user`).
+- **Runtime:** Collector = bare metal venv (`venv/bin/python3`). API + DB = Podman containers (restart with `sudo systemctl`).
+- **Services are SYSTEM-LEVEL, not user-level. User systemd on this distro (systemd 255.4 + podman 4.9.3, Linux Mint) does NOT scan `~/.config/systemd/user/` at boot. Services live in `/etc/systemd/system/` with `User=sz`. Deploy with `sudo cp` + `sudo systemctl daemon-reload`. Source files in `~/.config/systemd/user/` for editing only.
+- **DO NOT use `systemctl --user` for autostart.** It fails silently at boot. Use `sudo systemctl` for status, restart, enable, everything.
+- **DO NOT use podman quadlet for user containers.** User quadlet generates transient units in `/run/` that silently conflict with persistent units of the same name. Write plain `.service` files with `ExecStart=/usr/bin/podman run`.
+- **DO NOT write wrapper services or startup shims.** If something doesn't autostart, find the missing dependency — don't write a `.service` that `daemon-reload && systemctl start`s things. No `smart-ring-startup.service`, no `WantedBy=graphical-session.target`.
 - **NEVER run raw ad-hoc Python one-liners to talk to the ring.** The R09 is BLE-flaky and needs the proper forget+repair+wake-ping flow that only `sync_ring.py --forget` handles. Raw `bluetoothctl` or ad-hoc `Client()` attempts will fail with EOFError/connect errors and waste time. For diagnostics use `first_contact.py`. For sync use `sync_ring.py --forget`. For any settings reads/writes, either extend those scripts or run them inside an active sync_ring.py connection.**

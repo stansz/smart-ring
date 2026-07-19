@@ -114,6 +114,7 @@
                         <span x-show="!syncQueueBusy">Sync</span>
                         <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
                     </button>
+                    <button x-show="syncQueueBusy" @click="cancelSync()" class="px-2 py-0.5 text-xs bg-red-600 text-white rounded">Cancel</button>
                 </div>
             </div>
             <!-- Row 2 (desktop): battery + sync in one row -->
@@ -137,6 +138,7 @@
                         <span x-show="!syncQueueBusy">Sync</span>
                         <span x-show="syncQueueBusy" x-text="syncQueueStatus"></span>
                     </button>
+                    <button x-show="syncQueueBusy" @click="cancelSync()" class="px-2 py-0.5 text-xs bg-red-600 text-white rounded">Cancel</button>
                 </div>
             </div>
             </div>
@@ -2477,6 +2479,17 @@
                         console.error('queue sync', e);
                         this.syncError = 'Network error queueing sync.';
                     }
+                },
+
+                async cancelSync() {
+                    try {
+                        await fetch('/api/admin/cancel-sync', { method: 'POST' });
+                    } catch(e) { console.error('cancel sync', e); }
+                    this.syncQueueBusy = false;
+                    this.syncQueueStatus = '';
+                    this.syncProgress = '';
+                    this.syncError = null;
+                    this._stopElapsedTimer();
                 },
 
                 // Poll for status + progress while a sync is pending/running
