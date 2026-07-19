@@ -1,7 +1,9 @@
 # Collector / Analytics Cleanup Plan
 
 > Branch: `refactor/collector-package`
-> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 complete ✅ · Phase 4 pending
+> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 complete ✅ · Phase 3 complete ✅ (+ post-fix) · Phase 4 pending
+>
+> Last verified working: `Client.__init__() got an unexpected keyword argument 'timeout'` resolved in `2166151`; sync #126 confirmed clean (112 records, battery 52%, readiness score 40 with full confidence).
 
 ---
 
@@ -36,6 +38,19 @@
 | Dockerfile `--reload` | **Dropped in production image.** |
 | `get_full_data` in ring_client | **Deleted (never called).** |
 | `set_time` in ring_client | **Deleted (superseded by `set_time_local`).** |
+
+---
+
+## Commit timeline
+
+| Commit | Phase | Summary |
+|---|---|---|
+| `89be367` | 0 + 1 | Remove shims + dead code; `pyproject.toml`; argparse; `pip install -e .` |
+| `c664330` | 2 | Poller rewrite as thin orchestrator over `collector/jobs/` |
+| `800eea2` | cross | TZ cleanup — bind params, `$TZ` env, session TZ in `__init__` |
+| `64c0262` | cross | Merge redundant `wear_hourly_rows` query (single CTE) |
+| `1c04efb` | 3 | Split `sync_ring.py` into `collector/protocol/` package |
+| `2166151` | 3 post-fix | Import the timeout-capable `ring_client.Client` wrapper (upstream doesn't accept `timeout`) |
 
 ---
 
@@ -172,7 +187,7 @@ collector/jobs/
 
 ## Phase 3 — Split `sync_ring.py` (1079 → 284 lines) ✅ COMPLETE
 
-Commit: pending on `refactor/collector-package`
+Commit: `1c04efb` on `refactor/collector-package` (+ post-fix `2166151`)
 
 **New `collector/protocol/` package:**
 ```
@@ -212,6 +227,30 @@ collector/protocol/
 **Line counts:**
 - `sync_ring.py`: 1079 → 284
 - `collector/protocol/`: ~1100 lines total (split out, net ~zero growth, much higher cohesion)
+
+---
+
+## Phase 3 post-fix — wrong Client class imported
+
+Commit: `2166151` on `refactor/collector-package`
+
+The Phase 3 split imported `Client` from `colmi_r02_client.client` (upstream)
+in `protocol/connect.py` instead of from `collector.ring_client` (the wrapper
+that accepts `timeout`). Upstream `Client.__init__()` rejects the kwarg,
+so every sync since Phase 3 hit:
+
+```
+Client.__init__() got an unexpected keyword argument 'timeout'
+```
+
+Fix: import the wrapper explicitly in `protocol/connect.py` and use it for
+both the `Client(...)` call site and the return type annotation.
+
+**Verified after restart:**
+- Sync #126 completed (112 records, battery 52%)
+- HR / HRV / stress / sleep wrote new rows
+- Readiness recomputed (today: score 40, full confidence)
+- SpO2/temp = 0 (ring's `daysAgo=0` publish cadence — see `docs/RING_BEHAVIOR.md`)
 
 ---
 
