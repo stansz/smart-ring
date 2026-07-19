@@ -18,8 +18,7 @@ from typing import Optional
 
 from bleak import BleakError, BleakScanner
 
-from colmi_r02_client.client import Client as _Client
-from ..ring_client import forget_and_repair  # noqa: F401 (re-export for callers)
+from ..ring_client import Client, forget_and_repair  # wrapper that accepts timeout
 
 log = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ async def connect_with_retry(
     connect_timeout: float = 30.0,
     wake_ping: bool = False,
     forget_repair: bool = False,
-) -> _Client:
+) -> Client:
     """Connect to the ring, retrying on failure.
 
     Parameters:
@@ -73,7 +72,7 @@ async def connect_with_retry(
             await BleakScanner.discover(timeout=10.0, return_adv=True)
 
         try:
-            client = _Client(address, timeout=connect_timeout)
+            client = Client(address, timeout=connect_timeout)
             await client.__aenter__()
             return client
         except (BleakError, OSError, asyncio.TimeoutError, EOFError, ConnectionError) as e:
