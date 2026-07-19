@@ -1,7 +1,7 @@
 # Collector / Analytics Cleanup Plan
 
 > Branch: `refactor/collector-package`
-> Status: Phase 0 complete · Phase 0 doc in progress
+> Status: Phase 0 complete ✅ · Phase 1 complete ✅ · Phase 2 pending
 
 ---
 
@@ -21,7 +21,7 @@
 
 | Concern | Decision |
 |---|---|
-| `collector-wrapper.py` / `analytics-wrapper.py` | **Delete** |
+| `collector-wrapper.py` / `analytics-wrapper.py` | **Deleted** |
 | `--forget` flag | **Default `True`**. Rename to `--no-forget` for diagnostics only |
 | Poller subprocess for collector | **Replace with direct function call (same interpreter)** |
 | `DISPATCH` magic-string dict | **Replace with `SyncJob` class hierarchy** |
@@ -40,6 +40,8 @@
 ---
 
 ## Phase 0 — Repo hygiene (no behavior change) ✅ COMPLETE
+
+Commit: `89be367` on `refactor/collector-package`
 
 **Deleted files:**
 - `collector/collector-wrapper.py`
@@ -80,10 +82,11 @@ All four now log to stdout only. journald captures via `Environment=PYTHONUNBUFF
 
 ---
 
-## Phase 1 — Make `collector/` a real package
+## Phase 1 — Make `collector/` a real package ✅ COMPLETE
 
-Add `pyproject.toml`:
+Commit: `89be367` on `refactor/collector-package`
 
+**Added `pyproject.toml`:**
 ```toml
 [build-system]
 requires = ["setuptools>=68"]
@@ -104,19 +107,41 @@ dependencies = [
 include = ["collector*"]
 ```
 
-Entry points:
+**Entry points now work:**
 ```
 venv/bin/python3 -m collector.sync_ring --no-forget   # forget is now default
 venv/bin/python3 -m collector.analytics
 venv/bin/python3 -m collector.first_contact
 ```
 
-Tasks:
-- [ ] Add `pyproject.toml`
-- [ ] Drop `sys.path.insert(0, ...)` from all 4 collector scripts
-- [ ] `sync_ring.main()` switches to `argparse`
-- [ ] `--forget` becomes default-on; add `--no-forget` for diagnostics
-- [ ] `pip install -e .` in host venv
+**Verified:** `pip install -e .` succeeded in host venv. All imports work:
+```python
+from collector.ring_client import Client
+from collector.sync_ring import connect_with_retry, _parse_sleep_data
+from collector.analytics import Analytics
+from collector.first_contact import first_contact
+from collector.sync_request_poller import claim_next_request
+```
+
+**sys.path hacks dropped:**
+- Removed `sys.path.insert(0, ...)` from `sync_ring.py` and `first_contact.py`
+- `sync_request_poller.py` and `analytics.py` already had no hacks
+- Confirmed zero remaining `sys.path.insert` calls in collector/
+
+**argparse in `sync_ring.main()`:**
+- Replaced `sys.argv.index(...)` hacks with proper `argparse.ArgumentParser`
+- `--forget` is now the reliable default (no flag needed)
+- `--no-forget` is opt-out for diagnostics only
+- `--attempts N` is a typed int argument
+- `--no-retry` is a boolean flag
+- `scan` is a subcommand
+
+**Verified:**
+```bash
+$ python -m collector.sync_ring --help
+usage: sync_ring.py [-h] [--no-retry] [--attempts ATTEMPTS] [--no-forget]
+                    [{sync,scan}]
+```
 
 ---
 
