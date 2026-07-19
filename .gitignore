@@ -5,3 +5,4 @@ venv/
 .env
 *.log
 podman_data/
+smart_ring_collector.egg-info/

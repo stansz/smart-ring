@@ -7,18 +7,12 @@ Syncs ring data to local Postgres.
 import os
 import sys
 import asyncio
+import argparse
 import logging
 import struct
 from datetime import datetime, timezone, timedelta, date
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
-from pathlib import Path
-
-# Allow running sync_ring.py directly: add the project root to sys.path
-# so `from collector import ...` works.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -31,16 +25,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-LOG_DIR = Path(__file__).resolve().parent
-LOG_DIR.mkdir(parents=True, exist_ok=True)
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
-    handlers=[
-        logging.FileHandler(LOG_DIR / "collector.log"),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger(__name__)
 
@@ -484,103 +472,7 @@ async def fetch_temperature_history(client: Client) -> list[dict]:
     return records
 
 
-# ----------------------------------------------------------------
-# Legacy sleep path (cmd 68) — kept for reference; superseded by
-# fetch_sleep_history above when V2 service is available.
-# ----------------------------------------------------------------
 
-async def fetch_sleep_data_legacy(client: Client) -> List[Dict[str, Any]]:
-    """Fetch stored sleep data using cmd 68 (old path, superseded)."""
-    records = []
-    for day_offset in range(0, 7):
-        try:
-            subdata = struct.pack("<BBBB7x", day_offset, 15, 0, 95)
-            pkt = make_packet(68, subdata)
-            responses = await client.raw(68, pkt[1:15], replies=1)
-            if not responses:
-                continue
-
-            resp = responses[0]
-            year = resp[1] + 2000
-            month = resp[2]
-            day = resp[3]
-            sleep_qualities = resp[5]
-
-            sleep_stages = _decode_sleep_qualities(sleep_qualities)
-            records.extend([{
-                "day": date(year, month, day),
-                "stage": stage,
-                "sleep_qualities_byte": sleep_qualities,
-            } for stage in sleep_stages])
-
-        except Exception as e:
-            log.debug(f"Sleep day {day_offset} failed: {e}")
-            continue
-
-    log.info(f"Sleep (legacy): {len(records)} stage records")
-    return records
-
-
-def _decode_sleep_qualities(byte_val: int) -> List[str]:
-    """Decode sleep quality byte into stages.
-    Bit 0-1: light sleep, bit 2: deep, bit 3: REM, bit 4: awake.
-    Exact mapping TBD when ring arrives."""
-    stages = []
-    if byte_val & 0x01:
-        stages.append("light")
-    if byte_val & 0x02:
-        stages.append("light")
-    if byte_val & 0x04:
-        stages.append("deep")
-    if byte_val & 0x08:
-        stages.append("rem")
-    if byte_val & 0x10:
-        stages.append("wake")
-    return stages if stages else ["unknown"]
-
-
-# ----------------------------------------------------------------
-# Legacy SpO2 & temperature fetch — superseded by big-data above
-# ----------------------------------------------------------------
-
-
-async def fetch_spo2_data_legacy(client: Client) -> List[Dict[str, Any]]:
-    """Fetch SpO2 data using Data Request (cmd 105, type=3) — legacy."""
-    records = []
-    try:
-        subdata = struct.pack("<BB", 3, 1)
-        pkt = make_packet(105, subdata)
-        responses = await client.raw(105, pkt[1:15], replies=1)
-        if responses:
-            resp = responses[0]
-            if len(resp) >= 4:
-                spo2 = resp[3] if resp[3] < 127 else None
-                if spo2 is not None:
-                    records.append({
-                        "ts": datetime.now(tz=timezone.utc),
-                        "spo2_pct": spo2,
-                    })
-                    log.info(f"SpO2 (legacy): {spo2}%")
-    except Exception as e:
-        log.debug(f"SpO2 legacy fetch failed: {e}")
-    return records
-
-
-async def listen_temperature_legacy(client: Client, timeout: float = 5.0) -> Optional[float]:
-    """Listen for temperature notify (cmd 115) — legacy, superseded by big-data."""
-    try:
-        responses = await client.raw(115, b"\x00" * 14, replies=1)
-        if responses:
-            resp = responses[0]
-            if resp[1] == 5:
-                temp_raw = struct.unpack_from("<H", resp, 2)[0]
-                temp_c = temp_raw / 100.0 if temp_raw > 0 else None
-                if temp_c and 30 < temp_c < 45:
-                    log.info(f"Temperature (legacy): {temp_c:.1f}°C")
-                    return temp_c
-    except Exception as e:
-        log.debug(f"Temperature legacy listen failed: {e}")
-    return None
 
 
 def upsert_heart_rate(records: List[Dict]) -> int:
@@ -686,21 +578,6 @@ def upsert_temperature_list(records: list[dict]) -> int:
                 """, (r["ts"], r["temp_c"]))
                 count += cur.rowcount
     return count
-
-
-def upsert_temperature_single(temp_c: float, ts: Optional[datetime] = None) -> int:
-    """Legacy single-record temperature upsert (kept for reference)."""
-    if not temp_c:
-        return 0
-    ts = ts or datetime.now(tz=timezone.utc)
-    with get_db() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                INSERT INTO raw_temperature (ts, temp_c, source)
-                VALUES (%s, %s, 'ring')
-                ON CONFLICT (ts, source) DO NOTHING
-            """, (ts, temp_c))
-            return cur.rowcount
 
 
 async def fetch_hr_history(
@@ -1072,7 +949,7 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
                     except asyncio.QueueEmpty:
                         break
             if live_temp:
-                upsert_temperature_single(live_temp)
+                upsert_temperature_list([{"ts": datetime.now(tz=timezone.utc), "temp_c": live_temp}])
                 total_records += 1
                 log.info(f"Temperature (live): {live_temp:.1f}C")
         except Exception as e:
@@ -1098,36 +975,6 @@ async def _collect_data(client: Client, address: str, sync_id: Optional[int] = N
         except Exception as e:
             log.debug(f"Goals fetch failed: {e}")
 
-        # ------------------------------------------------------------
-        # 11. Stall detection + auto-recovery — DISABLED
-        # The dashboard data-quality banner now surfaces HR stalls, so we
-        # handle them manually (toggle HR-log in Gadgetbridge or power-cycle).
-        # Logic preserved below for reference; re-enable by uncommenting.
-        # ------------------------------------------------------------
-        # today_hr = sum(1 for r in hr_records
-        #                if r["ts"].astimezone().date() == datetime.now().date())
-        # today_hrv = sum(1 for r in hrv_records
-        #                 if r["ts"].astimezone().date() == datetime.now().date())
-        # if today_hrv > 0 and today_hr == 0:
-        #     result.logger_stalled = True
-        #     log.warning(
-        #         "HR logger STALLED: HRV present for today (%d records) "
-        #         "but HR log is empty. Attempting auto-recovery via "
-        #         "HR-log setting toggle.", today_hrv)
-        #     update_progress(sync_id, "Recovering HR logger...")
-        #     try:
-        #         cur_settings = await client.get_heart_rate_log_settings()
-        #         interval = cur_settings.interval if cur_settings.interval else 15
-        #         await client.set_heart_rate_log_settings(False, 1)
-        #         await asyncio.sleep(0.5)
-        #         await client.set_heart_rate_log_settings(True, interval)
-        #         result.logger_auto_recovery = True
-        #         log.info(
-        #             "HR log setting toggled off→on (interval=%d min). "
-        #             "Ring logger should resume on next measurement interval.",
-        #             interval)
-        #     except Exception as e:
-        #         log.warning("HR log auto-recovery toggle FAILED: %s", e)
 
     finally:
         result.records_synced = total_records
@@ -1171,25 +1018,19 @@ async def sync_ring(
             forget_ring(address)
 
 
-async def test_sync_behavior(address: str):
-    """Test if syncing wipes data from the ring."""
-    log.info("=== TESTING SYNC BEHAVIOR ===")
-    result1 = await sync_ring(address)
-    log.info(f"First sync: {result1.records_synced} records")
-
-    result2 = await sync_ring(address)
-    log.info(f"Second sync: {result2.records_synced} records")
-
-    if result2.records_synced == 0:
-        log.info("✓ CONFIRMED: Sync is read-and-clear")
-    elif result2.records_synced == result1.records_synced:
-        log.info("✓ CONFIRMED: Sync is read-only")
-    else:
-        log.info(f"? PARTIAL: {result2.records_synced} vs {result1.records_synced}")
-
-
 async def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "scan":
+    parser = argparse.ArgumentParser(description="Sync Colmi R09 ring data to Postgres")
+    parser.add_argument("command", nargs="?", default="sync", choices=["sync", "scan"],
+                        help="sync (default) or scan")
+    parser.add_argument("--no-retry", action="store_true",
+                        help="fail fast on first connect failure (testing)")
+    parser.add_argument("--attempts", type=int, default=5,
+                        help="connect attempts (cron should use 12+)")
+    parser.add_argument("--no-forget", action="store_true",
+                        help="skip forget+re-pair before connecting (diagnostics only)")
+    args = parser.parse_args()
+
+    if args.command == "scan":
         address = await scan_ring(RING_NAME_FILTER)
         if address:
             print(f"Found ring: {address}")
@@ -1198,37 +1039,20 @@ async def main():
             print("No ring found. Try without name filter or check BLE.")
         return
 
-    if len(sys.argv) > 1 and sys.argv[1] == "test-sync":
-        address = os.environ.get("RING_ADDRESS")
-        if not address:
-            log.error("Set RING_ADDRESS in .env or export it")
-            sys.exit(1)
-        await test_sync_behavior(address)
-        return
-
-    # CLI flags:
-    #   --no-retry       fail fast on first connect failure (testing)
-    #   --attempts N     override default 5 retries (cron should use 12+)
-    #   --forget         forget+re-pair ring before connecting (R09 workaround)
-    attempts = 5
-    no_retry = "--no-retry" in sys.argv
-    do_forget = "--forget" in sys.argv
-    if "--attempts" in sys.argv:
-        idx = sys.argv.index("--attempts")
-        if idx + 1 < len(sys.argv):
-            attempts = int(sys.argv[idx + 1])
+    # forget+repair is the reliable default for R09; --no-forget is opt-out
+    do_forget = not args.no_forget
 
     address = os.environ.get("RING_ADDRESS")
     if not address:
         log.info("No RING_ADDRESS set. Scanning...")
         address = await scan_ring(RING_NAME_FILTER)
         if not address:
-            log.error("No ring found. Run 'collector scan' to find, then set RING_ADDRESS")
+            log.error("No ring found. Run 'python -m collector.sync_ring scan' to find, then set RING_ADDRESS")
             sys.exit(1)
 
     sync_id = log_sync_start()
     try:
-        if no_retry:
+        if args.no_retry:
             log.info("--no-retry: skipping connect retry loop")
             client = Client(address, timeout=30.0)
             try:
@@ -1240,7 +1064,7 @@ async def main():
                 except Exception:
                     pass
         else:
-            result = await sync_ring(address, attempts=attempts, forget_repair=do_forget, sync_id=sync_id)
+            result = await sync_ring(address, attempts=args.attempts, forget_repair=do_forget, sync_id=sync_id)
 
         log_sync_complete(sync_id, result)
         if result.error:
