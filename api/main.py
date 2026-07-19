@@ -624,6 +624,26 @@ def queue_sync(req: SyncRequest):
     return dict(row)
 
 
+@app.post("/api/admin/cancel-sync")
+def cancel_sync():
+    """Cancel any pending/running sync request — resets dashboard sync state."""
+    with SessionLocal() as db:
+        reqs = db.execute(text("""
+            UPDATE sync_requests
+            SET status = 'cancelled', completed_at = NOW(), error = 'cancelled by user'
+            WHERE status IN ('pending', 'running')
+            RETURNING id
+        """)).fetchall()
+        logs = db.execute(text("""
+            UPDATE sync_log
+            SET status = 'error', completed_at = NOW(), error = 'cancelled by user'
+            WHERE status = 'running'
+            RETURNING id
+        """)).fetchall()
+        db.commit()
+    return {"cancelled": len(reqs), "sync_log_cleared": len(logs)}
+
+
 @app.get("/api/admin/sync-requests")
 def list_sync_requests(limit: int = 20):
     """Recent sync requests (pending/running/completed/failed)."""
