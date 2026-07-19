@@ -1,9 +1,9 @@
 # Collector / Analytics Cleanup Plan
 
 > Branch: `dev`
-> Status: Phase 0–4 + TZ fix + perf merge + post-fix ✅ COMPLETE · merged to `dev` at `f416170`
+> Status: Phase 0–4 + TZ fix + perf merge + post-fix ✅ COMPLETE (Phase 0 hotfix applied 2026-07-19) · latest on `dev`
 >
-> Last verified working: sync #126 confirmed clean (112 records, battery 52%, readiness score 40 with full confidence). The API container runs the pre-Phase-5 main.py, identical to the dashboard's pre-session behavior. `dev` is ahead of `main`; `main` was not touched in this session.
+> 2026-07-19 review: found + repaired latent Phase 0 regression (`set_time_local` definition dropped; clock_drift always NULL after 89be367). Pure tests now pass; next live sync that connects + reaches time-sync will show acked=1. `dev` ahead of `main`.
 
 ---
 
@@ -91,6 +91,12 @@ All four now log to stdout only. journald captures via `Environment=PYTHONUNBUFF
 
 **Verified:** All 5 collector scripts compile cleanly (`python3 -m py_compile`). No remaining references to deleted symbols (`grep` confirms zero matches).
 
+**Post-review finding (2026-07-19):** Phase 0 also deleted the `async def set_time_local(...)` line (not just the deprecated `set_time`). The BCD body remained but as unreachable statements. Every `set_time_local` call raised `AttributeError`; the `sync_ring` orchestrator silently caught it. All syncs after `89be367` wrote `clock_drift_ms=NULL`. The Phase 0 "verified" was insufficient — py_compile does not catch missing methods and the grep targeted the wrong name.
+
+Hotfix added back `async def set_time_local(self, ts: datetime) -> None:` before the preserved docstring+body + removed the now-orphaned broken HR-log wrapper methods that still referenced `date_utils`. Pure execution tests (BCD round-trip + full `sync_time_to_ring` ack path) pass. Operational verification requires next rise of a ring connection that reaches `_collect_data`.
+
+---
+
 ---
 
 ## Phase 1 — Make `collector/` a real package ✅ COMPLETE
@@ -166,7 +172,7 @@ collector/jobs/
   __init__.py      # exports SyncJob, RingSyncJob, AnalyticsJob
   base.py          # abstract SyncJob with _run_subprocess helper
   ring_sync.py     # RingSyncJob — runs sync_ring.py subprocess
-  analytics.py     # AnalyticsJob — runs analytics.py subprocess
+  analytics.py     # AnalyticsJob — invokes `python -m collector.analytics` (post Phase 4)
 ```
 
 **Poller (`sync_request_poller.py`) is now a thin orchestrator:**

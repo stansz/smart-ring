@@ -59,7 +59,7 @@ All share the same RF03 SoC and BLE protocol. Rule of thumb: if the listing says
 
 ## Validated Score Formulas
 
-All formulas backed by peer-reviewed research. Implementation in `collector/analytics.py`.
+All formulas backed by peer-reviewed research. Implementation in the `collector/analytics/` package (entrypoint: `python -m collector.analytics`).
 
 ### Sleep Quality (0-100)
 
@@ -139,7 +139,7 @@ Tracked as complement to HRV (Altini: "HRV is more sensitive, HR is more specifi
 
 ## Readiness Score (0–100)
 
-**Implemented July 2026. Simplified July 2026 — dropped Activity (circular logic).** Stored in `readiness_score` table, computed daily by `analytics.py`.
+**Implemented July 2026. Simplified July 2026 — dropped Activity (circular logic).** Stored in `readiness_score` table, computed daily by `python -m collector.analytics`.
 
 ### Formula
 
@@ -230,7 +230,7 @@ See `../TASKS.md` for prioritized improvement roadmap.
 
 **Ring canonical, phone fills gaps.** Phone (Web Bluetooth) and ring (Linux box) capture the same physical measurements. Dedup runs in two places:
 1. `mobile_sync` endpoint (container): deletes phone rows where ring has same timestamp
-2. `analytics.py` (host): same logic, covers ring syncs
+2. host `python -m collector.analytics`: same logic, covers ring syncs (plus dedupe)
 
 The `source` column survives on every row; phone rows only persist where ring has no data.
 

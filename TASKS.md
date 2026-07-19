@@ -126,7 +126,7 @@ Ranked by impact-to-effort ratio:
 
 ## Phone-sync analytics trigger ✅ (2026-07-12)
 
-The API container can't run the host's `collector/analytics.py` (no venv, no collector/ mounted), so phone syncs didn't recompute scores. Fix: `mobile_sync` queues a `sync_requests` row with `requested_by='phone-analytics'`; the host poller detects it and runs analytics only (no collector). Verified: request queued → poller runs analytics within 30s.
+The API container can't run the host collector (no venv, no BLE), so phone syncs didn't recompute scores. Fix: `mobile_sync` queues a `sync_requests` row with `requested_by='phone-analytics'`; the host poller detects it and runs `python -m collector.analytics` only (no collector). Verified: request queued → poller runs analytics within 30s.
 
 ## Timezone cutoffs ✅ (2026-07-13)
 
@@ -140,7 +140,7 @@ Day boundaries were inconsistent: analytics + `/api/resting-hr` used Pacific, bu
 Phone (Web Bluetooth) and ring (Linux box) sample the same physical slots, so ~99% of phone records duplicated ring. Fix: **ring canonical, phone fills gaps.**
 
 - `mobile_sync` endpoint runs `_dedupe_sources(db)` after inserts (in-container, reliable).
-- `analytics.py` `run_all` runs `dedupe_sources()` first (host, after ring syncs via poller).
+- host `python -m collector.analytics` `run_all` (in `collector/analytics/main.py`) runs `dedupe_sources()` first (after ring syncs via poller).
 - Deletes phone rows where ring has the same key (timestamp for points; day for sleep). Keeps phone rows that fill genuine gaps, labeled `source='phone'`.
 - First run removed 356 redundant duplicates; only 7 phone gap-fills remain.
 

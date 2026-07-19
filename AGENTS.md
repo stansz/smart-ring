@@ -137,6 +137,19 @@ sudo systemctl daemon-reload                         # after any .service edit
 - **Temp publish cadence (finding, no code change):** investigated why today's temp was empty. Confirmed via collector.log that the fetch is healthy — the ring returns 7 completed day-blocks (`daysAgo` 1–7) but no `daysAgo=0` block. The history buffer only exposes completed days; today's temp isn't committed until late evening / day rollover. Documented in `docs/RING_BEHAVIOR.md`. Action: re-check tomorrow to confirm it lands.
 - **Gadgetbridge worn/not-worn:** confirmed from GB source (`ColmiActivitySampleProvider` + `fillGaps`) that the R09 has no wear sensor — GB renders hourly step samples + gap-filled `UNKNOWN/NOT_MEASURED` dummies, producing the on/off cycling. Not a ring defect.
 
+### 2026-07-19 — Live verification + poller analytics job fix (post-refactor)
+- User triggered dashboard sync #132 (~14:16). Confirmed in DB: `clock_drift_ms=1`, 117 records, battery 52%, completed cleanly.
+- Post-sync check: poller `AnalyticsJob` still targeted deleted `collector/analytics.py` (rc=2, "analytics failed" warnings).
+- Fixed `collector/jobs/analytics.py` to invoke `python -m collector.analytics` (the supported entrypoint after Phase 4 split). Verified rc=0.
+- Re-ran analytics; today's readiness recomputed fresh (40 → 53 full).
+- Docs pass: work log + stale current-state references cleaned.
+
+### 2026-07-19 — Post-cleanup hotfix: `set_time_local` regression + dead HR-log removal
+- Phase 0 refactor `89be367` accidentally deleted both `set_time` **and** the `async def set_time_local(self, ts)` signature while removing dead code. The carefully-tuned BCD body remained as dead unreachable statements inside `get_realtime_reading`. `sync_time_to_ring()` (and first_contact) hit `AttributeError`. Time-sync silently "failed" (caught) on every collector run since the cleanup; `clock_drift_ms` was NULL for affected syncs.
+- Hotfix: restored `async def set_time_local(self, ts: datetime) -> None:` before the preserved docstring+body. Removed the three leftover HR-log wrapper methods (`get_heart_rate_log*` + `set_*`) that still referenced the removed `date_utils` import (no callers in collector path).
+- Verification: BCD encoding roundtrip correct (matches Gadgetbridge reference bytes); full `sync_time_to_ring` ack path now succeeds under test harness; all `python -m collector.*` entrypoints and `py_compile` clean; no more `date_utils` or HR-log references in our files.
+- Operational: next sync that reaches a live ring connection (via poller or manual `--forget`) will now set `clock_drift_ms=1` on ack. Test attempts (#130/#131) cleaned as errored.
+
 ### 2026-07-18 — Dashboard rewrite plan: React + Vite + TypeScript
 - **Stack decision:** replace Alpine.js + Tailwind Play CDN with React + Vite + TypeScript + Recharts + TanStack Query. Dev server on :5173 proxies /api → :8000. Legacy dashboard untouched until full feature parity. Full plan: `docs/DASHBOARD_REWRITE_PLAN.md`.
 
