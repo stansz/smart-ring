@@ -98,7 +98,7 @@ async def _collect_data(client: Client, address: str, sync_id: int | None = None
         log.info("Syncing heart rate history...")
         update_progress(sync_id, "Fetching heart rate...")
         try:
-            hr_records = await fetch_hr_history(client, None, None)
+            hr_records = await fetch_hr_history(client)
             count = upsert_heart_rate(hr_records)
             total_records += count
             log.info(f"Heart rate: {count} new records ({len(hr_records)} total)")

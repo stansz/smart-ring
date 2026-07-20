@@ -19,9 +19,7 @@ from ..db import make_packet, upsert_heart_rate
 log = logging.getLogger(__name__)
 
 
-async def fetch_hr_history(
-    client: _Client, start: datetime, end: datetime
-) -> list[dict]:
+async def fetch_hr_history(client: _Client) -> list[dict]:
     """Fetch heart rate history using the library's notification handler.
     The handler (HeartRateLogParser.parse) is stateful: it accumulates
     multi-packet responses and returns a HeartRateLog on completion.
@@ -79,10 +77,3 @@ async def fetch_hr_history(
                 log.info(f"  HR {local_midnight.date()}: {day_count} records")
 
     return records
-
-
-def fetch_and_store_hr(client: _Client) -> int:
-    """Convenience wrapper used by the orchestrator."""
-    import asyncio
-    records = asyncio.run(fetch_hr_history(client, None, None))
-    return upsert_heart_rate(records)
