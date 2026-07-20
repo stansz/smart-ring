@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import sessionmaker
 
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 
@@ -26,13 +26,8 @@ engine = create_engine(settings.database_url, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-class Base(DeclarativeBase):
-    pass
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
     yield
 
 
@@ -306,34 +301,6 @@ class MobileSyncRequest(BaseModel):
     battery_pct: int | None = None
 
 
-def _dedupe_sources(db):
-    """Delete phone records that duplicate ring records (ring is canonical).
-
-    Phone sync fills gaps the ring missed; where both captured the same slot we
-    keep the ring row and drop the redundant phone copy. Per-row `source` is
-    preserved on every surviving row.
-    """
-    point = [
-        ("raw_heart_rate", "r.ts = p.ts"),
-        ("raw_spo2",       "r.ts = p.ts"),
-        ("raw_temperature","r.ts = p.ts"),
-        ("raw_stress",     "r.ts = p.ts"),
-        ("raw_steps",      "r.ts = p.ts"),
-        ("raw_hrv",        "r.ts = p.ts AND r.hrv_type = p.hrv_type"),
-    ]
-    for table, on_clause in point:
-        db.execute(text(f"""
-            DELETE FROM {table} p
-            WHERE p.source = 'phone'
-              AND EXISTS (SELECT 1 FROM {table} r WHERE r.source = 'ring' AND {on_clause})
-        """))
-    db.execute(text("""
-        DELETE FROM raw_sleep p
-        WHERE p.source = 'phone'
-          AND EXISTS (SELECT 1 FROM raw_sleep r WHERE r.source = 'ring' AND r.day = p.day)
-    """))
-
-
 @app.post("/api/mobile/sync")
 def mobile_sync(req: MobileSyncRequest):
     """Receive ring data from phone via Web Bluetooth and store it."""
@@ -471,12 +438,6 @@ def mobile_sync(req: MobileSyncRequest):
                 """), {"bat": req.battery_pct})
             except Exception as e:
                 errors.append(f"ring_status: {e}")
-
-        # Drop phone records that duplicate ring (ring canonical; phone fills gaps)
-        try:
-            _dedupe_sources(db)
-        except Exception as e:
-            errors.append(f"dedupe: {e}")
 
         db.commit()
 

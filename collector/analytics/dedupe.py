@@ -1,7 +1,8 @@
 """Source dedup — ring is canonical, phone fills gaps.
 
-Phase 4 also marks this as the single source of truth: api/main.py's
-`_dedupe_sources` is now redundant and can be dropped (Phase 5).
+This is the single source of truth for source-dedup. The redundant copy
+that used to live in api/main.py:_dedupe_sources was dropped in the API
+cleanup (Step 2); phone-sync now relies on this running before scorers.
 """
 from __future__ import annotations
 
