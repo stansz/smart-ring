@@ -45,7 +45,7 @@ the ring commits them (see Temperature).
 | SpO₂ | `0xBC` + type `0x2A` | hourly | ~7 days | current day readable | V2 big-data: hourly min/max averaged to single % |
 | Temperature | `0xBC` + types `0x23`–`0x2B` (skip `0x2A`) | 30-min | **7 completed days** | ⚠️ **completed days only — see below** | V2 big-data, R09 exclusive. `temp_c = (raw/10)+20`. Slots rotate daily; query `0x22`–`0x2C` with `dataId == 0x25` check. |
 | Stress | `0x37` | 30-min | ~7 days | current day readable | 0–99 scale |
-| Battery | `0x03` | — | — | live | battery percentage |
+| Battery | `0x03` | — | — | live | single percentage byte, **noisy** — see [Battery readings are noisy](#battery-readings-are-noisy-no-history-stored) |
 | Goals | `0x21` | — | — | live | steps/calorie/distance targets |
 | Device Info | GATT `0x180A` | — | — | live | hardware + firmware version |
 
@@ -115,6 +115,47 @@ can recover data the ring never wrote. HR and temperature stall together (same t
 **Auto-recovery:** toggle `set_heart_rate_log_settings(False→True)` to re-kick the firmware
 logger task (implemented in `sync_ring.py`). If the toggle doesn't revive it, a full
 power-cycle (discharge → recharge) is needed.
+
+## Battery readings are noisy (no history stored)
+
+The R09 does **not** store battery history — `CMD_BATTERY` (`0x03`) returns a single
+live byte from the firmware's instantaneous ADC sample of the cell voltage. Every
+reading is a point-in-time observation, not a stored value. This is observer-effect:
+the act of connecting/syncing perturbs the reading itself.
+
+**Why readings bounce:** terminal voltage is `V_measured = V_open_circuit − I × R_internal`.
+The firmware's SoC lookup is calibrated against OCV, but the ring is rarely at OCV —
+the BLE radio draws current during sync, the PPG sensor draws current during background
+monitoring, and the ADC has its own quantization noise. Successive reads minutes apart
+can swing 10–15 percentage points purely from the load cycle, with no actual change in
+cell charge.
+
+**Confirmed not a parser bug:** Gadgetbridge's `ColmiR0xDeviceSupport.java` reads
+`value[1]` straight off the packet and assigns it directly to `GBDeviceEventBatteryInfo.level`
+— no smoothing, no validation, no clamp, no jump rejection. The R02/R03/R06/R09/R10
+family all share one device-support class in GB. Same parse, same noise. (GB does have
+a second path we don't use: passive push notifications via `NOTIFICATION_BATTERY_LEVEL`
+on `CMD_NOTIFICATION` — but the parse is identical, just `value[2]` instead of `value[1]`.)
+
+**Observed anomalies** (Jul 14–20, 2026, no charging):
+- Smooth monotonic decline on idle days (Jul 16: 90 → 87 → 86 over 8 h).
+- 10–15 pt jumps that track sync load, not actual charge changes (e.g. Jul 19
+  06:19 → 09:06: 37% → 52% — overnight idle let voltage recover).
+- Single garbage bytes (e.g. 88% in `sync_log` #127, a 42-record choppy session;
+  surrounding reads were 52%) — likely partial-packet artifacts.
+
+**Physical interpretation:** for a Li-ion cell, the **higher** reading (sampled at
+idle/recovery) is closer to true state-of-charge; the **lower** reading (sampled under
+load) reflects voltage sag and under-reports. But this only licenses "favor higher
+readings" within a session under varying load — it does **not** license "take the max
+over a window," because a single garbage byte (like the 88%) poisons that forever.
+
+**Smoothing strategy (deferred):** no smoothing applied. Raw values tracked in
+`sync_log.battery_pct` (per sync) and `ring_status.battery_pct` (per observation).
+Candidate approach if noise becomes a display problem: median of last ~5 readings
+while `charging=false`, bounded so the smoothed value can't rise more than ~3 pts
+over the previous value — robust to outliers, allows small upward drift to track
+OCV recovery, preserves monotonic-ish decline.
 
 ## Time sync protocol
 
