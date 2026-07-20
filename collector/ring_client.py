@@ -169,6 +169,29 @@ async def forget_and_repair(address: str, timeout: float = 30.0) -> bool:
     return pair_ring(address, timeout=timeout)
 
 
+def _encode_time_bcd(local: datetime) -> bytes:
+    """Encode a naive local datetime as 6 BCD bytes: YY MM DD HH MM SS.
+
+    Pure helper extracted from ``set_time_local`` so the encoding can be
+    unit-tested without a BLE client. Matches Gadgetbridge's
+    ``ColmiR0xDeviceSupport.setDateTime()`` byte-for-byte:
+    - No language flag, exactly 6 data bytes
+    - Year is ``local.year % 2000`` (2026 -> 0x26)
+    - Each component encoded via ``colmi_r02_client.set_time.byte_to_bcd``
+
+    Caller is responsible for any tz normalization — pass a naive wall-clock
+    datetime in the ring's local timezone.
+    """
+    data = bytearray(6)
+    data[0] = set_time.byte_to_bcd(local.year % 2000)
+    data[1] = set_time.byte_to_bcd(local.month)
+    data[2] = set_time.byte_to_bcd(local.day)
+    data[3] = set_time.byte_to_bcd(local.hour)
+    data[4] = set_time.byte_to_bcd(local.minute)
+    data[5] = set_time.byte_to_bcd(local.second)
+    return bytes(data)
+
+
 class Client:
     """A slight superset of colmi_r02_client.client.Client with explicit timeout."""
 
@@ -370,13 +393,7 @@ class Client:
         byte-for-byte: 6 BCD-encoded data bytes, no language flag.
         """
         local = ts.replace(tzinfo=None) if ts.tzinfo is None else ts.astimezone().replace(tzinfo=None)
-        data = bytearray(6)
-        data[0] = set_time.byte_to_bcd(local.year % 2000)
-        data[1] = set_time.byte_to_bcd(local.month)
-        data[2] = set_time.byte_to_bcd(local.day)
-        data[3] = set_time.byte_to_bcd(local.hour)
-        data[4] = set_time.byte_to_bcd(local.minute)
-        data[5] = set_time.byte_to_bcd(local.second)
+        data = _encode_time_bcd(local)
         await self.send_packet(packet.make_packet(set_time.CMD_SET_TIME, data))
 
     async def blink_twice(self) -> None:
