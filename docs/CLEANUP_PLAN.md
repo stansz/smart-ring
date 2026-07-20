@@ -476,7 +476,7 @@ Total: ~2.5 hours, spread across 3–5 sessions. Same pace as the API cleanup.
 ### Recommended order
 
 1. ~~**Trap-score first** (15 min, pure function, fastest win). Pin down the scoring math.~~ ✅ Done (commit `8e1e9d0`, 20 tests pass)
-2. **Time-sync BCD second** (30 min, regression net for the sacred code). This is the one that prevents "did my refactor break Gadgetbridge compatibility?" from being a question.
+2. ~~**Time-sync BCD second** (30 min, regression net for the sacred code). This is the one that prevents "did my refactor break Gadgetbridge compatibility?" from being a question.~~ ✅ Done (refactor `4c12e06` + test `30cba4d`, 16 tests pass — `_encode_time_bcd` extracted as pure helper)
 3. **Dedupe smoke third** (30 min, real DB). Verifies the current dedup is correct before any more analytical work.
 4. **Parser tests last** (30 min each, slowest because they need fixture data). Optional but high-value if/when the parsers get touched.
 
