@@ -15,6 +15,13 @@ from ._big_data import big_data_request
 
 log = logging.getLogger(__name__)
 
+# Per-day body layout (after the daysAgo + dayBytes prefix bytes):
+#   sleepStart (uint16 LE, minutes after midnight) +
+#   sleepEnd   (uint16 LE, minutes after midnight)
+# Then 2-byte stage pairs: (stageType, durationMinutes).
+_MINUTES_PER_DAY = 1440
+_DAY_BODY_OFFSET = 4   # bytes consumed by sleepStart+sleepEnd before stage pairs
+
 
 def _parse_sleep_data(data: bytes) -> list[dict]:
     """Parse CMD_BIG_DATA_V2 sleep response (type 0x27).
@@ -39,21 +46,38 @@ def _parse_sleep_data(data: bytes) -> list[dict]:
     idx = 7
     local_now = datetime.now()
     for _ in range(days_in_packet):
-        days_ago = data[idx]; idx += 1
-        day_bytes = data[idx]; idx += 1
-        sleep_start_min = struct.unpack_from("<H", data, idx)[0]; idx += 2
-        sleep_end_min   = struct.unpack_from("<H", data, idx)[0]; idx += 2
+        # Per-day header: daysAgo(1) + dayBytes(1) + sleepStart(2) + sleepEnd(2) = 6 bytes
+        if idx + 6 > len(data):
+            log.warning(f"Sleep parse truncated at idx={idx} (day body incomplete)")
+            break
+
+        days_ago = data[idx]
+        idx += 1
+        day_bytes = data[idx]
+        idx += 1
+        sleep_start_min = struct.unpack_from("<H", data, idx)[0]
+        idx += 2
+        sleep_end_min = struct.unpack_from("<H", data, idx)[0]
+        idx += 2
 
         target_date = (local_now - timedelta(days=days_ago)).date()
         midnight = datetime.combine(target_date, datetime.min.time()).astimezone()
         if sleep_start_min > sleep_end_min:
-            session_start = midnight + timedelta(minutes=sleep_start_min - 1440)
+            # Session started before midnight — roll start back to the previous day.
+            session_start = midnight + timedelta(minutes=sleep_start_min - _MINUTES_PER_DAY)
         else:
             session_start = midnight + timedelta(minutes=sleep_start_min)
         session_end = midnight + timedelta(minutes=sleep_end_min)
 
+        # Walk the stage pairs. `day_bytes - _DAY_BODY_OFFSET` is the bytes left
+        # after sleepStart+sleepEnd; each stage pair is 2 bytes.
+        num_stages = (day_bytes - _DAY_BODY_OFFSET) // 2
+        # Stage records use the stage's own wall-clock date, NOT target_date:
+        # for pre-midnight sessions the early stages correctly attribute to the
+        # previous calendar day. Don't "fix" this to target_date.
         stage_ts = session_start
-        for _j in range(4, day_bytes, 2):
+        day_count = 0
+        for _ in range(num_stages):
             stage_type = data[idx]
             stage_minutes = data[idx + 1]
             idx += 2
@@ -69,8 +93,9 @@ def _parse_sleep_data(data: bytes) -> list[dict]:
                 "duration_minutes": stage_minutes,
             })
             stage_ts = stage_end
+            day_count += 1
 
-        log.info(f"  Sleep {target_date}: {len([r for r in records if r['day'] == target_date])} stages")
+        log.info(f"  Sleep {target_date}: {day_count} stages")
 
     return records
 
