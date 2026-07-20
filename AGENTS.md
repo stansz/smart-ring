@@ -89,6 +89,20 @@ All 8 raw data types and the 5 health scores (including unified Readiness 0-100)
 
 Keep only high-signal recent sessions. For prior work: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-07-20 — Sync retry investigation + battery noise documentation
+- Morning dashboard sync took 4 attempts (sync_log #138–141). Two failures were R09
+  quirks (cold-start BLE negotiation, `Fetching goals...` stall), one was an overlap
+  artifact (#127-equivalent timed out and the next request fired immediately, BlueZ
+  couldn't release the previous connection in time). Final sync succeeded with
+  `clock_drift_ms=1`, 262 records.
+- Investigated battery reading noise over past 2 days (37%→52% jumps, 88% outlier in
+  sync_log #127). Root cause: R09 has no battery history — every reading is a noisy
+  instantaneous ADC sample (observer-effect under BLE load). Verified Gadgetbridge's
+  `ColmiR0xDeviceSupport.java` does identical `value[1]` parsing with no smoothing.
+- Documented findings in `docs/RING_BEHAVIOR.md` (new "Battery readings are noisy"
+  section). Smoothing deferred — currently tracking raw values in `sync_log` +
+  `ring_status`.
+
 ### 2026-07-19 — Live verification + poller analytics job fix (post-refactor)
 - User triggered dashboard sync #132 (~14:16). `clock_drift_ms=1`, 117 records, battery 52%.
 - Fixed `collector/jobs/analytics.py` (was referencing deleted `collector/analytics.py` causing rc=2). Now uses `python -m collector.analytics`.
