@@ -101,6 +101,22 @@ Keep only high-signal recent sessions. For prior work: `git log --oneline` and `
   pytest 9.1.1 installed in venv. Next Tier 1 item: BCD helper extraction + test
   (Option A in plan — touches sacred `set_time_local`, deserves solo review).
 
+### 2026-07-20 — BCD helper extraction + regression test (CLEANUP_PLAN Tier 1, item 2)
+- Extracted `_encode_time_bcd(local: datetime) -> bytes` from `set_time_local` in
+  `collector/ring_client.py` (`4c12e06`). Pure refactor — same 6 BCD assignments,
+  now module-level so testable without a BLE client. Verified byte-identical at
+  runtime against both hand-computed reference (`0x26 0x07 0x20 0x14 0x30 0x45` for
+  `2026-07-20 14:30:45`) and verbatim copy of pre-extraction inline code.
+- `tests/test_time_sync_bcd.py` (`30cba4d`): 16 tests covering canonical reference,
+  length invariant (no language flag), year%2000 wrap, min/max components, byte
+  order, 5 known datetimes. One hand-computed reference byte was wrong on first
+  pass (`BCD(21)=0x21`, not `0x15`) — test correctly caught it; function was right.
+- Suite total: **36 tests pass in 0.07s**. Refactor touches sacred code but the
+  test now pins it byte-for-byte against Gadgetbridge's layout.
+- No rebuild/restart needed — refactor is in `collector/` (bare-metal venv), not
+  in `api/` (container). Next ring sync will exercise the new helper path
+  transparently; `clock_drift_ms=1` is the live success signal.
+
 ### 2026-07-20 — Sync retry investigation + battery noise documentation
 - Morning dashboard sync took 4 attempts (sync_log #138–141). Two failures were R09
   quirks (cold-start BLE negotiation, `Fetching goals...` stall), one was an overlap
