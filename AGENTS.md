@@ -117,6 +117,20 @@ Keep only high-signal recent sessions. For prior work: `git log --oneline` and `
   in `api/` (container). Next ring sync will exercise the new helper path
   transparently; `clock_drift_ms=1` is the live success signal.
 
+### 2026-07-20 — Dedupe smoke test with ephemeral DB fixture (CLEANUP_PLAN Tier 1, item 3)
+- `tests/test_dedupe.py` + `conftest.py` fixtures (`40903b0`): 13 tests covering
+  the canonical dedupe contract (phone+ring at same ts → phone dies), no-overlap
+  case (phone fills gaps), all 5 point tables via parametrize, raw_hrv's
+  `(ts, hrv_type)` semantics, raw_sleep's day-level dedup, and idempotency.
+- DB fixture: session-scoped `test_db_url` creates `smart_ring_test_<pid>` from
+  `db/init.sql`, function-scoped `db` yields a connection with all `raw_*` tables
+  TRUNCATEd. Verified no orphan test DBs remain after runs. ~1s overhead vs the
+  pure-function suites; worth it for schema-aware coverage.
+- Self-inflicted wound: first run had `psycopg2.connect(url, autocommit=True)`
+  error — `autocommit` is a connection property, not a connect kwarg. Fixed.
+- **Suite total: 49 tests pass in 1.33s** (20 trap + 16 BCD + 13 dedupe).
+  Tier 1 items 1, 2, 3 complete. Remaining: parser tests (optional, deferred).
+
 ### 2026-07-20 — Sync retry investigation + battery noise documentation
 - Morning dashboard sync took 4 attempts (sync_log #138–141). Two failures were R09
   quirks (cold-start BLE negotiation, `Fetching goals...` stall), one was an overlap
