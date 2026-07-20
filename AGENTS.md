@@ -89,6 +89,18 @@ All 8 raw data types and the 5 health scores (including unified Readiness 0-100)
 
 Keep only high-signal recent sessions. For prior work: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-07-20 — API cleanup Steps 1+2 + trap_score test suite (CLEANUP_PLAN Tier 1)
+- Shipped `docs/CLEANUP_PLAN.md` "Next steps: API cleanup" Steps 1+2 in one commit
+  (`4032415`): dropped dead `Base(DeclarativeBase)` + `create_all()` from `api/main.py`
+  (no ORM models exist) and dropped redundant `_dedupe_sources` (analytics owns dedup
+  via `collector/analytics/dedupe.py:dedupe_sources()`). Verified live: image grep
+  clean, `/api/mobile/sync` 200 OK, `raw_heart_rate` source ratio `ring=487 / phone=2`
+  confirms analytics-side dedup still runs.
+- First `tests/` suite (`8e1e9d0`): `pytest.ini` + `tests/test_trap_score.py` (20
+  cases — boundaries, ramp linearity via per-unit slope, symmetry). All pass in 0.04s.
+  pytest 9.1.1 installed in venv. Next Tier 1 item: BCD helper extraction + test
+  (Option A in plan — touches sacred `set_time_local`, deserves solo review).
+
 ### 2026-07-20 — Sync retry investigation + battery noise documentation
 - Morning dashboard sync took 4 attempts (sync_log #138–141). Two failures were R09
   quirks (cold-start BLE negotiation, `Fetching goals...` stall), one was an overlap
