@@ -1,9 +1,13 @@
 # Collector / Analytics Cleanup Plan
 
 > Branch: `dev`
-> Status: Phase 0–4 + TZ fix + perf merge + post-fix ✅ COMPLETE (Phase 0 hotfix applied 2026-07-19) · latest on `dev`
+> Status: **All phases + API cleanup + Tier 1 test suite ✅ COMPLETE** · latest on `dev`
 >
-> 2026-07-19 review: found + repaired latent Phase 0 regression (`set_time_local` definition dropped; clock_drift always NULL after 89be367). Pure tests now pass; next live sync that connects + reaches time-sync will show acked=1. `dev` ahead of `main`.
+> Phases 0–4 (collector/analytics refactor, 2026-07-18) + TZ fix + perf merge ✅ done.
+> Phase 0 hotfix applied 2026-07-19 (restored `set_time_local`).
+> API cleanup Steps 1, 2, 4 done 2026-07-20 (Step 3 skipped indefinitely — pure relocation, no payoff).
+> Tier 1 test suite (65 tests across 4 files) done 2026-07-20.
+> `dev` ahead of `main` — push pending user verification per operational protocol.
 
 ---
 

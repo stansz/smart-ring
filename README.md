@@ -38,8 +38,10 @@ Home Network
    ├─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
    │   ├─ Requires=smart-ring-db.service
    │   └─ port localhost:8000, serves dashboard
-   └─ Manual collector           (bare metal Python venv — needs BlueZ/DBus for BLE)
-       └─ python3 collector/sync_ring.py  (run manually, no cron)
+   ├─ smart-ring-poller.service  (bare metal, system systemd)
+   │   └─ 30s poll of sync_requests → runs sync_ring.py + analytics
+   └─ Manual collector commands also available
+       └─ python -m collector.sync_ring --forget  (force-sync outside the poller)
 ```
 
 Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; sleep donut; circadian HR line graph; vitals chart with HR + SpO₂ + Temp triple-axis; dark mode toggle), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, trend charts for HRV/sleep/stress/resting-HR with 7d/14d/30d/90d range selector), and **Admin** (ring status, manual sync controls, full sync log, system health, raw data tables). No build step.
@@ -48,7 +50,7 @@ Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashbo
 
 ```bash
 # One-time setup (already done for this ring)
-#   - venv created, deps installed
+#   - venv created, deps installed (pip install -e .)
 #   - ring paired via bluetoothctl (address: <ring_ble_address>)
 #   - Gadgetbridge installed on phone (Android)
 
@@ -58,9 +60,13 @@ bluetoothctl pair <ring_address>      # wait for "Pairing successful"
 bluetoothctl disconnect <ring_address>
 
 # Daily operations
-python3 collector/first_contact.py     # read-only diagnostic (battery, fw, clock)
-python3 collector/sync_ring.py --forget  # full sync to Postgres (with R09 reconnect workaround)
+venv/bin/python3 -m collector.first_contact     # read-only diagnostic (battery, fw, clock)
+venv/bin/python3 -m collector.sync_ring --forget  # full sync to Postgres (forget+repair is default)
 # Or use the dashboard: click "Sync Now" in the Admin tab
+#   (the poller watches sync_requests every 30s — no manual cron)
+
+# Run the regression net before any refactor
+venv/bin/python3 -m pytest tests/               # 65 tests, ~4s
 ```
 
 ## Documentation
@@ -70,11 +76,32 @@ Detailed docs live in **[`docs/`](docs/)**:
 - **[`docs/RING_BEHAVIOR.md`](docs/RING_BEHAVIOR.md)** — empirical Colmi R09 behavior: connection quirks, per-data-type reference (interval / buffer / publish cadence / format), V2 big-data protocol, background-logger stall, time-sync.
 - **[`docs/RESEARCH.md`](docs/RESEARCH.md)** — hardware specs, validated score formulas (with peer-reviewed citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis, Oura comparison.
 - **[`docs/ROADMAP.md`](docs/ROADMAP.md)** — mobile sync design (WebBluetooth PWA + Gadgetbridge fork options).
-- **[`AGENTS.md`](AGENTS.md)** — operational/deployment context (architecture, service commands, current state).
+- **[`docs/CLEANUP_PLAN.md`](docs/CLEANUP_PLAN.md)** — refactor history (collector/analytics Phases 0–4 + API cleanup Steps 1, 2, 4 + Tier 1 test suite). All complete.
+- **[`docs/DASHBOARD_REWRITE_PLAN.md`](docs/DASHBOARD_REWRITE_PLAN.md)** — future dashboard modernization (not started).
+- **[`AGENTS.md`](AGENTS.md)** — operational/deployment context (architecture, service commands, current state, work log).
+- **[`TASKS.md`](TASKS.md)** — phase history, open backlog, CFW ideas, readiness improvements.
 
 ## Development
 
-This project was built with use of AI/Vibe coding tools, primarily OpenCode as harness and various open weight models.    
+This project was built with use of AI/Vibe coding tools, primarily OpenCode as harness and various open weight models.
+
+### Test suite
+
+65 tests across 4 files, ~4s total runtime:
+
+```bash
+venv/bin/python3 -m pytest tests/                # full suite
+venv/bin/python3 -m pytest tests/test_trap_score.py -v  # one file
+```
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `tests/test_trap_score.py` | 20 | Trapezoidal scoring math — boundaries, ramp linearity, symmetry |
+| `tests/test_time_sync_bcd.py` | 16 | Sacred BCD encoding — byte-for-byte vs Gadgetbridge's `setDateTime` |
+| `tests/test_dedupe.py` | 13 | Source dedup contract — phone vs ring overlap (ephemeral PostgreSQL) |
+| `tests/test_mobile_sync.py` | 16 | `/api/mobile/sync` end-to-end via FastAPI TestClient |
+
+DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql` — never touches production data. See `docs/CLEANUP_PLAN.md` "Tier 1 follow-up" for the design.    
 
 ## Status
 
@@ -93,7 +120,7 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ Ring goals (cmd 0x21) — steps/calorie/distance targets
 
 ### Health scores (server-side, persisted after each sync)
-- ✅ **Readiness Score** — Unified 0-100 Oura-style composite (HRV 35% + Sleep 30% + Activity 20% + RHR 15%). Per-day with contributors and sub-scores via `/api/readiness`.
+- ✅ **Readiness Score** — Unified 0-100 WHOOP-style 3-pillar composite (HRV 44% / Sleep 37% / RHR 19%). Per-day with contributors and sub-scores via `/api/readiness`.
 - ✅ **Sleep quality** — 5-component score (0-100): duration, efficiency, architecture, continuity, latency. Trapezoidal scoring with Ohayon 2004 norms.
 - ✅ **Recovery** — ln(HRV) z-score vs 7-day baseline (Altini/Plews framework), readiness text, confidence flags
 - ✅ **Stress** — Garmin/Firstbeat thresholds + weighted daily score (daytime + peak sustained + overnight)

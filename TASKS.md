@@ -81,6 +81,8 @@
 
 | # | Task |
 |---|------|
+| — | Parser tests (Tier 1 item 4 — deferred as optional, see `docs/CLEANUP_PLAN.md`) |
+| — | Fix per-attempt `accepted` counting in `/api/mobile/sync` (use `cursor.rowcount`; pinned by `tests/test_mobile_sync.py`) |
 | — | systemd auto-sync timer (scheduled, not manual) |
 | — | 0x80-bit async packets investigation |
 | — | Dashboard polish: stress/recovery timeline on dashboard tab |
@@ -135,22 +137,53 @@ Day boundaries were inconsistent: analytics + `/api/resting-hr` used Pacific, bu
 
 ---
 
-## Source dedup ✅ (2026-07-12)
+## Source dedup ✅ (2026-07-12, updated 2026-07-20)
 
 Phone (Web Bluetooth) and ring (Linux box) sample the same physical slots, so ~99% of phone records duplicated ring. Fix: **ring canonical, phone fills gaps.**
 
-- `mobile_sync` endpoint runs `_dedupe_sources(db)` after inserts (in-container, reliable).
-- host `python -m collector.analytics` `run_all` (in `collector/analytics/main.py`) runs `dedupe_sources()` first (after ring syncs via poller).
+- The single source of truth is `collector/analytics/dedupe.py:dedupe_sources()`, run by the host poller at the start of every analytics pass (before scorers).
+- The API previously had its own `_dedupe_sources` copy that ran inline on every `/api/mobile/sync` — **removed 2026-07-20** as redundant (API cleanup Step 2). Phone-sync now relies on analytics-side dedup running within ~30s (poller cadence).
 - Deletes phone rows where ring has the same key (timestamp for points; day for sleep). Keeps phone rows that fill genuine gaps, labeled `source='phone'`.
-- First run removed 356 redundant duplicates; only 7 phone gap-fills remain.
+- First run removed 356 redundant duplicates; live DB currently shows `ring=493 / phone=2`.
+- Regression net: `tests/test_dedupe.py` (13 tests against ephemeral PostgreSQL).
 
 ---
 
 ## Quick Status Check
 
 ```bash
+# Full regression net (65 tests, ~4s) — run before any refactor
+venv/bin/python3 -m pytest tests/
+
 # Verify all sensors working
 curl -s "http://localhost:8000/api/raw/temperature?hours=168&limit=200" | python3 -c 'import json,sys; print(f"Temp: {len(json.load(sys.stdin))}")'
 curl -s "http://localhost:8000/api/raw/spo2?hours=168&limit=200" | python3 -c 'import json,sys; print(f"SpO2: {len(json.load(sys.stdin))}")'
 curl -s "http://localhost:8000/api/raw/heart-rate?hours=168&limit=500" | python3 -c 'import json,sys; print(f"HR: {len(json.load(sys.stdin))}")'
 ```
+
+---
+
+## Cleanup arc ✅ (2026-07-18 to 2026-07-20)
+
+Major refactor work — see `docs/CLEANUP_PLAN.md` for full history.
+
+### Collector/analytics refactor (Phases 0–4)
+- Deleted `collector-wrapper.py`, `analytics-wrapper.py`, scratch test scripts
+- Split `sync_ring.py` (1079 → 284 lines) into `collector/protocol/` package
+- Split `analytics.py` (1079 → 13 focused files) into `collector/analytics/` package
+- Poller rewritten as thin orchestrator over `collector/jobs/`
+- `argparse` everywhere (no more `sys.argv.index()`)
+- Forget+repair is the default; `--no-forget` for diagnostics
+
+### API cleanup (Steps 1, 2, 4)
+- Step 1: Dropped dead `Base(DeclarativeBase)` + `create_all()` (no ORM models exist)
+- Step 2: Dropped redundant `_dedupe_sources` from `api/main.py` (analytics owns dedup)
+- Step 3: **Skipped indefinitely** — "rearranging deck chairs" per reviewer
+- Step 4: Generic `upsert_many` dispatcher in `api/upsert.py` (-30 lines)
+
+### Test suite (Tier 1, items 1–3 + bonus)
+- `tests/test_trap_score.py` (20 tests) — scoring math boundaries + linearity
+- `tests/test_time_sync_bcd.py` (16 tests) — sacred BCD encoding byte-for-byte vs Gadgetbridge
+- `tests/test_dedupe.py` (13 tests) — source dedup with ephemeral PostgreSQL
+- `tests/test_mobile_sync.py` (16 tests) — full mobile_sync contract
+- **Total: 65 tests pass in ~4s.** Parser tests (item 4) deferred as optional.
