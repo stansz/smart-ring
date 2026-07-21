@@ -12,6 +12,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
+from upsert import upsert_many
+
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
 
 
@@ -307,35 +309,34 @@ def mobile_sync(req: MobileSyncRequest):
     with SessionLocal() as db:
         accepted = 0
         skipped = 0
-        errors = []
+        errors: list[str] = []
 
-        # Heart rate
-        for r in req.records.get("heart_rate", []):
-            try:
-                db.execute(text("""
-                    INSERT INTO raw_heart_rate (ts, bpm, source)
-                    VALUES (:ts, :bpm, 'phone')
-                    ON CONFLICT (ts, source) DO NOTHING
-                """), {"ts": r["ts"], "bpm": r["bpm"]})
-                accepted += 1
-            except Exception as e:
-                errors.append(f"hr: {e}")
-                skipped += 1
+        # Simple point tables — generic dispatch.
+        # Adding a new simple type = one row here, not a copy-pasted block.
+        # Tables with non-standard shape (hrv, sleep, goals) stay inline below.
+        simple_point_tables = [
+            # (payload_key, table,          required_cols,     optional_cols)
+            ("heart_rate",  "raw_heart_rate",  ["bpm"],          []),
+            ("spo2",        "raw_spo2",        ["spo2_pct"],     []),
+            ("temperature", "raw_temperature", ["temp_c"],        []),
+            ("stress",      "raw_stress",      ["stress_value"],  []),
+            ("steps",       "raw_steps",       ["steps"],         ["calories", "distance"]),
+        ]
+        for payload_key, table, req_cols, opt_cols in simple_point_tables:
+            a, s, e = upsert_many(
+                db,
+                table=table,
+                required_cols=req_cols,
+                optional_cols=opt_cols,
+                records=req.records.get(payload_key, []),
+            )
+            accepted += a
+            skipped += s
+            errors.extend(e)
 
-        # SpO2
-        for r in req.records.get("spo2", []):
-            try:
-                db.execute(text("""
-                    INSERT INTO raw_spo2 (ts, spo2_pct, source)
-                    VALUES (:ts, :spo2_pct, 'phone')
-                    ON CONFLICT (ts, source) DO NOTHING
-                """), {"ts": r["ts"], "spo2_pct": r["spo2_pct"]})
-                accepted += 1
-            except Exception as e:
-                errors.append(f"spo2: {e}")
-                skipped += 1
-
-        # HRV
+        # HRV — special: hrv_type defaults to 'composite', conflict clause
+        # includes hrv_type so two readings at the same ts with different
+        # types both survive.
         for r in req.records.get("hrv", []):
             try:
                 db.execute(text("""
@@ -348,7 +349,7 @@ def mobile_sync(req: MobileSyncRequest):
                 errors.append(f"hrv: {e}")
                 skipped += 1
 
-        # Sleep
+        # Sleep — special: day-based schema, conflict on (start_ts, stage, source)
         for r in req.records.get("sleep", []):
             try:
                 db.execute(text("""
@@ -362,46 +363,7 @@ def mobile_sync(req: MobileSyncRequest):
                 errors.append(f"sleep: {e}")
                 skipped += 1
 
-        # Temperature
-        for r in req.records.get("temperature", []):
-            try:
-                db.execute(text("""
-                    INSERT INTO raw_temperature (ts, temp_c, source)
-                    VALUES (:ts, :temp_c, 'phone')
-                    ON CONFLICT (ts, source) DO NOTHING
-                """), {"ts": r["ts"], "temp_c": r["temp_c"]})
-                accepted += 1
-            except Exception as e:
-                errors.append(f"temp: {e}")
-                skipped += 1
-
-        # Stress
-        for r in req.records.get("stress", []):
-            try:
-                db.execute(text("""
-                    INSERT INTO raw_stress (ts, stress_value, source)
-                    VALUES (:ts, :stress_value, 'phone')
-                    ON CONFLICT (ts, source) DO NOTHING
-                """), {"ts": r["ts"], "stress_value": r["stress_value"]})
-                accepted += 1
-            except Exception as e:
-                errors.append(f"stress: {e}")
-                skipped += 1
-
-        # Steps
-        for r in req.records.get("steps", []):
-            try:
-                db.execute(text("""
-                    INSERT INTO raw_steps (ts, steps, calories, distance, source)
-                    VALUES (:ts, :steps, :calories, :distance, 'phone')
-                    ON CONFLICT (ts, source) DO NOTHING
-                """), {"ts": r["ts"], "steps": r["steps"], "calories": r.get("calories"), "distance": r.get("distance")})
-                accepted += 1
-            except Exception as e:
-                errors.append(f"steps: {e}")
-                skipped += 1
-
-        # Goals
+        # Goals — singleton (not a list), no source column
         goals = req.records.get("goals")
         if goals:
             try:

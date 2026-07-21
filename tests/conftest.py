@@ -22,6 +22,14 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent
 INIT_SQL = PROJECT_ROOT / "db" / "init.sql"
+API_DIR = PROJECT_ROOT / "api"
+
+# api/main.py uses script-style absolute imports (`from upsert import ...`)
+# because the container runs `uvicorn main:app` from /app without package
+# context. Tests import via `from api.main import app`, so we need api/ on
+# sys.path for the sibling import to resolve in the test environment.
+if str(API_DIR) not in sys.path:
+    sys.path.insert(0, str(API_DIR))
 
 # Tables touched by api/main.py:mobile_sync + raw_* used by dedupe tests.
 # Truncated before each test for isolation. Computed-metric tables
