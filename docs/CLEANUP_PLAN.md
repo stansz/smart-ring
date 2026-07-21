@@ -364,19 +364,31 @@ The "matches `collector/` structure" argument is weak: `collector/protocol/db.py
 
 **Reversibility:** trivial. If a real shared-query need appears in the future (e.g., a CTE used by multiple endpoints), lift those queries then. Don't pre-emptively relocate.
 
-### Step 4 — rewrite `/api/mobile/sync` with generic `upsert_many` (write-side dispatcher)
+### Step 4 — rewrite `/api/mobile/sync` with generic `upsert_many` (write-side dispatcher) ✅ COMPLETE
 
-**Why last:** touches the most complex endpoint. The risk is higher than the previous steps because phone-sync is a different code path than ring-sync. Get Steps 1–3 right first so the pattern is proven before doing this one.
+Commit: `0b14cae` on `dev` (+ docs `5110bcf`)
 
-**What to do:**
-- Create `api/upsert.py` with one `upsert_many(table, records, source)` function.
-- Refactor `mobile_sync` so the per-type INSERT blocks become a single dispatch loop driven by a table-to-key mapping.
-- No behavior changes: same SQL, same response shape, same dedup cadence (already shifted to analytics in Step 2).
+**New `api/upsert.py`:**
+- `upsert_many(db, *, table, required_cols, records, optional_cols=None, source="phone") -> (accepted, skipped, errors)`
+- Handles the 5 simple point tables (heart_rate, spo2, temperature, stress, steps) via a `simple_point_tables` dispatch loop in `mobile_sync`
 
-**Verify:**
-- `git diff api/main.py` and `git diff api/upsert.py` — read carefully. The shape of the SQL inside `upsert_many` must match what each existing per-type INSERT was doing (bind params, `ON CONFLICT` keys).
-- After rebuild + restart: POST to `/api/mobile/sync` with one record of each type (heart_rate, spo2, hrv, sleep, temperature, stress, steps). Response should be `{"accepted": N, "skipped": 0, "errors": []}` and the DB should contain those rows.
-- Specifically test the `raw_sleep` case which has `ON CONFLICT DO UPDATE` (not `DO NOTHING`) — conflict path must still update `end_ts` and `duration_minutes`.
+**Tables kept inline (non-standard semantics):**
+- `raw_hrv` — hrv_type defaults to 'composite'; conflict clause `(ts, hrv_type, source)`
+- `raw_sleep` — day-based schema, conflict `(start_ts, stage, source)`
+- `ring_goals` — singleton (not a list), no source column
+
+**Verified:**
+- All 16 `tests/test_mobile_sync.py` tests pass unchanged (Session A regression net)
+- Full suite: 65 tests in 3.69s
+- Image inspection after podman build: `upsert.py` shipped to `/app/`, import + dispatch loop present in main.py, no orphan inline INSERTs for the 5 simple tables, HRV/sleep/goals still inline as expected
+- Smoke test: POST with all 5 dispatch types in one payload → `{"accepted":5,"skipped":0,"errors":[]}` HTTP 200, rows verified in DB
+- Live data healthy: `raw_heart_rate` source ratio `ring=487 / phone=2` unchanged
+
+**Net delta:** -30 lines (5 × ~12-line blocks → 1 × ~18-line dispatch loop).
+
+**Import strategy:** `api/main.py` uses `from upsert import upsert_many` (script-style, matches container's `uvicorn main:app from /app`); `tests/conftest.py` inserts `api/` into sys.path so the same import resolves in test env.
+
+**Quirk preserved:** per-attempt `accepted` counting (ON CONFLICT doesn't raise, so duplicate ts in one payload still counts both). Pinned by `test_mobile_sync_duplicate_ts_in_one_payload_counts_both_accepted`; may be fixed in separate PR using `cursor.rowcount`.
 
 **Reversibility:** moderate. SQL is identical; the dispatch logic is more moving parts. `git revert` restores the explicit per-type blocks.
 
