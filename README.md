@@ -87,11 +87,11 @@ This project was built with use of AI/Vibe coding tools, primarily OpenCode as h
 
 ### Test suite
 
-65 tests across 4 files, ~4s total runtime:
+132 tests across 6 files, ~5s total runtime:
 
 ```bash
 venv/bin/python3 -m pytest tests/                # full suite
-venv/bin/python3 -m pytest tests/test_trap_score.py -v  # one file
+venv/bin/python3 -m pytest tests/test_current_status.py -v  # one file
 ```
 
 | File | Tests | What it covers |
@@ -100,6 +100,8 @@ venv/bin/python3 -m pytest tests/test_trap_score.py -v  # one file
 | `tests/test_time_sync_bcd.py` | 16 | Sacred BCD encoding — byte-for-byte vs Gadgetbridge's `setDateTime` |
 | `tests/test_dedupe.py` | 13 | Source dedup contract — phone vs ring overlap (ephemeral PostgreSQL) |
 | `tests/test_mobile_sync.py` | 16 | `/api/mobile/sync` end-to-end via FastAPI TestClient |
+| `tests/test_current_status.py` | 36 | Pure-function boundaries for Current Status formula components + weighted aggregate |
+| `tests/test_readiness_freeze.py` | 9 | Pure `should_freeze` helper + DB-backed freeze gate (skip-if-already-frozen) |
 
 DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql` — never touches production data. See `docs/CLEANUP_PLAN.md` "Tier 1 follow-up" for the design.    
 
@@ -120,7 +122,8 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ Ring goals (cmd 0x21) — steps/calorie/distance targets
 
 ### Health scores (server-side, persisted after each sync)
-- ✅ **Readiness Score** — Unified 0-100 WHOOP-style 3-pillar composite (HRV 44% / Sleep 37% / RHR 19%). Per-day with contributors and sub-scores via `/api/readiness`.
+- ✅ **Morning Readiness** — WHOOP-style 3-pillar composite (HRV 44% / Sleep 37% / RHR 19%). Frozen at first analytics pass at/after 6 AM local — score is stable for the rest of the day. Per-day with contributors and sub-scores via `/api/readiness`.
+- ✅ **Current Status** — Live intra-day score (0-100) from recent HRV (40%) + HR (25%) + Stress (20%) + Trend (15%). One row per analytics pass. Vibe labels: Locked In / Solid / Vibing / Winded / Gassed. Via `/api/current-status`.
 - ✅ **Sleep quality** — 5-component score (0-100): duration, efficiency, architecture, continuity, latency. Trapezoidal scoring with Ohayon 2004 norms.
 - ✅ **Recovery** — ln(HRV) z-score vs 7-day baseline (Altini/Plews framework), readiness text, confidence flags
 - ✅ **Stress** — Garmin/Firstbeat thresholds + weighted daily score (daytime + peak sustained + overnight)
