@@ -264,15 +264,24 @@
                     <span class="text-xs text-gray-400 dark:text-gray-500" x-text="currentStatusUpdated ? 'as of ' + currentStatusUpdated : ''"></span>
                 </div>
 
-                <!-- Big score + vibe label -->
-                <div class="flex items-center gap-6 mb-4">
-                    <div class="text-center flex-shrink-0">
-                        <p class="text-5xl font-bold tracking-tight"
-                           :class="currentStatusScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : currentStatusScore >= 60 ? 'text-sky-600 dark:text-sky-400' : currentStatusScore >= 40 ? 'text-amber-600 dark:text-amber-400' : currentStatusScore >= 20 ? 'text-orange-600 dark:text-orange-400' : 'text-red-500 dark:text-red-400'"
-                           x-text="currentStatusScore != null ? currentStatusScore : '—'"></p>
-                        <p class="text-sm font-medium mt-1"
-                           :class="currentStatusScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : currentStatusScore >= 60 ? 'text-sky-600 dark:text-sky-400' : currentStatusScore >= 40 ? 'text-amber-600 dark:text-amber-400' : currentStatusScore >= 20 ? 'text-orange-600 dark:text-orange-400' : 'text-red-500 dark:text-red-400'"
-                           x-text="currentStatusLabel || '—'"></p>
+                <!-- Vibe ladder (5 rungs) + component breakdown.
+                     Replaces the old "big number + vibe label" combo — that read
+                     as an arbitrary number next to a vague word. The ladder shows
+                     the full spectrum with the active rung highlighted + enlarged;
+                     score appears only as a small subscript on the active rung. -->
+                <div class="flex items-start gap-6 mb-4">
+                    <div class="flex-shrink-0 space-y-1.5 w-44">
+                        <template x-for="rung in currentStatusLadder()" :key="rung.label">
+                            <div class="flex items-center gap-2.5 transition-all duration-200"
+                                 :class="rung.active ? 'opacity-100' : 'opacity-40'">
+                                <span class="transition-transform duration-200 leading-none"
+                                      :class="rung.active ? 'text-2xl' : 'text-lg'"
+                                      x-text="rung.emoji"></span>
+                                <span class="text-sm font-medium whitespace-nowrap"
+                                      :class="rung.colorClass"
+                                      x-text="rung.active && currentStatusScore != null ? rung.label + ' · ' + currentStatusScore : rung.label"></span>
+                            </div>
+                        </template>
                     </div>
                     <div class="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                         <!-- HRV component -->
@@ -895,7 +904,6 @@
 
                 // Current Status (live intra-day score)
                 currentStatusScore: null,
-                currentStatusLabel: null,
                 currentStatusHrv: null,
                 currentStatusHr: null,
                 currentStatusStress: null,
@@ -1744,7 +1752,10 @@
                         const rows = await res.json();
                         if (!rows.length) {
                             this.currentStatusScore = null;
-                            this.currentStatusLabel = null;
+                            this.currentStatusHrv = null;
+                            this.currentStatusHr = null;
+                            this.currentStatusStress = null;
+                            this.currentStatusTrend = null;
                             this.currentStatusUpdated = null;
                             return;
                         }
@@ -1756,14 +1767,23 @@
                         this.currentStatusTrend = latest.trend_component;
                         this.currentStatusConfidence = latest.confidence || 'full';
                         this.currentStatusUpdated = new Date(latest.ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-                        // Vibe labels — match collector/analytics/current_status.py LABELS
-                        const s = latest.score;
-                        this.currentStatusLabel =
-                            s >= 80 ? 'Locked In' :
-                            s >= 60 ? 'Solid' :
-                            s >= 40 ? 'Vibing' :
-                            s >= 20 ? 'Winded' : 'Gassed';
                     } catch (e) { console.error('loadCurrentStatus', e); }
+                },
+
+                // Vibe ladder for the Current Status display.
+                // Returns 5 rungs (locked-in → gassed) with active flag based on
+                // currentStatusScore. Emoji + color match the score thresholds in
+                // collector/analytics/current_status.py:LABELS so backend and UI
+                // agree on the vibe spectrum.
+                currentStatusLadder() {
+                    const s = this.currentStatusScore;
+                    return [
+                        {emoji: '🔥', label: 'Locked In', colorClass: 'text-emerald-600 dark:text-emerald-400', active: s != null && s >= 80},
+                        {emoji: '💪', label: 'Solid',     colorClass: 'text-sky-600 dark:text-sky-400',         active: s != null && s >= 60 && s < 80},
+                        {emoji: '🌊', label: 'Vibing',    colorClass: 'text-amber-600 dark:text-amber-400',    active: s != null && s >= 40 && s < 60},
+                        {emoji: '😮‍💨', label: 'Winded', colorClass: 'text-orange-600 dark:text-orange-400', active: s != null && s >= 20 && s < 40},
+                        {emoji: '😴', label: 'Gassed',    colorClass: 'text-red-500 dark:text-red-400',         active: s != null && s < 20},
+                    ];
                 },
 
                 async loadDailyActivity() {
