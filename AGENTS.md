@@ -134,6 +134,12 @@ For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
   `/api/mobile/sync` — ON CONFLICT DO NOTHING doesn't raise, so duplicate ts in one
   payload counts both. May be fixed in a follow-up using `cursor.rowcount`.
 
+### 2026-07-21 — Historical freeze-timestamp cascade cleanup + badge simplification
+- **Investigation**: user reported the readiness 🔒 lock timestamp showed the first sync of the day (e.g., 12:33 PM) rather than 6 AM. Root cause: the freeze fires on the first **analytics pass** at/after 6 AM, and analytics only runs after a sync. So the freeze timestamp = first sync time.
+- **Considered and rejected**: a 6 AM self-trigger on the poller. Tried it, reverted it. At 6 AM the ring hasn't synced yet → DB has stale (yesterday's last) data. The user's first sync post-6 AM brings in the overnight sleep + morning HRV (the data we actually want to lock in), so freeze-on-first-sync is the correct semantic. The Colmi buffers data on-device between syncs, so "first sync" captures the full overnight window.
+- **Dashboard simplification**: removed the 🔒 "Locked at HH:MM" badge entirely. Showing the freeze timestamp misled users into reading it as "snapshot through HH:MM" (it's actually overnight data from the morning sync). The `Preliminary` badge already conveys the unfrozen state; its absence now conveys "final for the day".
+- **Historical cascade cleanup**: 13 rows (7-07 through 7-19) all shared `frozen_at = 2026-07-20 20:02:58` — a backfill artifact from the freeze feature's first deploy. One-shot `UPDATE readiness_score SET frozen_at = NULL WHERE day < CURRENT_DATE - INTERVAL '1 day'`. Historical rows don't need freeze stamps (immutable).
+
 ### 2026-07-20 — Sync retry + battery noise documentation
 - Sync #138–141 took 4 attempts (R09 cold-start + overlap artifact).
 - R09 battery readings are noisy instantaneous ADC samples (no smoothing;
