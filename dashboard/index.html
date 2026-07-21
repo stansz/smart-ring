@@ -190,11 +190,10 @@
                 <div class="p-6">
                     <div class="flex justify-between items-baseline mb-4">
                         <div class="flex items-center gap-2 flex-wrap">
-                            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Morning Readiness</h2>
-                            <!-- Frozen badge: shown once morning lock has applied -->
-                            <span x-show="readinessFrozenAt" class="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium uppercase tracking-wide inline-flex items-center gap-1" :title="'Locked at ' + (readinessFrozenAt ? new Date(readinessFrozenAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '')">
-                                🔒 <span x-text="readinessFrozenAt ? new Date(readinessFrozenAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''"></span>
-                            </span>
+                            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness</h2>
+                            <!-- No "Locked" badge: once frozen, the Preliminary badge
+                                 disappears, and the absence of any badge communicates
+                                 "this score is final for the day". Less noise. -->
                             <!-- Preliminary badge: today's row not yet frozen (pre-6 AM or no morning sync) -->
                             <span x-show="readinessIsToday && !readinessFrozenAt" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium uppercase tracking-wide">
                                 Preliminary
@@ -311,7 +310,7 @@
                     </div>
                 </div>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
-                    Live score from recent HRV, HR, stress, and trend. Updates each sync — naturally drifts during the day. Morning Readiness (above) is frozen at 6 AM.
+                    Live score from recent HRV, HR, stress, and trend. Updates each sync — naturally drifts during the day. Readiness (above) is frozen at 6 AM.
                 </p>
             </div>
         </div>
