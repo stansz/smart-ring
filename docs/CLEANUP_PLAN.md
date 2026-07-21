@@ -356,21 +356,13 @@ first, then iterates through the scorers in dependency order.
 
 **Reversibility:** trivial. `git revert` restores the function.
 
-### Step 3 — extract raw SQL to `api/queries.py` (read-side cleanup)
+### Step 3 — extract raw SQL to `api/queries.py` (read-side cleanup) ❌ SKIPPED INDEFINITELY
 
-**Why third:** bigger than 1 and 2, isolated to the read side. Doesn't touch write paths or runtime behavior. `collector/` already follows this pattern — API catching up is consistent.
+**Why skipped:** pure relocation with no engineering payoff. The SQL strings would move from inline `text("""SELECT ...""")` to named constants in a new file — no behavior change, no deduplication benefit (queries aren't reused across endpoints), no bug fix, no perf win. You trade inline strings (greppable in their endpoint) for an import + a second file to jump between when editing.
 
-**What to do:**
-- Create `api/queries.py` with one named constant per query. Match the existing pattern: bind params throughout, no f-string interpolation.
-- Update `api/main.py` so each endpoint's body becomes `db.execute(text(queries.NAME), params)` instead of inline `text("""SELECT ...""")`.
-- No behavior changes. No schema changes.
+The "matches `collector/` structure" argument is weak: `collector/protocol/db.py` exists because there are *shared* upsert helpers used by multiple parsers. The API has no such sharing; each endpoint owns its own SQL. Forcing a `queries.py` layer would be cargo-culting.
 
-**Verify:**
-- `git diff api/main.py` — same endpoints, same params, but inline SQL replaced with named constants.
-- After rebuild + restart: spot-check 3 endpoints that hit different tables — `curl /api/readiness`, `curl /api/raw/heart-rate`, `curl /api/sync-log`. All return 200 with the same response shapes they had before.
-- End-to-end: trigger a ring sync via the dashboard, confirm readiness/sleep scores populate as before.
-
-**Reversibility:** trivial. The SQL is the same SQL — just relocated. `git revert` brings it back to inline.
+**Reversibility:** trivial. If a real shared-query need appears in the future (e.g., a CTE used by multiple endpoints), lift those queries then. Don't pre-emptively relocate.
 
 ### Step 4 — rewrite `/api/mobile/sync` with generic `upsert_many` (write-side dispatcher)
 

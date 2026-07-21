@@ -2,8 +2,8 @@
 
 DB-backed tests use an ephemeral database created from db/init.sql.
 The DB is created once per session (session-scoped fixture) and all
-raw_* tables are TRUNCATEd between tests (function-scoped fixture) so
-each test sees a clean state.
+mobile_sync-touched tables are TRUNCATEd between tests (function-scoped
+fixture) so each test sees a clean state.
 
 Pure-function tests (trap_score, BCD) need no fixtures — they import
 the helper directly and don't request `db`, so the DB machinery stays
@@ -11,8 +11,10 @@ dormant when those tests run alone.
 """
 from __future__ import annotations
 
+import importlib
 import os
 import re
+import sys
 from pathlib import Path
 
 import psycopg2
@@ -20,6 +22,16 @@ import pytest
 
 PROJECT_ROOT = Path(__file__).parent.parent
 INIT_SQL = PROJECT_ROOT / "db" / "init.sql"
+
+# Tables touched by api/main.py:mobile_sync + raw_* used by dedupe tests.
+# Truncated before each test for isolation. Computed-metric tables
+# (daily_recovery, sleep_quality, etc.) are not included — mobile_sync
+# doesn't write to them, and analytics tests would want their own setup.
+TABLES_TO_TRUNCATE = (
+    "raw_heart_rate, raw_hrv, raw_sleep, raw_steps, "
+    "raw_spo2, raw_temperature, raw_stress, "
+    "ring_goals, ring_status, sync_log, sync_requests"
+)
 
 
 @pytest.fixture(scope="session")
@@ -77,7 +89,7 @@ def test_db_url():
 
 @pytest.fixture
 def db(test_db_url):
-    """Yield a connection to the test DB with all raw_* tables truncated.
+    """Yield a psycopg2 connection to the test DB with mobile_sync tables truncated.
 
     Each test gets a fresh empty state. Inserts in one test do not leak
     into the next.
@@ -85,15 +97,31 @@ def db(test_db_url):
     conn = psycopg2.connect(test_db_url)
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                TRUNCATE
-                    raw_heart_rate, raw_hrv, raw_sleep, raw_steps,
-                    raw_spo2, raw_temperature, raw_stress
-                RESTART IDENTITY CASCADE
-                """
-            )
+            cur.execute(f"TRUNCATE {TABLES_TO_TRUNCATE} RESTART IDENTITY CASCADE")
         conn.commit()
         yield conn
     finally:
         conn.close()
+
+
+@pytest.fixture(scope="session")
+def api_client(test_db_url):
+    """Yield a FastAPI TestClient bound to the ephemeral test DB.
+
+    api/main.py reads DATABASE_URL at import time to construct its
+    SQLAlchemy engine. We set the env var BEFORE the first import so
+    the engine binds to our ephemeral DB. If api.main was already
+    imported (e.g., by another test module), reload it so the new
+    env var takes effect.
+
+    Session-scoped because TestClient + app startup is expensive, and
+    the underlying test DB is already session-scoped.
+    """
+    os.environ["DATABASE_URL"] = test_db_url
+    if "api.main" in sys.modules:
+        importlib.reload(sys.modules["api.main"])
+    from api.main import app
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        yield client
