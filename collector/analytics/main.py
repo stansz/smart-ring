@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 
-from . import circadian, data_quality, daily_activity, dedupe, db
+from . import circadian, current_status, data_quality, daily_activity, dedupe, db
 from . import hrv, readiness, rhr, sleep, stress
 
 log = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ def run_all() -> None:
             ("Circadian HR", circadian.compute_circadian_hr),
             ("Daily activity", daily_activity.compute_daily_activity),
             ("Readiness", readiness.compute_readiness_score),
+            ("Current status", current_status.compute_current_status),
             ("Resting HR", rhr.compute_resting_hr),
             ("Data quality", data_quality.compute_data_quality),
         ]:

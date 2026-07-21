@@ -146,9 +146,11 @@ CREATE TABLE IF NOT EXISTS circadian_hr (
 
 CREATE TABLE IF NOT EXISTS stress_classification (
     day DATE PRIMARY KEY,
-    morning_rmssd NUMERIC,
-    noon_rmssd NUMERIC,
-    evening_rmssd NUMERIC,
+    -- FIXME: columns below are named _rmssd but actually store stress_values
+    -- (0-99 scale). Naming drift from early schema. Tracked in TASKS.md backlog.
+    morning_rmssd NUMERIC,  -- actually morning stress_value (6-10h avg)
+    noon_rmssd NUMERIC,     -- actually noon stress_value (11-15h avg)
+    evening_rmssd NUMERIC,  -- actually evening stress_value (16-22h avg)
     classification TEXT,
     computed_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -174,6 +176,8 @@ CREATE TABLE IF NOT EXISTS daily_activity (
 
 -- Unified readiness score (WHOOP-style recovery, 0-100, composited from HRV/Sleep/RHR).
 -- One row per day; computed in analytics.py after all sub-scores are available.
+-- `frozen_at`: once set (typically at first analytics pass at/after 6 AM local),
+-- the row stops updating. WHOOP-style morning lock. See analytics/readiness.py.
 CREATE TABLE IF NOT EXISTS readiness_score (
     day DATE PRIMARY KEY,
     score INT NOT NULL DEFAULT 0,      -- 0-100 composite
@@ -188,8 +192,31 @@ CREATE TABLE IF NOT EXISTS readiness_score (
     contributors JSONB,               -- {hrv: +5, sleep: -3, rhr: -2}
     confidence TEXT DEFAULT 'full',    -- 'full' | 'partial' (partial = one or more sub-scores missing)
     missing_components TEXT[] DEFAULT '{}', -- e.g. {'rhr'} for types missing real data
+    frozen_at TIMESTAMPTZ,             -- NULL = still updating; non-NULL = morning lock applied
     computed_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Current Status: live intra-day score, one row per analytics pass.
+-- Complementary to readiness_score (which is morning-frozen). Uses recent
+-- raw data (HRV / HR / stress / trend) to answer "how is my body doing right now?"
+-- Latest row = current snapshot; history retained for v2 trend chart.
+CREATE TABLE IF NOT EXISTS current_status (
+    id BIGSERIAL PRIMARY KEY,
+    ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    score INT NOT NULL,                -- 0-100 weighted composite
+    hrv_component NUMERIC,             -- 0-100 from recent HRV z-score
+    hr_component NUMERIC,              -- 0-100 from current HR vs RHR baseline
+    stress_component NUMERIC,          -- 0-100 from recent raw stress (inverted)
+    trend_component NUMERIC,           -- 0-100 from HRV slope over last 2h
+    hrv_zscore NUMERIC,                -- raw inputs (for debugging + display)
+    hr_delta INT,                      -- avg HR - rhr_baseline
+    stress_recent INT,                 -- recent stress avg
+    hrv_trend NUMERIC,                 -- slope of HRV over last 2h
+    samples INT,                       -- total raw readings considered
+    confidence TEXT DEFAULT 'full',    -- 'full' | 'partial' (any component missing)
+    computed_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_current_status_ts ON current_status(ts DESC);
 
 -- Sync tracking
 CREATE TABLE IF NOT EXISTS sync_log (
