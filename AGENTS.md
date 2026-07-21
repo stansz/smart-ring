@@ -96,114 +96,39 @@ All 8 raw data types and the 5 health scores (including unified Readiness 0-100)
 
 ## Recent Work Log (Jul 2026)
 
-Keep only high-signal recent sessions. For prior work: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
-### 2026-07-20 — API cleanup Steps 1+2 + trap_score test suite (CLEANUP_PLAN Tier 1)
-- Shipped `docs/CLEANUP_PLAN.md` "Next steps: API cleanup" Steps 1+2 in one commit
-  (`4032415`): dropped dead `Base(DeclarativeBase)` + `create_all()` from `api/main.py`
-  (no ORM models exist) and dropped redundant `_dedupe_sources` (analytics owns dedup
-  via `collector/analytics/dedupe.py:dedupe_sources()`). Verified live: image grep
-  clean, `/api/mobile/sync` 200 OK, `raw_heart_rate` source ratio `ring=487 / phone=2`
-  confirms analytics-side dedup still runs.
-- First `tests/` suite (`8e1e9d0`): `pytest.ini` + `tests/test_trap_score.py` (20
-  cases — boundaries, ramp linearity via per-unit slope, symmetry). All pass in 0.04s.
-  pytest 9.1.1 installed in venv. Next Tier 1 item: BCD helper extraction + test
-  (Option A in plan — touches sacred `set_time_local`, deserves solo review).
+### 2026-07-20 — API cleanup arc + Tier 1 test suite
+- **API cleanup Steps 1, 2, 4** shipped + verified live (`4032415`, `0b14cae`): dropped
+  dead ORM code, dropped redundant `_dedupe_sources` (analytics owns dedup), shipped
+  `api/upsert.py` generic dispatcher for the 5 simple point tables. Step 3 skipped
+  indefinitely as "deck chairs" — see CLEANUP_PLAN.md for rationale.
+- **Test suite** (`tests/`, 65 tests, ~4s): `test_trap_score.py` (20),
+  `test_time_sync_bcd.py` (16), `test_dedupe.py` (13), `test_mobile_sync.py` (16).
+  Ephemeral DB fixture in `conftest.py` creates `smart_ring_test_<pid>` from
+  `db/init.sql` — never touches production data.
+- **Sacred-code refactor**: extracted `_encode_time_bcd` pure helper from
+  `set_time_local` (`4c12e06`). Pinned byte-for-byte by `tests/test_time_sync_bcd.py`.
+  No rebuild/restart needed (in `collector/`, not `api/`); next ring sync exercises
+  the new path — `clock_drift_ms=1` is the live success signal.
+- **Quirk pinned** (not yet fixed): per-attempt `accepted` counting in
+  `/api/mobile/sync` — ON CONFLICT DO NOTHING doesn't raise, so duplicate ts in one
+  payload counts both. May be fixed in a follow-up using `cursor.rowcount`.
 
-### 2026-07-20 — BCD helper extraction + regression test (CLEANUP_PLAN Tier 1, item 2)
-- Extracted `_encode_time_bcd(local: datetime) -> bytes` from `set_time_local` in
-  `collector/ring_client.py` (`4c12e06`). Pure refactor — same 6 BCD assignments,
-  now module-level so testable without a BLE client. Verified byte-identical at
-  runtime against both hand-computed reference (`0x26 0x07 0x20 0x14 0x30 0x45` for
-  `2026-07-20 14:30:45`) and verbatim copy of pre-extraction inline code.
-- `tests/test_time_sync_bcd.py` (`30cba4d`): 16 tests covering canonical reference,
-  length invariant (no language flag), year%2000 wrap, min/max components, byte
-  order, 5 known datetimes. One hand-computed reference byte was wrong on first
-  pass (`BCD(21)=0x21`, not `0x15`) — test correctly caught it; function was right.
-- Suite total: **36 tests pass in 0.07s**. Refactor touches sacred code but the
-  test now pins it byte-for-byte against Gadgetbridge's layout.
-- No rebuild/restart needed — refactor is in `collector/` (bare-metal venv), not
-  in `api/` (container). Next ring sync will exercise the new helper path
-  transparently; `clock_drift_ms=1` is the live success signal.
+### 2026-07-20 — Sync retry + battery noise documentation
+- Sync #138–141 took 4 attempts (R09 cold-start + overlap artifact).
+- R09 battery readings are noisy instantaneous ADC samples (no smoothing;
+  Gadgetbridge does identical `value[1]` parsing). Documented in
+  `docs/RING_BEHAVIOR.md`. Tracking raw values in `sync_log` + `ring_status`.
 
-### 2026-07-20 — Dedupe smoke test with ephemeral DB fixture (CLEANUP_PLAN Tier 1, item 3)
-- `tests/test_dedupe.py` + `conftest.py` fixtures (`40903b0`): 13 tests covering
-  the canonical dedupe contract (phone+ring at same ts → phone dies), no-overlap
-  case (phone fills gaps), all 5 point tables via parametrize, raw_hrv's
-  `(ts, hrv_type)` semantics, raw_sleep's day-level dedup, and idempotency.
-- DB fixture: session-scoped `test_db_url` creates `smart_ring_test_<pid>` from
-  `db/init.sql`, function-scoped `db` yields a connection with all `raw_*` tables
-  TRUNCATEd. Verified no orphan test DBs remain after runs. ~1s overhead vs the
-  pure-function suites; worth it for schema-aware coverage.
-- Self-inflicted wound: first run had `psycopg2.connect(url, autocommit=True)`
-  error — `autocommit` is a connection property, not a connect kwarg. Fixed.
-- **Suite total: 49 tests pass in 1.33s** (20 trap + 16 BCD + 13 dedupe).
-  Tier 1 items 1, 2, 3 complete. Remaining: parser tests (optional, deferred).
+### 2026-07-19 — Live verification + poller analytics job fix
+- Fixed `collector/jobs/analytics.py` (was referencing deleted
+  `collector/analytics.py` causing rc=2 — now uses `python -m collector.analytics`).
+- `set_time_local` Phase 0 hotfix proven in production.
 
-### 2026-07-20 — mobile_sync regression net + Step 3 skipped (CLEANUP_PLAN API cleanup)
-- Reviewer call: **Step 3 (extract raw SQL to `api/queries.py`) skipped indefinitely**
-  as "rearranging deck chairs" — pure relocation with no engineering payoff.
-  CLEANUP_PLAN.md updated with rationale.
-- **Session A of test-first approach to Step 4**: `tests/test_mobile_sync.py` (`1f03082`)
-  pins current `/api/mobile/sync` behavior so the upcoming generic `upsert_many`
-  refactor has a real regression net instead of just manual verification.
-- 16 tests covering: empty payload, all per-type INSERT paths (HR/SpO2/temp/stress/
-  HRV/sleep/goals/steps), HRV type defaulting, battery → ring_status, sync_log row,
-  sync_requests analytics trigger, and one **quirk pin** (duplicate ts in same payload
-  counts both as `accepted` though ON CONFLICT drops the second — Step 4 may fix).
-- New `api_client` fixture in conftest.py: session-scoped FastAPI TestClient bound to
-  the ephemeral test DB via `DATABASE_URL` env override before import.
-- New test-only venv deps: `fastapi==0.115.0`, `httpx==0.28.0`, `pydantic-settings==2.6.1`,
-  `sqlalchemy==2.0.36` (matching `api/requirements.txt` pins).
-- **Suite total: 65 tests pass in 3.70s** (20 trap + 16 BCD + 13 dedupe + 16 mobile_sync).
-- Next: Session B = Step 4 refactor with this net in place.
-
-### 2026-07-20 — Step 4 refactor: generic upsert_many dispatch (CLEANUP_PLAN API cleanup)
-- **Session B**: `api/upsert.py` (`0b14cae`) — new `upsert_many(db, *, table,
-  required_cols, records, optional_cols=None, source="phone")` helper returning
-  `(accepted, skipped, errors)`. Covers the 5 simple point tables (HR/SpO2/temp/
-  stress/steps) via a `simple_point_tables` dispatch loop in `mobile_sync`.
-- Tables with non-standard semantics stay inline: `raw_hrv` (hrv_type default +
-  different conflict clause), `raw_sleep` (day-based schema), `ring_goals`
-  (singleton, no source). Forcing them through the dispatcher would obscure
-  their per-table contracts.
-- **All 16 mobile_sync tests pass unchanged** — refactor proven behavior-preserving
-  against the Session A regression net. Full suite: 65 tests in 3.69s.
-- Net delta: **-30 lines** (5 × ~12-line blocks → 1 × ~18-line dispatch loop).
-- Import strategy: `api/main.py` uses `from upsert import upsert_many` (script-style,
-  matches container's `uvicorn main:app from /app`); `tests/conftest.py` inserts
-  `api/` into sys.path so the same import resolves in test env.
-- Quirk preserved: per-attempt `accepted` counting (ON CONFLICT doesn't raise, so
-  duplicate ts in one payload still counts both). Pinned by existing test; may be
-  fixed in separate PR using `cursor.rowcount`.
-- **Local commit only** (`0b14cae`); awaiting live image verification before push.
-  Verification protocol: podman build → restart → image grep for `upsert_many`
-  import + dispatch loop → POST `/api/mobile/sync` smoke test.
-
-### 2026-07-20 — Sync retry investigation + battery noise documentation
-- Morning dashboard sync took 4 attempts (sync_log #138–141). Two failures were R09
-  quirks (cold-start BLE negotiation, `Fetching goals...` stall), one was an overlap
-  artifact (#127-equivalent timed out and the next request fired immediately, BlueZ
-  couldn't release the previous connection in time). Final sync succeeded with
-  `clock_drift_ms=1`, 262 records.
-- Investigated battery reading noise over past 2 days (37%→52% jumps, 88% outlier in
-  sync_log #127). Root cause: R09 has no battery history — every reading is a noisy
-  instantaneous ADC sample (observer-effect under BLE load). Verified Gadgetbridge's
-  `ColmiR0xDeviceSupport.java` does identical `value[1]` parsing with no smoothing.
-- Documented findings in `docs/RING_BEHAVIOR.md` (new "Battery readings are noisy"
-  section). Smoothing deferred — currently tracking raw values in `sync_log` +
-  `ring_status`.
-
-### 2026-07-19 — Live verification + poller analytics job fix (post-refactor)
-- User triggered dashboard sync #132 (~14:16). `clock_drift_ms=1`, 117 records, battery 52%.
-- Fixed `collector/jobs/analytics.py` (was referencing deleted `collector/analytics.py` causing rc=2). Now uses `python -m collector.analytics`.
-- `set_time_local` hotfix (from earlier Phase 0 regression) now proven in production.
-- Re-ran analytics; readiness 40 → 53 (full). Stale doc references cleaned.
-
-### 2026-07-18 — Readiness overhaul + cleanup plan
+### 2026-07-18 — Readiness overhaul + collector refactor
 - 3-pillar readiness (HRV 44% / Sleep 37% / RHR 19%).
 - Major collector refactor: split into `protocol/` + `analytics/` packages + `jobs/`.
-- `docs/CLEANUP_PLAN.md` created.
 
 **July 13–17:** Dashboard overhaul, temp big-data fix, docs reorganization. Details in git.
 
