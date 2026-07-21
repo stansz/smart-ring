@@ -131,6 +131,24 @@ Keep only high-signal recent sessions. For prior work: `git log --oneline` and `
 - **Suite total: 49 tests pass in 1.33s** (20 trap + 16 BCD + 13 dedupe).
   Tier 1 items 1, 2, 3 complete. Remaining: parser tests (optional, deferred).
 
+### 2026-07-20 — mobile_sync regression net + Step 3 skipped (CLEANUP_PLAN API cleanup)
+- Reviewer call: **Step 3 (extract raw SQL to `api/queries.py`) skipped indefinitely**
+  as "rearranging deck chairs" — pure relocation with no engineering payoff.
+  CLEANUP_PLAN.md updated with rationale.
+- **Session A of test-first approach to Step 4**: `tests/test_mobile_sync.py` (`1f03082`)
+  pins current `/api/mobile/sync` behavior so the upcoming generic `upsert_many`
+  refactor has a real regression net instead of just manual verification.
+- 16 tests covering: empty payload, all per-type INSERT paths (HR/SpO2/temp/stress/
+  HRV/sleep/goals/steps), HRV type defaulting, battery → ring_status, sync_log row,
+  sync_requests analytics trigger, and one **quirk pin** (duplicate ts in same payload
+  counts both as `accepted` though ON CONFLICT drops the second — Step 4 may fix).
+- New `api_client` fixture in conftest.py: session-scoped FastAPI TestClient bound to
+  the ephemeral test DB via `DATABASE_URL` env override before import.
+- New test-only venv deps: `fastapi==0.115.0`, `httpx==0.28.0`, `pydantic-settings==2.6.1`,
+  `sqlalchemy==2.0.36` (matching `api/requirements.txt` pins).
+- **Suite total: 65 tests pass in 3.70s** (20 trap + 16 BCD + 13 dedupe + 16 mobile_sync).
+- Next: Session B = Step 4 refactor with this net in place.
+
 ### 2026-07-20 — Sync retry investigation + battery noise documentation
 - Morning dashboard sync took 4 attempts (sync_log #138–141). Two failures were R09
   quirks (cold-start BLE negotiation, `Fetching goals...` stall), one was an overlap
