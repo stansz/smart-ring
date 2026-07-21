@@ -149,6 +149,28 @@ Keep only high-signal recent sessions. For prior work: `git log --oneline` and `
 - **Suite total: 65 tests pass in 3.70s** (20 trap + 16 BCD + 13 dedupe + 16 mobile_sync).
 - Next: Session B = Step 4 refactor with this net in place.
 
+### 2026-07-20 — Step 4 refactor: generic upsert_many dispatch (CLEANUP_PLAN API cleanup)
+- **Session B**: `api/upsert.py` (`0b14cae`) — new `upsert_many(db, *, table,
+  required_cols, records, optional_cols=None, source="phone")` helper returning
+  `(accepted, skipped, errors)`. Covers the 5 simple point tables (HR/SpO2/temp/
+  stress/steps) via a `simple_point_tables` dispatch loop in `mobile_sync`.
+- Tables with non-standard semantics stay inline: `raw_hrv` (hrv_type default +
+  different conflict clause), `raw_sleep` (day-based schema), `ring_goals`
+  (singleton, no source). Forcing them through the dispatcher would obscure
+  their per-table contracts.
+- **All 16 mobile_sync tests pass unchanged** — refactor proven behavior-preserving
+  against the Session A regression net. Full suite: 65 tests in 3.69s.
+- Net delta: **-30 lines** (5 × ~12-line blocks → 1 × ~18-line dispatch loop).
+- Import strategy: `api/main.py` uses `from upsert import upsert_many` (script-style,
+  matches container's `uvicorn main:app from /app`); `tests/conftest.py` inserts
+  `api/` into sys.path so the same import resolves in test env.
+- Quirk preserved: per-attempt `accepted` counting (ON CONFLICT doesn't raise, so
+  duplicate ts in one payload still counts both). Pinned by existing test; may be
+  fixed in separate PR using `cursor.rowcount`.
+- **Local commit only** (`0b14cae`); awaiting live image verification before push.
+  Verification protocol: podman build → restart → image grep for `upsert_many`
+  import + dispatch loop → POST `/api/mobile/sync` smoke test.
+
 ### 2026-07-20 — Sync retry investigation + battery noise documentation
 - Morning dashboard sync took 4 attempts (sync_log #138–141). Two failures were R09
   quirks (cold-start BLE negotiation, `Fetching goals...` stall), one was an overlap
