@@ -186,11 +186,19 @@
                     </div>
                 </div>
 
-                <!-- RIGHT: Readiness Score -->
+                <!-- RIGHT: Readiness Score (frozen at 6 AM local — WHOOP-style morning lock) -->
                 <div class="p-6">
                     <div class="flex justify-between items-baseline mb-4">
-                        <div class="flex items-center gap-2">
-                            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness Score</h2>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Morning Readiness</h2>
+                            <!-- Frozen badge: shown once morning lock has applied -->
+                            <span x-show="readinessFrozenAt" class="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 font-medium uppercase tracking-wide inline-flex items-center gap-1" :title="'Locked at ' + (readinessFrozenAt ? new Date(readinessFrozenAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '')">
+                                🔒 <span x-text="readinessFrozenAt ? new Date(readinessFrozenAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''"></span>
+                            </span>
+                            <!-- Preliminary badge: today's row not yet frozen (pre-6 AM or no morning sync) -->
+                            <span x-show="readinessIsToday && !readinessFrozenAt" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium uppercase tracking-wide">
+                                Preliminary
+                            </span>
                             <span x-show="readinessConfidence === 'partial'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium uppercase tracking-wide" x-text="'partial · missing ' + (readinessMissing || []).join(', ')"></span>
                         </div>
                         <span class="text-xs text-gray-400 dark:text-gray-500" x-text="readinessDay ? new Date(readinessDay + 'T00:00').toLocaleDateString() : ''"></span>
@@ -237,7 +245,74 @@
                 </div>
                     <!-- Contributors -->
                     <p class="text-xs text-gray-500 dark:text-gray-400 text-center mt-4" x-text="readinessContribText || ''"></p>
+                 </div>
+             </div>
+         </div>
+
+        <!-- Current Status: live intra-day recovery score (drifts during the day) -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-100 dark:border-gray-700 mb-8">
+            <div class="px-6 py-4">
+                <div class="flex justify-between items-baseline mb-3">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Current Status</h2>
+                        <!-- "Live" indicator: pulses when fresh data is available -->
+                        <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 font-medium uppercase tracking-wide">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            Live
+                        </span>
+                        <span x-show="currentStatusConfidence === 'partial'" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium uppercase tracking-wide">partial</span>
+                    </div>
+                    <span class="text-xs text-gray-400 dark:text-gray-500" x-text="currentStatusUpdated ? 'as of ' + currentStatusUpdated : ''"></span>
                 </div>
+
+                <!-- Big score + vibe label -->
+                <div class="flex items-center gap-6 mb-4">
+                    <div class="text-center flex-shrink-0">
+                        <p class="text-5xl font-bold tracking-tight"
+                           :class="currentStatusScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : currentStatusScore >= 60 ? 'text-sky-600 dark:text-sky-400' : currentStatusScore >= 40 ? 'text-amber-600 dark:text-amber-400' : currentStatusScore >= 20 ? 'text-orange-600 dark:text-orange-400' : 'text-red-500 dark:text-red-400'"
+                           x-text="currentStatusScore != null ? currentStatusScore : '—'"></p>
+                        <p class="text-sm font-medium mt-1"
+                           :class="currentStatusScore >= 80 ? 'text-emerald-600 dark:text-emerald-400' : currentStatusScore >= 60 ? 'text-sky-600 dark:text-sky-400' : currentStatusScore >= 40 ? 'text-amber-600 dark:text-amber-400' : currentStatusScore >= 20 ? 'text-orange-600 dark:text-orange-400' : 'text-red-500 dark:text-red-400'"
+                           x-text="currentStatusLabel || '—'"></p>
+                    </div>
+                    <div class="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <!-- HRV component -->
+                        <div class="text-center">
+                            <p class="text-gray-500 dark:text-gray-400 mb-1">HRV</p>
+                            <div class="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full bg-purple-500 rounded-full transition-all" :style="`width: ${(currentStatusHrv || 0)}%`"></div>
+                            </div>
+                            <p class="text-purple-600 dark:text-purple-400 font-semibold mt-1" x-text="currentStatusHrv != null ? Math.round(currentStatusHrv) : '—'"></p>
+                        </div>
+                        <!-- HR component -->
+                        <div class="text-center">
+                            <p class="text-gray-500 dark:text-gray-400 mb-1">HR</p>
+                            <div class="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full bg-rose-500 rounded-full transition-all" :style="`width: ${(currentStatusHr || 0)}%`"></div>
+                            </div>
+                            <p class="text-rose-600 dark:text-rose-400 font-semibold mt-1" x-text="currentStatusHr != null ? Math.round(currentStatusHr) : '—'"></p>
+                        </div>
+                        <!-- Stress component -->
+                        <div class="text-center">
+                            <p class="text-gray-500 dark:text-gray-400 mb-1">Stress</p>
+                            <div class="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full bg-amber-500 rounded-full transition-all" :style="`width: ${(currentStatusStress || 0)}%`"></div>
+                            </div>
+                            <p class="text-amber-600 dark:text-amber-400 font-semibold mt-1" x-text="currentStatusStress != null ? Math.round(currentStatusStress) : '—'"></p>
+                        </div>
+                        <!-- Trend component -->
+                        <div class="text-center">
+                            <p class="text-gray-500 dark:text-gray-400 mb-1">Trend</p>
+                            <div class="h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                                <div class="h-full bg-emerald-500 rounded-full transition-all" :style="`width: ${(currentStatusTrend || 0)}%`"></div>
+                            </div>
+                            <p class="text-emerald-600 dark:text-emerald-400 font-semibold mt-1" x-text="currentStatusTrend != null ? Math.round(currentStatusTrend) : '—'"></p>
+                        </div>
+                    </div>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                    Live score from recent HRV, HR, stress, and trend. Updates each sync — naturally drifts during the day. Morning Readiness (above) is frozen at 6 AM.
+                </p>
             </div>
         </div>
 
@@ -816,6 +891,18 @@
                 readinessDay: null,
                 readinessConfidence: null,
                 readinessMissing: [],
+                readinessFrozenAt: null,       // ISO timestamp string from API; null = not yet frozen
+                readinessIsToday: false,       // derived: does readinessDay match today?
+
+                // Current Status (live intra-day score)
+                currentStatusScore: null,
+                currentStatusLabel: null,
+                currentStatusHrv: null,
+                currentStatusHr: null,
+                currentStatusStress: null,
+                currentStatusTrend: null,
+                currentStatusConfidence: 'full',
+                currentStatusUpdated: null,     // display string "HH:MM AM"
 
                 // Data-quality stale-type banner
                 staleTypes: [],
@@ -949,6 +1036,7 @@
                         this.loadDialsData(),
                         this.loadDailyActivity(),
                         this.loadReadiness(),
+                        this.loadCurrentStatus(),
                         this.loadDataQuality(),
                     ]);
                     // Apply server-computed daily values after raw fallbacks + goals load
@@ -1618,6 +1706,7 @@
                 applyReadiness() {
                     const sel = this.dateKey(this.selectedDate);
                     const r = this._readinessByDay[sel];
+                    const todayKey = this.dateKey(new Date());
                     if (r) {
                         this.readinessScore = r.score;
                         this.readinessSleep = r.sleep_score;
@@ -1626,6 +1715,8 @@
                         this.readinessDay = r.day;
                         this.readinessConfidence = r.confidence || 'full';
                         this.readinessMissing = r.missing_components || [];
+                        this.readinessFrozenAt = r.frozen_at || null;
+                        this.readinessIsToday = (r.day === todayKey);
                         this.readinessLabel = r.score >= 80 ? 'Excellent' : r.score >= 60 ? 'Good' : r.score >= 40 ? 'Fair' : 'Low';
                         const c = r.contributors || {};
                         const names = { hrv: 'HRV', sleep: 'Sleep', rhr: 'RHR' };
@@ -1641,7 +1732,39 @@
                         this.readinessLabel = null; this.readinessContribText = '';
                         this.readinessSleepDetail = ''; this.readinessHrvDetail = '';
                         this.readinessRhrDetail = '';
+                        this.readinessFrozenAt = null;
+                        this.readinessIsToday = false;
                     }
+                },
+
+                async loadCurrentStatus() {
+                    // Fetch the latest Current Status snapshot from /api/current-status.
+                    // Populates the live intra-day card. Called on init + after each sync.
+                    try {
+                        const res = await fetch('/api/current-status?hours=24');
+                        const rows = await res.json();
+                        if (!rows.length) {
+                            this.currentStatusScore = null;
+                            this.currentStatusLabel = null;
+                            this.currentStatusUpdated = null;
+                            return;
+                        }
+                        const latest = rows[0];  // API returns DESC by ts
+                        this.currentStatusScore = latest.score;
+                        this.currentStatusHrv = latest.hrv_component;
+                        this.currentStatusHr = latest.hr_component;
+                        this.currentStatusStress = latest.stress_component;
+                        this.currentStatusTrend = latest.trend_component;
+                        this.currentStatusConfidence = latest.confidence || 'full';
+                        this.currentStatusUpdated = new Date(latest.ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                        // Vibe labels — match collector/analytics/current_status.py LABELS
+                        const s = latest.score;
+                        this.currentStatusLabel =
+                            s >= 80 ? 'Locked In' :
+                            s >= 60 ? 'Solid' :
+                            s >= 40 ? 'Vibing' :
+                            s >= 20 ? 'Winded' : 'Gassed';
+                    } catch (e) { console.error('loadCurrentStatus', e); }
                 },
 
                 async loadDailyActivity() {

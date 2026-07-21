@@ -19,6 +19,7 @@ from pathlib import Path
 
 import psycopg2
 import pytest
+from psycopg2.extras import RealDictCursor
 
 PROJECT_ROOT = Path(__file__).parent.parent
 INIT_SQL = PROJECT_ROOT / "db" / "init.sql"
@@ -31,14 +32,16 @@ API_DIR = PROJECT_ROOT / "api"
 if str(API_DIR) not in sys.path:
     sys.path.insert(0, str(API_DIR))
 
-# Tables touched by api/main.py:mobile_sync + raw_* used by dedupe tests.
-# Truncated before each test for isolation. Computed-metric tables
-# (daily_recovery, sleep_quality, etc.) are not included — mobile_sync
-# doesn't write to them, and analytics tests would want their own setup.
+# Tables truncated before each test for isolation. Includes raw_* (mobile_sync,
+# dedupe tests), analytics output tables (readiness freeze tests), and
+# operational tables (sync_log, sync_requests). Order doesn't matter — TRUNCATE
+# with CASCADE handles FK references.
 TABLES_TO_TRUNCATE = (
     "raw_heart_rate, raw_hrv, raw_sleep, raw_steps, "
     "raw_spo2, raw_temperature, raw_stress, "
-    "ring_goals, ring_status, sync_log, sync_requests"
+    "ring_goals, ring_status, sync_log, sync_requests, "
+    "daily_recovery, sleep_quality, daily_activity, readiness_score, "
+    "current_status, hrv_trends, circadian_hr, stress_classification, data_quality"
 )
 
 
@@ -59,7 +62,7 @@ def test_db_url():
     admin_url = re.sub(r"/[^/]+$", "/postgres", prod_url)
     test_db_name = f"smart_ring_test_{os.getpid()}"
 
-    admin_conn = psycopg2.connect(admin_url)
+    admin_conn = psycopg2.connect(admin_url, cursor_factory=RealDictCursor)
     admin_conn.autocommit = True
     try:
         with admin_conn.cursor() as cur:
@@ -71,7 +74,7 @@ def test_db_url():
     test_url = re.sub(r"/[^/]+$", f"/{test_db_name}", prod_url)
     try:
         # Apply schema from db/init.sql (idempotent — IF NOT EXISTS everywhere)
-        setup_conn = psycopg2.connect(test_url)
+        setup_conn = psycopg2.connect(test_url, cursor_factory=RealDictCursor)
         try:
             with setup_conn.cursor() as cur:
                 cur.execute(INIT_SQL.read_text())
@@ -81,7 +84,7 @@ def test_db_url():
         yield test_url
     finally:
         # Tear down: kill any lingering sessions, then drop the DB
-        teardown = psycopg2.connect(admin_url)
+        teardown = psycopg2.connect(admin_url, cursor_factory=RealDictCursor)
         teardown.autocommit = True
         try:
             with teardown.cursor() as cur:
@@ -99,10 +102,28 @@ def test_db_url():
 def db(test_db_url):
     """Yield a psycopg2 connection to the test DB with mobile_sync tables truncated.
 
-    Each test gets a fresh empty state. Inserts in one test do not leak
-    into the next.
+    Default tuple cursor (matches psycopg2 default). Each test gets a fresh
+    empty state. Use this for tests that use index-based row access
+    (`row[0]`, `cur.fetchone()[1]`).
     """
     conn = psycopg2.connect(test_db_url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"TRUNCATE {TABLES_TO_TRUNCATE} RESTART IDENTITY CASCADE")
+        conn.commit()
+        yield conn
+    finally:
+        conn.close()
+
+
+@pytest.fixture
+def db_dict(test_db_url):
+    """Same as `db` but with RealDictCursor (matches production analytics/db.py).
+
+    Use this for tests that exercise analytics scorers, which expect
+    dict-style row access (`row['column_name']`).
+    """
+    conn = psycopg2.connect(test_db_url, cursor_factory=RealDictCursor)
     try:
         with conn.cursor() as cur:
             cur.execute(f"TRUNCATE {TABLES_TO_TRUNCATE} RESTART IDENTITY CASCADE")

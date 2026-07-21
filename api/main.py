@@ -91,17 +91,49 @@ def get_daily_activity(days: int = 14):
 
 @app.get("/api/readiness")
 def get_readiness(days: int = 7):
-    """Unified readiness score (0-100 WHOOP-style) with sub-scores + context."""
+    """Unified readiness score (0-100 WHOOP-style) with sub-scores + context.
+
+    `frozen_at` is non-NULL once the morning lock has been applied (first
+    analytics pass at/after 6 AM local). Today's row may be NULL (preliminary,
+    still updating) or non-NULL (locked for the day).
+    """
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, score, hrv_score, sleep_score, rhr_score,
                    hrv_zscore, resting_hr, hrv_rmssd,
                    sleep_total_min, rhr_baseline, contributors,
-                   confidence, missing_components
+                   confidence, missing_components, frozen_at
             FROM readiness_score
             WHERE day >= CURRENT_DATE - INTERVAL ':days days'
             ORDER BY day DESC
         """), {"days": days}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/current-status")
+def get_current_status(hours: int = 24):
+    """Current Status snapshots (live intra-day score), latest first.
+
+    One row per analytics pass. The latest row (rows[0]) is the current
+    snapshot. Earlier rows let the client draw an intra-day trend chart.
+
+    Components (each 0-100, may be NULL if input data missing):
+      hrv_component    — recent HRV z-score vs 7-day baseline
+      hr_component     — recent HR delta from RHR baseline
+      stress_component — recent raw stress (inverted)
+      trend_component  — HRV slope over last 2h
+
+    `confidence` is 'partial' if any component is missing, 'full' otherwise.
+    """
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, score, hrv_component, hr_component, stress_component,
+                   trend_component, hrv_zscore, hr_delta, stress_recent,
+                   hrv_trend, samples, confidence, computed_at
+            FROM current_status
+            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            ORDER BY ts DESC
+        """), {"hours": hours}).mappings().all()
     return [dict(r) for r in rows]
 
 
