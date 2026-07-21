@@ -83,6 +83,9 @@
 |---|------|
 | — | Parser tests (Tier 1 item 4 — deferred as optional, see `docs/CLEANUP_PLAN.md`) |
 | — | Fix per-attempt `accepted` counting in `/api/mobile/sync` (use `cursor.rowcount`; pinned by `tests/test_mobile_sync.py`) |
+| — | **Investigate `stress_classification` schema bug**: columns named `_rmssd` but store stress_values (0-99). Documented in `db/init.sql`. Rename via migration when next touching the table. |
+| — | Current Status trend chart (intra-day line graph; data already retained in `current_status` table) |
+| — | Auto-refresh Current Status card on sync completion (currently requires page refresh) |
 | — | systemd auto-sync timer (scheduled, not manual) |
 | — | 0x80-bit async packets investigation |
 | — | Dashboard polish: stress/recovery timeline on dashboard tab |

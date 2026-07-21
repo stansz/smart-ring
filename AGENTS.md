@@ -59,23 +59,29 @@ Source unit files live in `~/.config/systemd/user/`; deploy with `sudo cp ... /e
 | `collector/ring_client.py` | BLE wrapper (timeout, `set_time_local`, forget/repair helpers, `_encode_time_bcd` pure helper) |
 | `collector/sync_ring.py` + `protocol/` | Thin orchestrator + all BLE protocol, parsers, upserts |
 | `collector/analytics/` | Package of per-scorer modules; `python -m collector.analytics` |
+| `collector/analytics/readiness.py` | Morning Readiness scorer (frozen at 6 AM) + `should_freeze` pure helper |
+| `collector/analytics/current_status.py` | Live intra-day scorer (Current Status) + pure component helpers |
 | `collector/jobs/` | `SyncJob` / `RingSyncJob` / `AnalyticsJob` for the poller |
 | `collector/sync_request_poller.py` | Host poller watching `sync_requests` |
 | `api/main.py` | FastAPI app + all endpoints (mobile_sync uses dispatch loop) |
 | `api/upsert.py` | `upsert_many` generic dispatcher for simple point tables |
 | `dashboard/index.html` | Pure client-side UI (Alpine.js + Tailwind, no build) |
-| `tests/` + `pytest.ini` | 65-test regression net (trap_score, BCD, dedupe, mobile_sync) |
+| `tests/` + `pytest.ini` | 132-test regression net (trap_score, BCD, dedupe, mobile_sync, current_status, readiness_freeze) |
 | `docs/RING_BEHAVIOR.md` | Firmware quirks, data publish cadence, logger stall |
-| `docs/RESEARCH.md` | Scoring formulas & methodology |
+| `docs/RESEARCH.md` | Scoring formulas & methodology (Morning Readiness + Current Status) |
 | `docs/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
 
 ---
 
 ## Current State
 
-All 8 raw data types and the 5 health scores (including unified Readiness 0-100) are collecting and computing successfully. Phone sync + dashboard + poller are stable.
+All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable.
 
-**Test suite:** 65 tests across 4 files (`tests/test_trap_score.py`, `tests/test_time_sync_bcd.py`, `tests/test_dedupe.py`, `tests/test_mobile_sync.py`). Run with `venv/bin/python3 -m pytest tests/` — ~4s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
+**Test suite:** 132 tests across 6 files (`tests/test_{trap_score,time_sync_bcd,dedupe,mobile_sync,current_status,readiness_freeze}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~5s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
+
+**Readiness model (split July 2026):**
+- **Morning Readiness** (frozen, WHOOP-style): locks at first analytics pass at/after 6 AM local. `frozen_at` column on `readiness_score`. Subsequent passes skip today's row entirely (preserves original timestamp via COALESCE).
+- **Current Status** (live intra-day): new `current_status` table, one row per analytics pass. 4 components (HRV 40% / HR 25% / Stress 20% / Trend 15%), renormalizes over available. Vibe labels: Locked In / Solid / Vibing / Winded / Gassed. See `docs/RESEARCH.md` for methodology.
 
 **API cleanup arc complete** (2026-07-20): dead ORM code dropped, redundant `_dedupe_sources` dropped, generic `upsert_many` dispatcher shipped. Step 3 (extract raw SQL to `queries.py`) skipped indefinitely as "rearranging deck chairs." See `docs/CLEANUP_PLAN.md` for full history.
 
@@ -97,6 +103,19 @@ All 8 raw data types and the 5 health scores (including unified Readiness 0-100)
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-20 — Morning Readiness (frozen) + Current Status (live)
+- Replaced the dynamic-readiness model (where today's score drifted during
+  the day as data accumulated) with two distinct concepts on a feature branch:
+  - **Morning Readiness**: locks at first analytics pass at/after 6 AM local.
+    `frozen_at` column on `readiness_score`; subsequent passes skip today.
+  - **Current Status**: new `current_status` table, one row per analytics pass.
+    4 components (HRV 40% / HR 25% / Stress 20% / Trend 15%); vibe labels
+    Locked In / Solid / Vibing / Winded / Gassed.
+- Pure helpers (`should_freeze`, component scorers, `weighted_score`) are
+  unit-tested at boundaries. DB-backed tests verify the freeze gate.
+- Suite total: 132 tests pass in 5.35s (+67 from baseline 65).
+- Branch: `feature/morning-readiness-and-current-status` (commit `8c66496`).
 
 ### 2026-07-20 — API cleanup arc + Tier 1 test suite
 - **API cleanup Steps 1, 2, 4** shipped + verified live (`4032415`, `0b14cae`): dropped
