@@ -44,6 +44,7 @@ sudo systemctl restart smart-ring-api smart-ring-poller
 sudo journalctl -u smart-ring-poller -f
 venv/bin/python3 -m collector.sync_ring --forget
 venv/bin/python3 -m collector.first_contact
+venv/bin/python3 -m pytest tests/                # full regression net (65 tests, ~4s)
 podman exec smart-ring-db psql -U smart_ring -d smart_ring
 ```
 
@@ -55,20 +56,28 @@ Source unit files live in `~/.config/systemd/user/`; deploy with `sudo cp ... /e
 
 | File | Purpose |
 |------|---------|
-| `collector/ring_client.py` | BLE wrapper (timeout, `set_time_local`, forget/repair helpers) |
+| `collector/ring_client.py` | BLE wrapper (timeout, `set_time_local`, forget/repair helpers, `_encode_time_bcd` pure helper) |
 | `collector/sync_ring.py` + `protocol/` | Thin orchestrator + all BLE protocol, parsers, upserts |
 | `collector/analytics/` | Package of per-scorer modules; `python -m collector.analytics` |
 | `collector/jobs/` | `SyncJob` / `RingSyncJob` / `AnalyticsJob` for the poller |
 | `collector/sync_request_poller.py` | Host poller watching `sync_requests` |
-| `api/main.py` + `dashboard/index.html` | FastAPI + pure client-side UI |
+| `api/main.py` | FastAPI app + all endpoints (mobile_sync uses dispatch loop) |
+| `api/upsert.py` | `upsert_many` generic dispatcher for simple point tables |
+| `dashboard/index.html` | Pure client-side UI (Alpine.js + Tailwind, no build) |
+| `tests/` + `pytest.ini` | 65-test regression net (trap_score, BCD, dedupe, mobile_sync) |
 | `docs/RING_BEHAVIOR.md` | Firmware quirks, data publish cadence, logger stall |
 | `docs/RESEARCH.md` | Scoring formulas & methodology |
+| `docs/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
 
 ---
 
 ## Current State
 
 All 8 raw data types and the 5 health scores (including unified Readiness 0-100) are collecting and computing successfully. Phone sync + dashboard + poller are stable.
+
+**Test suite:** 65 tests across 4 files (`tests/test_trap_score.py`, `tests/test_time_sync_bcd.py`, `tests/test_dedupe.py`, `tests/test_mobile_sync.py`). Run with `venv/bin/python3 -m pytest tests/` — ~4s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
+
+**API cleanup arc complete** (2026-07-20): dead ORM code dropped, redundant `_dedupe_sources` dropped, generic `upsert_many` dispatcher shipped. Step 3 (extract raw SQL to `queries.py`) skipped indefinitely as "rearranging deck chairs." See `docs/CLEANUP_PLAN.md` for full history.
 
 **See `docs/RING_BEHAVIOR.md`** for:
 - Firmware quirks, per-data-type reference (command, publish cadence, etc.)
@@ -79,9 +88,9 @@ All 8 raw data types and the 5 health scores (including unified Readiness 0-100)
 **See `TASKS.md`** for CFW ideas, readiness improvements, and open backlog.
 
 **High-signal recent facts (verify via DB + source):**
-- Clock sync uses the sacred local BCD `set_time_local()` + ack path (clock_drift_ms=1 means success).
+- Clock sync uses the sacred local BCD `set_time_local()` + ack path (clock_drift_ms=1 means success). `_encode_time_bcd` is the pure helper, pinned byte-for-byte by `tests/test_time_sync_bcd.py`.
 - Poller auto-reaps stuck `sync_log` rows.
-- Source dedup prefers ring data.
+- Source dedup runs in analytics (`collector/analytics/dedupe.py:dedupe_sources()`) — single source of truth, runs before scorers every analytics pass. API-side `_dedupe_sources` removed (was redundant).
 
 ---
 
@@ -206,5 +215,5 @@ Keep only high-signal recent sessions. For prior work: `git log --oneline` and `
 - **Secrets:** Never commit. Update `.env.example` for new env vars.
 - **Runtime:** Collector = bare-metal venv; API + DB = Podman. Never `systemctl --user`; services are system-level.
 - **BLE protocol:** Cross-reference Gadgetbridge `yawell/ring` + `colmi.puxtril.com`.
-- **Never raw Python to the ring.** Always use `sync_ring.py --forget` (or `first_contact.py`). The R09 needs the forget+repair+wake flow.
+- **Never raw Python to the ring.** Always use `python -m collector.sync_ring --forget` (or `python -m collector.first_contact`). The R09 needs the forget+repair+wake flow.
 - **No wrapper services or shims.** If autostart is broken, find the real missing dependency instead of writing `smart-ring-startup.service`.
