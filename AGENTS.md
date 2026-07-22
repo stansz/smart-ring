@@ -15,6 +15,8 @@ Private, self-hosted health tracking around the **Colmi R09** (~$45 CAD).
 
 **BLE address** is in `.env` as `RING_ADDRESS`. Ring size 11. Host on 24/7.
 
+**Target device is Android.** The dashboard's phone sync uses Web Bluetooth, which iOS doesn't support (and never will — WebKit has no implementation). Don't propose iOS workarounds (Bluefy, WebBLE, native apps), don't flag iOS as a limitation in plans, and don't bend designs to accommodate iOS. The PWA installs fine on iOS as a read-only dashboard; that's a side-effect, not a target.
+
 ---
 
 ## Current Architecture
