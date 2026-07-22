@@ -77,7 +77,26 @@
 
 ---
 
-## Phase 4: Future
+## Phase 4: PWA ✅ DONE (2026-07-21)
+
+Dashboard ships as installable PWA. Manifest + offline-shell SW + 5 PNG icons
+(regular/maskable/192/512/apple-180) generated via `scripts/gen_icons.py`.
+
+| # | Task | Status |
+|---|------|--------|
+| 1 | `dashboard/manifest.webmanifest` (name, theme #2563eb, display:standalone, 4 icons) | ✅ |
+| 2 | `dashboard/sw.js` — offline-shell strategies (network-first `/api/*` + navigations, SWR CDN, cache-first static, network-only POST) | ✅ |
+| 3 | Icons (192/512/maskable-192/maskable-512/apple-180) via Pillow one-shot | ✅ |
+| 4 | `api/main.py`: `/sw.js` + `/manifest.webmanifest` root routes (Service-Worker-Allowed: /) | ✅ |
+| 5 | `dashboard/index.html`: PWA meta tags + feature-detected SW registration | ✅ |
+| 6 | Verified live on Android Chrome | ✅ |
+
+See `docs/PWA_PLAN.md` for full details. 132/132 tests still pass; no Python
+logic touched.
+
+---
+
+## Phase 5: Future
 
 | # | Task |
 |---|------|
@@ -155,7 +174,7 @@ Phone (Web Bluetooth) and ring (Linux box) sample the same physical slots, so ~9
 ## Quick Status Check
 
 ```bash
-# Full regression net (65 tests, ~4s) — run before any refactor
+# Full regression net (132 tests, ~5s) — run before any refactor
 venv/bin/python3 -m pytest tests/
 
 # Verify all sensors working
