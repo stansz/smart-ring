@@ -256,18 +256,16 @@
              </div>
          </div>
 
-        <!-- Current Status: live intra-day recovery score (drifts during the day) -->
+        <!-- Current Status: live intra-day recovery score (drifts during the day).
+             3-card layout — Vibe (hero, with score sparkline) + Stress + Trend.
+             HRV/HR are dropped: HRV is already in Recovery section, HR is in
+             the Vitals chart. Only Vibe + Trend are unique to this card; Stress
+             stays because its Low/Med/High classification is unique context. -->
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-100 dark:border-gray-700 mb-8">
             <div class="px-6 py-4">
                 <div class="flex justify-between items-baseline mb-3">
                     <div class="flex items-center gap-2 flex-wrap">
                         <h2 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Current Status</h2>
-                        <!-- Vibe label + composite score (header line, replaces the old ladder) -->
-                        <span x-show="currentStatusScore != null" class="inline-flex items-center gap-1.5 text-sm">
-                            <span class="text-base leading-none" x-text="currentStatusVibe().emoji"></span>
-                            <span class="font-semibold" :class="currentStatusVibe().colorClass" x-text="currentStatusVibe().label"></span>
-                            <span class="text-gray-400 dark:text-gray-500" x-text="'· ' + currentStatusScore"></span>
-                        </span>
                         <!-- "Live" indicator: pulses when fresh data is available -->
                         <span class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 font-medium uppercase tracking-wide">
                             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -278,67 +276,111 @@
                     <span class="text-xs text-gray-400 dark:text-gray-500" x-text="currentStatusUpdated ? 'as of ' + currentStatusUpdated : ''"></span>
                 </div>
 
-                <!-- Vitals panel: 4 equal cards with real values, comparison context,
-                     and optional sparklines. Replaces the old vibe-ladder + 0-100 bars:
-                     the ladder ate 176px wide to say "you are on rung 3", and the abstract
-                     0-100 component scores didn't carry actionable meaning. Now we show
-                     the underlying units (ms / bpm / 0-99 / per-hour) directly. -->
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <!-- HRV -->
-                    <div class="rounded-lg border border-gray-100 dark:border-gray-700 p-3">
-                        <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">HRV</p>
-                        <p class="text-xl font-semibold text-purple-600 dark:text-purple-400 leading-tight"
-                           x-text="currentStatusHrvMs != null ? Math.round(currentStatusHrvMs) + ' ms' : '—'"></p>
-                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5"
-                           x-text="currentStatusHrvZDisplay() ? currentStatusHrvZDisplay() + ' vs baseline' : ''"></p>
-                        <!-- Sparkline of HRV z-score history (last 12 snapshots) -->
-                        <svg x-show="currentStatusHrvHistory.length >= 2" viewBox="0 0 60 20"
-                             class="w-full h-5 mt-1.5 text-purple-400 dark:text-purple-500 overflow-visible">
-                            <path :d="sparklinePath(currentStatusHrvHistory)"
-                                  fill="none" stroke="currentColor" stroke-width="1.5"
-                                  stroke-linecap="round" stroke-linejoin="round"></path>
-                        </svg>
+                <!-- 3-card vitals panel.
+                     Asymmetric grid: vibe is narrow (just the ladder text),
+                     stress + trend get more room so the sparkline can stretch
+                     and the trend explanation has space to breathe. -->
+                <div class="grid grid-cols-1 sm:grid-cols-5 gap-3">
+                    <!-- VIBE — 5-rung ladder showing where you are on the spectrum.
+                         No title; the ladder is self-explanatory. Active rung is
+                         highlighted (full opacity + larger emoji), others are faded. -->
+                    <div class="sm:col-span-1 rounded-lg border border-gray-100 dark:border-gray-700 p-3">
+                        <div class="space-y-1.5">
+                            <template x-for="rung in currentStatusLadder()" :key="rung.label">
+                                <div class="flex items-center gap-2.5 transition-all duration-200"
+                                     :class="rung.active ? 'opacity-100' : 'opacity-40'">
+                                    <span class="transition-transform duration-200 leading-none"
+                                          :class="rung.active ? 'text-2xl' : 'text-lg'"
+                                          x-text="rung.emoji"></span>
+                                    <span class="text-sm font-medium whitespace-nowrap"
+                                          :class="rung.colorClass"
+                                          x-text="rung.active && currentStatusScore != null ? rung.label + ' · ' + currentStatusScore : rung.label"></span>
+                                </div>
+                            </template>
+                        </div>
                     </div>
-                    <!-- HR -->
-                    <div class="rounded-lg border border-gray-100 dark:border-gray-700 p-3">
-                        <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Heart Rate</p>
-                        <p class="text-xl font-semibold text-rose-600 dark:text-rose-400 leading-tight"
-                           x-text="currentStatusHrBpm != null ? currentStatusHrBpm + ' bpm' : '—'"></p>
-                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5"
-                           x-text="currentStatusHrDelta != null
-                               ? (currentStatusHrDelta >= 0 ? '+' : '') + currentStatusHrDelta + ' over RHR' + (currentStatusRhrBaseline != null ? ' ' + currentStatusRhrBaseline : '')
-                               : ''"></p>
-                    </div>
-                    <!-- Stress -->
-                    <div class="rounded-lg border border-gray-100 dark:border-gray-700 p-3">
-                        <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Stress</p>
+                    <!-- STRESS — raw 0-99 + Low/Med/High + sparkline with axis labels.
+                         Y-axis: 0/50/99 (Garmin scale). X-axis: oldest snapshot ts + "now". -->
+                    <div class="sm:col-span-2 rounded-lg border border-gray-100 dark:border-gray-700 p-3 flex flex-col">
+                        <div class="flex items-baseline justify-between mb-1">
+                            <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Stress</p>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400"
+                               x-text="currentStatusStressRaw != null ? currentStatusStressRaw + ' / 99 · ' + currentStatusStressLabel() + ' · 2h avg' : ''"></p>
+                        </div>
+                        <!-- Big value -->
                         <p class="text-xl font-semibold text-amber-600 dark:text-amber-400 leading-tight"
                            x-text="currentStatusStressRaw != null ? currentStatusStressRaw + ' / 99' : '—'"></p>
-                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5"
-                           x-text="currentStatusStressRaw != null ? currentStatusStressLabel() + ' · 2h avg' : ''"></p>
-                        <!-- Sparkline of raw stress history (last 12 snapshots) -->
-                        <svg x-show="currentStatusStressHistory.length >= 2" viewBox="0 0 60 20"
-                             class="w-full h-5 mt-1.5 text-amber-400 dark:text-amber-500 overflow-visible">
-                            <path :d="sparklinePath(currentStatusStressHistory)"
-                                  fill="none" stroke="currentColor" stroke-width="1.5"
-                                  stroke-linecap="round" stroke-linejoin="round"></path>
-                        </svg>
+                        <!-- Chart + axes. Y labels on left, sparkline fills remaining width,
+                             X labels under. Hidden when insufficient history. -->
+                        <div x-show="currentStatusStressHistory.length >= 2" class="flex gap-1.5 mt-2 flex-1 min-h-[50px]">
+                            <!-- Y-axis labels: 99 top, 50 mid, 0 bottom. Justify-between matches
+                                 the sparkline's vertical extent (0 at bottom, 99 at top). -->
+                            <div class="flex flex-col justify-between text-[9px] text-gray-400 dark:text-gray-500 py-0.5 leading-none">
+                                <span>99</span>
+                                <span>50</span>
+                                <span>0</span>
+                            </div>
+                            <!-- Chart + X-axis -->
+                            <div class="flex-1 flex flex-col">
+                                <svg viewBox="0 0 60 20"
+                                     preserveAspectRatio="none"
+                                     class="w-full flex-1 min-h-[36px] text-amber-400 dark:text-amber-500 overflow-visible">
+                                    <path :d="sparklinePath(currentStatusStressHistory)"
+                                          fill="none" stroke="currentColor" stroke-width="1.5"
+                                          stroke-linecap="round" stroke-linejoin="round"
+                                          vector-effect="non-scaling-stroke"></path>
+                                </svg>
+                                <!-- X-axis: oldest snapshot time on left, "now" on right -->
+                                <div class="flex justify-between text-[9px] text-gray-400 dark:text-gray-500 mt-0.5 leading-none">
+                                    <span x-text="currentStatusOldestStressTsDisplay()"></span>
+                                    <span>now</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <!-- Trend (HRV slope over last 2h) -->
-                    <div class="rounded-lg border border-gray-100 dark:border-gray-700 p-3">
-                        <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Trend <span class="font-normal normal-case text-gray-400">(HRV 2h)</span></p>
+                    <!-- TREND — HRV slope over last 2h shown as position on a falling↔rising
+                         gradient. Dot position = slope (±1.0/hr clamped). Zone widths match
+                         the ±0.5 bands: Falling 0-25%, Steady 25-75%, Rising 75-100%. -->
+                    <div class="sm:col-span-2 rounded-lg border border-gray-100 dark:border-gray-700 p-3 flex flex-col">
+                        <div class="flex items-baseline justify-between mb-1">
+                            <p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Trend <span class="font-normal normal-case text-gray-400">(HRV 2h)</span></p>
+                            <p class="text-[11px]"
+                               :class="currentStatusTrendLabel().colorClass"
+                               x-text="currentStatusTrendLabel().detail"></p>
+                        </div>
+                        <!-- Big value: arrow + label -->
                         <p class="text-xl font-semibold leading-tight"
                            :class="currentStatusTrendLabel().colorClass"
                            x-text="currentStatusHrvSlope != null
                                ? currentStatusTrendLabel().arrow + ' ' + currentStatusTrendLabel().label
                                : '—'"></p>
-                        <p class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5"
-                           x-text="currentStatusTrendLabel().detail ? currentStatusTrendLabel().detail : ''"></p>
+                        <!-- Position indicator: gradient track + marker dot + zone labels.
+                             Wrapper div is the positioning context for the absolute dot.
+                             flex-1 + flex-col + mt-auto on the explanation pushes it to
+                             the bottom so the card fills its grid cell height. -->
+                        <div class="mt-3 flex-1 flex flex-col" x-show="currentStatusHrvSlope != null">
+                            <!-- Track -->
+                            <div class="relative h-2 rounded-full bg-gradient-to-r from-amber-500 via-gray-300 dark:via-gray-600 to-emerald-500">
+                                <!-- Marker dot. Left% set by currentStatusTrendPosition().
+                                     Centered via -translate-x-1/2; vertical centering via top-1/2 -translate-y-1/2. -->
+                                <div class="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white dark:bg-gray-800 border-2 shadow ring-2 ring-white dark:ring-gray-800"
+                                     :class="currentStatusHrvSlope > 0.5 ? 'border-emerald-500' : currentStatusHrvSlope < -0.5 ? 'border-amber-500' : 'border-gray-400 dark:border-gray-500'"
+                                     :style="`left: ${currentStatusTrendPosition()}%`"></div>
+                            </div>
+                            <!-- Zone labels. Widths match the slope bands (25/50/25). -->
+                            <div class="flex text-[9px] text-gray-500 dark:text-gray-400 mt-1.5 leading-none">
+                                <span class="w-1/4 text-left">Falling</span>
+                                <span class="w-1/2 text-center">Steady</span>
+                                <span class="w-1/4 text-right">Rising</span>
+                            </div>
+                            <!-- Explanation pushed to bottom (mt-auto) so the card fills
+                                 its grid cell height, matching the stress card. -->
+                            <p class="text-[10px] text-gray-400 dark:text-gray-500 mt-auto pt-2 leading-snug">
+                                HRV slope per hour (last 2h). Rising = recovering, Falling = fatiguing.
+                            </p>
+                        </div>
                     </div>
                 </div>
-                <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
-                    Live score from recent HRV, HR, stress, and trend. Updates each sync — naturally drifts during the day. Readiness (above) is frozen at 6 AM.
-                </p>
             </div>
         </div>
 
@@ -924,17 +966,12 @@
                 currentStatusScore: null,
                 currentStatusConfidence: 'full',
                 currentStatusUpdated: null,       // display string "HH:MM AM"
-                // Raw values for the vitals panel
-                currentStatusHrvMs: null,         // most recent raw HRV reading in ms
-                currentStatusHrvZ: null,          // z-score vs 7-day baseline
-                currentStatusHrBpm: null,         // most recent raw HR reading
-                currentStatusHrDelta: null,       // bpm over RHR baseline
+                // Raw values for the 3-card vitals panel (Vibe / Stress / Trend)
                 currentStatusStressRaw: null,     // raw 0-99 Garmin stress
                 currentStatusHrvSlope: null,      // HRV slope per hour over last 2h
-                currentStatusRhrBaseline: null,   // RHR baseline (bpm) — pulled from latest snapshot
                 // History arrays for sparklines (oldest → newest)
-                currentStatusHrvHistory: [],      // array of hrv_zscore values
-                currentStatusStressHistory: [],   // array of stress_recent values
+                currentStatusStressHistory: [],   // raw stress_recent values (for stress sparkline)
+                currentStatusStressHistoryTs: [], // parallel ISO timestamps (for X-axis labels)
 
                 // Data-quality stale-type banner
                 staleTypes: [],
@@ -1778,56 +1815,43 @@
                         if (!rows.length) {
                             this.currentStatusScore = null;
                             this.currentStatusUpdated = null;
-                            this.currentStatusHrvMs = null;
-                            this.currentStatusHrvZ = null;
-                            this.currentStatusHrBpm = null;
-                            this.currentStatusHrDelta = null;
                             this.currentStatusStressRaw = null;
                             this.currentStatusHrvSlope = null;
-                            this.currentStatusRhrBaseline = null;
-                            this.currentStatusHrvHistory = [];
                             this.currentStatusStressHistory = [];
+                            this.currentStatusStressHistoryTs = [];
                             return;
                         }
                         const latest = rows[0];  // API returns DESC by ts
                         this.currentStatusScore = latest.score;
                         this.currentStatusConfidence = latest.confidence || 'full';
                         this.currentStatusUpdated = new Date(latest.ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-                        // Raw values for the vitals panel (new fields)
-                        this.currentStatusHrvMs = latest.recent_hrv_ms;
-                        this.currentStatusHrvZ = latest.hrv_zscore;
-                        this.currentStatusHrBpm = latest.recent_hr_bpm;
-                        this.currentStatusHrDelta = latest.hr_delta;
+                        // Raw values for the 3-card panel
                         this.currentStatusStressRaw = latest.stress_recent;
                         this.currentStatusHrvSlope = latest.hrv_trend;
-                        // RHR baseline = recent HR − delta (if both present)
-                        this.currentStatusRhrBaseline = (
-                            latest.recent_hr_bpm != null && latest.hr_delta != null
-                        ) ? (latest.recent_hr_bpm - latest.hr_delta) : null;
                         // History for sparklines (API returns DESC, we want oldest → newest)
                         // Cap at last 12 snapshots to keep sparklines legible.
                         const hist = rows.slice(0, 12).reverse();
-                        this.currentStatusHrvHistory = hist
-                            .map(r => r.hrv_zscore)
-                            .filter(v => v != null);
                         this.currentStatusStressHistory = hist
                             .map(r => r.stress_recent)
+                            .filter(v => v != null);
+                        this.currentStatusStressHistoryTs = hist
+                            .map(r => r.ts)
                             .filter(v => v != null);
                     } catch (e) { console.error('loadCurrentStatus', e); }
                 },
 
-                // Vibe label for the Current Status header.
-                // Returns {emoji, label, colorClass} based on composite score.
-                // Thresholds mirror collector/analytics/current_status.py:LABELS
-                // so backend and UI agree on the vibe spectrum.
-                currentStatusVibe() {
+                // Vibe ladder — 5 rungs (Locked In → Gassed) with active flag based
+                // on currentStatusScore. Emoji + color mirror the score thresholds in
+                // collector/analytics/current_status.py:LABELS so backend and UI agree.
+                currentStatusLadder() {
                     const s = this.currentStatusScore;
-                    if (s == null) return {emoji: '—', label: '—', colorClass: 'text-gray-400'};
-                    if (s >= 80) return {emoji: '🔥', label: 'Locked In', colorClass: 'text-emerald-600 dark:text-emerald-400'};
-                    if (s >= 60) return {emoji: '💪', label: 'Solid',     colorClass: 'text-sky-600 dark:text-sky-400'};
-                    if (s >= 40) return {emoji: '🌊', label: 'Vibing',    colorClass: 'text-amber-600 dark:text-amber-400'};
-                    if (s >= 20) return {emoji: '😮‍💨', label: 'Winded', colorClass: 'text-orange-600 dark:text-orange-400'};
-                    return {emoji: '😴', label: 'Gassed', colorClass: 'text-red-500 dark:text-red-400'};
+                    return [
+                        {emoji: '🔥', label: 'Locked In', colorClass: 'text-emerald-600 dark:text-emerald-400', active: s != null && s >= 80},
+                        {emoji: '💪', label: 'Solid',     colorClass: 'text-sky-600 dark:text-sky-400',         active: s != null && s >= 60 && s < 80},
+                        {emoji: '🌊', label: 'Vibing',    colorClass: 'text-amber-600 dark:text-amber-400',    active: s != null && s >= 40 && s < 60},
+                        {emoji: '😮‍💨', label: 'Winded', colorClass: 'text-orange-600 dark:text-orange-400', active: s != null && s >= 20 && s < 40},
+                        {emoji: '😴', label: 'Gassed',    colorClass: 'text-red-500 dark:text-red-400',         active: s != null && s < 20},
+                    ];
                 },
 
                 // Trend label from HRV slope (per hour, last 2h).
@@ -1841,20 +1865,35 @@
                     return {arrow: '→', label: 'Steady', colorClass: 'text-gray-500 dark:text-gray-400', detail: fmt(s) + '/hr'};
                 },
 
-                // Stress label from raw Garmin 0-99 reading (last 2h avg).
+                // Stress label from raw 0-99 reading (last 2h avg).
+                // Bands follow the Garmin/Firstbeat standard (docs/RESEARCH.md):
+                // 0-50 relaxed/low, 51-75 medium (elevated), 76-100 high (acute).
                 currentStatusStressLabel() {
                     const s = this.currentStatusStressRaw;
                     if (s == null) return '—';
-                    if (s < 30) return 'Low';
-                    if (s < 70) return 'Medium';
+                    if (s <= 50) return 'Low';
+                    if (s <= 75) return 'Medium';
                     return 'High';
                 },
 
-                // HRV z-score → signed display string ("+0.4σ" / "−1.2σ").
-                currentStatusHrvZDisplay() {
-                    const z = this.currentStatusHrvZ;
-                    if (z == null) return null;
-                    return (z >= 0 ? '+' : '') + z.toFixed(1) + 'σ';
+                // Oldest timestamp in the stress history, formatted as "HH:MM".
+                // For the X-axis label on the sparkline. Returns '' if no history.
+                currentStatusOldestStressTsDisplay() {
+                    const ts = this.currentStatusStressHistoryTs[0];
+                    if (!ts) return '';
+                    return new Date(ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                },
+
+                // Trend position on the Falling↔Rising gradient, as 0-100%.
+                // Slope is clamped to ±1.0/hr (anything beyond is pinned to the edge).
+                // Mapping: slope=-1.0 → 0%, slope=0 → 50%, slope=+1.0 → 100%.
+                // Zone widths match currentStatusTrendLabel's ±0.5 bands:
+                //   0-25% = Falling, 25-75% = Steady, 75-100% = Rising.
+                currentStatusTrendPosition() {
+                    const s = this.currentStatusHrvSlope;
+                    if (s == null) return 50;
+                    const clamped = Math.max(-1.0, Math.min(1.0, s));
+                    return ((clamped + 1.0) / 2.0) * 100;
                 },
 
                 // SVG sparkline path for a numeric series.
