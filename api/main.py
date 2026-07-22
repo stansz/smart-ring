@@ -52,6 +52,30 @@ def root():
         headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
     )
 
+
+@app.get("/sw.js")
+def service_worker():
+    """Service worker must live at root scope to control '/' and all routes.
+    StaticFiles mount at /static/ would only give it /static/ scope."""
+    return FileResponse(
+        os.path.join(DASHBOARD_DIR, "sw.js"),
+        media_type="text/javascript",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    return FileResponse(
+        os.path.join(DASHBOARD_DIR, "manifest.webmanifest"),
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 @app.get("/health")
 def health():
     with SessionLocal() as db:
