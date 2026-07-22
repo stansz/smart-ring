@@ -98,9 +98,11 @@ Ring syncs when away from home → data reaches Linux box Postgres → analytics
 
 ### What to Build
 
-#### 1. PWA Setup (already mostly done)
-- `manifest.json` — name, icons, `display: standalone`
-- `service-worker.js` — cache static assets, offline shell
+#### 1. PWA Setup ✅ DONE (2026-07-21)
+- `dashboard/manifest.webmanifest` — name, icons, `display: standalone`
+- `dashboard/sw.js` — offline-shell service worker (network-first for `/api/*` + navigations, SWR for CDN, cache-first for static)
+- Icons (192/512/maskable/apple-180) generated via `scripts/gen_icons.py`
+- See `docs/PWA_PLAN.md` for full details.
 
 #### 2. WebBluetooth Module (the main work)
 ```

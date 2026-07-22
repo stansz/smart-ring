@@ -68,16 +68,19 @@ Source unit files live in `~/.config/systemd/user/`; deploy with `sudo cp ... /e
 | `api/main.py` | FastAPI app + all endpoints (mobile_sync uses dispatch loop) |
 | `api/upsert.py` | `upsert_many` generic dispatcher for simple point tables |
 | `dashboard/index.html` | Pure client-side UI (Alpine.js + Tailwind, no build) |
+| `dashboard/manifest.webmanifest` + `sw.js` | PWA manifest + offline-shell service worker |
+| `scripts/gen_icons.py` | One-shot Pillow icon generator (192/512/maskable/apple-180) |
 | `tests/` + `pytest.ini` | 132-test regression net (trap_score, BCD, dedupe, mobile_sync, current_status, readiness_freeze) |
 | `docs/RING_BEHAVIOR.md` | Firmware quirks, data publish cadence, logger stall |
 | `docs/RESEARCH.md` | Scoring formulas & methodology (Morning Readiness + Current Status) |
 | `docs/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
+| `docs/PWA_PLAN.md` | PWA strategies, manifest, service worker design |
 
 ---
 
 ## Current State
 
-All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable.
+All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
 **Test suite:** 132 tests across 6 files (`tests/test_{trap_score,time_sync_bcd,dedupe,mobile_sync,current_status,readiness_freeze}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~5s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
 
@@ -105,6 +108,19 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-21 — PWA (installable + offline shell)
+- Dashboard is now an installable PWA. Manifest + service worker + 5 PNG icons
+  (regular/maskable/192/512/apple-180) generated via `scripts/gen_icons.py`
+  (Pillow, one-shot). Verified live on Android Chrome.
+- SW strategies: network-first for `/api/*` + navigations, stale-while-revalidate
+  for CDN assets (Alpine + Tailwind), cache-first for `/static/*`. Mobile sync
+  POST stays network-only — errors surface via existing banner.
+- `api/main.py` got two new root-scope routes (`/sw.js`, `/manifest.webmanifest`)
+  because the existing `/static` mount would only give the SW `/static/` scope.
+  SW response carries `Service-Worker-Allowed: /`.
+- No build step added; no Python logic touched; 132/132 tests still pass.
+- See `docs/PWA_PLAN.md`.
 
 ### 2026-07-20 — Morning Readiness (frozen) + Current Status (live)
 - Replaced the dynamic-readiness model (where today's score drifted during

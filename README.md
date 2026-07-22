@@ -44,7 +44,7 @@ Home Network
        └─ python -m collector.sync_ring --forget  (force-sync outside the poller)
 ```
 
-Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; sleep donut; circadian HR line graph; vitals chart with HR + SpO₂ + Temp triple-axis; dark mode toggle), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, trend charts for HRV/sleep/stress/resting-HR with 7d/14d/30d/90d range selector), and **Admin** (ring status, manual sync controls, full sync log, system health, raw data tables). No build step.
+Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; sleep donut; circadian HR line graph; vitals chart with HR + SpO₂ + Temp triple-axis; dark mode toggle), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, trend charts for HRV/sleep/stress/resting-HR with 7d/14d/30d/90d range selector), and **Admin** (ring status, manual sync controls, full sync log, system health, raw data tables). No build step. **Installable PWA** — manifest + offline-shell service worker + icons; install to home screen on Android Chrome (or any Chromium browser), works offline once cached. See [`docs/PWA_PLAN.md`](docs/PWA_PLAN.md).
 
 ## Usage
 
@@ -66,7 +66,7 @@ venv/bin/python3 -m collector.sync_ring --forget  # full sync to Postgres (forge
 #   (the poller watches sync_requests every 30s — no manual cron)
 
 # Run the regression net before any refactor
-venv/bin/python3 -m pytest tests/               # 65 tests, ~4s
+venv/bin/python3 -m pytest tests/               # 132 tests, ~5s
 ```
 
 ## Documentation
@@ -76,6 +76,7 @@ Detailed docs live in **[`docs/`](docs/)**:
 - **[`docs/RING_BEHAVIOR.md`](docs/RING_BEHAVIOR.md)** — empirical Colmi R09 behavior: connection quirks, per-data-type reference (interval / buffer / publish cadence / format), V2 big-data protocol, background-logger stall, time-sync.
 - **[`docs/RESEARCH.md`](docs/RESEARCH.md)** — hardware specs, validated score formulas (with peer-reviewed citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis, Oura comparison.
 - **[`docs/ROADMAP.md`](docs/ROADMAP.md)** — mobile sync design (WebBluetooth PWA + Gadgetbridge fork options).
+- **[`docs/PWA_PLAN.md`](docs/PWA_PLAN.md)** — installable PWA: manifest, offline-shell service worker strategies, icon generation, verification.
 - **[`docs/CLEANUP_PLAN.md`](docs/CLEANUP_PLAN.md)** — refactor history (collector/analytics Phases 0–4 + API cleanup Steps 1, 2, 4 + Tier 1 test suite). All complete.
 - **[`docs/DASHBOARD_REWRITE_PLAN.md`](docs/DASHBOARD_REWRITE_PLAN.md)** — future dashboard modernization (not started).
 - **[`AGENTS.md`](AGENTS.md)** — operational/deployment context (architecture, service commands, current state, work log).
@@ -136,6 +137,7 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - **Analytics tab**: Data pipeline reference (ring-measured vs ring-computed vs our-validated-score), score breakdown cards with expandable formula explanations, 4 trend charts (HRV recovery, sleep quality, stress, resting HR) with 7d/14d/30d/90d range selector + hover crosshair tooltips
 - **Admin tab**: Sync Now, ring status, full sync log, system health, raw data tables
 - **Phone sync**: Web Bluetooth ("📱 BLE" button) — syncs ring from Android Chrome, posts to `/api/mobile/sync`, dedup on insert (ring canonical, phone fills gaps)
+- **PWA**: Installable to home screen (manifest + offline-shell service worker); UI loads without network, data goes stale but never white. `/api/mobile/sync` POST stays network-only.
 
 ### How it works
 ```
