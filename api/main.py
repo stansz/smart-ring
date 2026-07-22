@@ -147,6 +147,16 @@ def get_current_status(hours: int = 24):
       stress_component — recent raw stress (inverted)
       trend_component  — HRV slope over last 2h
 
+    Raw values exposed for the vitals panel UI:
+      hrv_zscore       — z-score of recent HRV vs ln-normal 7-day baseline
+      hr_delta         — recent HR − RHR baseline (bpm)
+      stress_recent    — raw 0-99 stress reading (last 2h avg)
+      hrv_trend        — HRV slope (per hour) over last 2h
+      recent_hrv_ms    — most recent raw HRV reading at/before snapshot ts
+                         (latest row only — NULL for history rows)
+      recent_hr_bpm    — most recent raw HR reading at/before snapshot ts
+                         (latest row only — NULL for history rows)
+
     `confidence` is 'partial' if any component is missing, 'full' otherwise.
     """
     with SessionLocal() as db:
@@ -158,7 +168,27 @@ def get_current_status(hours: int = 24):
             WHERE ts >= NOW() - INTERVAL ':hours hours'
             ORDER BY ts DESC
         """), {"hours": hours}).mappings().all()
-    return [dict(r) for r in rows]
+
+    if not rows:
+        return []
+
+    # Augment the latest row only with raw recent_hrv_ms + recent_hr_bpm.
+    # History rows don't need these (sparklines use hrv_zscore / stress_recent).
+    latest_ts = rows[0]["computed_at"] or rows[0]["ts"]
+    raw = db.execute(text("""
+        SELECT
+          (SELECT hrv_value FROM raw_hrv
+             WHERE hrv_value > 0 AND ts <= :ts
+             ORDER BY ts DESC LIMIT 1) AS recent_hrv_ms,
+          (SELECT bpm FROM raw_heart_rate
+             WHERE ts <= :ts
+             ORDER BY ts DESC LIMIT 1) AS recent_hr_bpm
+    """), {"ts": latest_ts}).mappings().first()
+
+    out = [dict(r) for r in rows]
+    out[0]["recent_hrv_ms"] = raw["recent_hrv_ms"] if raw else None
+    out[0]["recent_hr_bpm"] = raw["recent_hr_bpm"] if raw else None
+    return out
 
 
 @app.get("/api/sleep")
