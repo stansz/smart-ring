@@ -1807,13 +1807,21 @@
                 },
 
                 async loadCurrentStatus() {
-                    // Fetch the latest Current Status snapshot from /api/current-status.
-                    // Populates the live intra-day card. Called on init + after each sync.
+                    // Fetch Current Status snapshots, then filter to the selected day.
+                    // Current Status is a live "right now" metric (one row per analytics
+                    // pass); for a past day we show that day's last snapshot, labeled by
+                    // its "as of HH:MM" timestamp so a moment-snapshot isn't mistaken for
+                    // a day average. A day with no snapshots → every field nulled → blank
+                    // card. No stale data ever leaks from another day.
                     try {
-                        const res = await fetch('/api/current-status?hours=24');
+                        const res = await fetch('/api/current-status?hours=168');
                         const rows = await res.json();
-                        if (!rows.length) {
+                        // Same date-filter idiom as the raw_* loaders (lines 1163, 2349).
+                        const selKey = this.dateKey(this.selectedDate || new Date());
+                        const dayRows = rows.filter(r => r.ts && this.dateKey(new Date(r.ts)) === selKey);
+                        if (!dayRows.length) {
                             this.currentStatusScore = null;
+                            this.currentStatusConfidence = 'full';
                             this.currentStatusUpdated = null;
                             this.currentStatusStressRaw = null;
                             this.currentStatusHrvSlope = null;
@@ -1821,16 +1829,16 @@
                             this.currentStatusStressHistoryTs = [];
                             return;
                         }
-                        const latest = rows[0];  // API returns DESC by ts
+                        const latest = dayRows[0];  // API returns DESC by ts → first of day = latest
                         this.currentStatusScore = latest.score;
                         this.currentStatusConfidence = latest.confidence || 'full';
                         this.currentStatusUpdated = new Date(latest.ts).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
                         // Raw values for the 3-card panel
                         this.currentStatusStressRaw = latest.stress_recent;
                         this.currentStatusHrvSlope = latest.hrv_trend;
-                        // History for sparklines (API returns DESC, we want oldest → newest)
-                        // Cap at last 12 snapshots to keep sparklines legible.
-                        const hist = rows.slice(0, 12).reverse();
+                        // History for sparklines — this day's snapshots, oldest → newest,
+                        // capped at 12 to keep the sparkline legible.
+                        const hist = dayRows.slice(0, 12).reverse();
                         this.currentStatusStressHistory = hist
                             .map(r => r.stress_recent)
                             .filter(v => v != null);

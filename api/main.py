@@ -135,11 +135,13 @@ def get_readiness(days: int = 7):
 
 
 @app.get("/api/current-status")
-def get_current_status(hours: int = 24):
+def get_current_status(hours: int = 168):
     """Current Status snapshots (live intra-day score), latest first.
 
-    One row per analytics pass. The latest row (rows[0]) is the current
-    snapshot. Earlier rows let the client draw an intra-day trend chart.
+    One row per analytics pass. Default window is 168h (7 days) so the
+    dashboard can filter to any selected day client-side (matches the
+    raw_* endpoints). The latest row of a given day is that day's most
+    recent snapshot; earlier rows that day drive the intra-day sparkline.
 
     Components (each 0-100, may be NULL if input data missing):
       hrv_component    — recent HRV z-score vs 7-day baseline
