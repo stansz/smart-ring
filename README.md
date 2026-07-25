@@ -78,7 +78,7 @@ Detailed docs live in **[`docs/`](docs/)**:
 - **[`docs/ROADMAP.md`](docs/ROADMAP.md)** — mobile sync design (WebBluetooth PWA + Gadgetbridge fork options).
 - **[`docs/PWA_PLAN.md`](docs/PWA_PLAN.md)** — installable PWA: manifest, offline-shell service worker strategies, icon generation, verification.
 - **[`docs/CLEANUP_PLAN.md`](docs/CLEANUP_PLAN.md)** — refactor history (collector/analytics Phases 0–4 + API cleanup Steps 1, 2, 4 + Tier 1 test suite). All complete.
-- **[`docs/DASHBOARD_REWRITE_PLAN.md`](docs/DASHBOARD_REWRITE_PLAN.md)** — future dashboard modernization (not started).
+- **[`docs/PACKAGED_APP.md`](docs/PACKAGED_APP.md)** — design review for a standalone, container-free, SQLite-backed packaged app (Gadgetbridge model).
 - **[`AGENTS.md`](AGENTS.md)** — operational/deployment context (architecture, service commands, current state, work log).
 - **[`TASKS.md`](TASKS.md)** — phase history, open backlog, CFW ideas, readiness improvements.
 
