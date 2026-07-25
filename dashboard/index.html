@@ -2714,7 +2714,7 @@
                     }
                 },
 
-                syncFromPhone() {
+                async syncFromPhone() {
                     if (!navigator.bluetooth) {
                         alert('Web Bluetooth requires Android Chrome. Not available on this device.');
                         return;
@@ -2723,7 +2723,23 @@
                         alert('Sync module not loaded. Try refreshing the page.');
                         return;
                     }
-                    window.ringSyncFromPhone();
+                    try {
+                        await window.ringSyncFromPhone();
+                        await this.loadRingStatus();
+                        await this.loadAdminSyncLog();
+                        await this.loadDashboard();
+
+                        this.syncQueueBusy = true;
+                        this.syncQueueStatus = 'Computing scores...';
+                        this.syncStartTime = new Date();
+                        this.syncProgress = '';
+                        this._startElapsedTimer();
+                        this.wasSyncing = true;
+                        await this.loadSyncRequests();
+                        this.startPolling();
+                    } catch (e) {
+                        console.error('syncFromPhone:', e);
+                    }
                 },
 
                 async queueSync() {
