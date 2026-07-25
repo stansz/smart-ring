@@ -29,8 +29,9 @@ Ring ──BLE──> Linux Box (bare metal, forget+repair each sync)
                 └─ smart-ring-api.service     (system systemd, User=sz, rootless Podman)
                      └─ serves dashboard, all API endpoints
 
-Source files: ~/.config/systemd/user/smart-ring-*.service (edit here)
-Active:       /etc/systemd/system/smart-ring-*.service (sudo cp to deploy)
+Project root:  /opt/smart-ring/code                          (code + venv — OUTSIDE the encrypted home; see note below)
+Podman storage:/opt/smart-ring/.local/share/containers       (rootless; located via XDG_DATA_HOME in the units)
+Unit files:    /etc/systemd/system/smart-ring-*.service      (CANONICAL — edit directly; no user-unit mirror)
 ```
 
 **Critical facts (do not violate):**
@@ -39,9 +40,12 @@ Active:       /etc/systemd/system/smart-ring-*.service (sudo cp to deploy)
 - **R09 single-connection**: Linux box holds the BLE connection; `forget_ring()` releases the ring for phone use.
 - **Poller** (`smart-ring-poller.service`): DB-only 30s loop. Watches `sync_requests`, dispatches jobs, then runs analytics. Auto-reaps stuck `sync_log` rows.
 - **Services are system-level** (`/etc/systemd/system/`, `User=sz`). Never use `systemctl --user` for production autostart. Use `sudo systemctl`.
+- **Code + Podman storage live at `/opt/smart-ring`, NOT `/home/sz`.** Reason: `/home/sz` is an **ecryptfs encrypted home** — it only decrypts on login, so anything stored there is unreachable at boot and boot-time services fail (`mkdir ... permission denied`) until someone logged in. That's why the project was relocated out of the home (2026-07-24). **Never move service data/code back into `/home/sz`.** This mirrors how `ollama` (dedicated system user) and the Win10 VM (`/opt/vmware`) already autostart reliably.
 
 ### Key commands
+Run from the project root `/opt/smart-ring/code` (commands use relative paths). Note: the venv was relocated on 2026-07-24, so its `bin/pip` / `bin/pytest` shebangs are stale — always invoke via `venv/bin/python3 -m pip` / `venv/bin/python3 -m pytest`.
 ```bash
+cd /opt/smart-ring/code
 sudo systemctl restart smart-ring-api smart-ring-poller
 sudo journalctl -u smart-ring-poller -f
 venv/bin/python3 -m collector.sync_ring --forget
@@ -50,7 +54,7 @@ venv/bin/python3 -m pytest tests/                # full regression net (65 tests
 podman exec smart-ring-db psql -U smart_ring -d smart_ring
 ```
 
-Source unit files live in `~/.config/systemd/user/`; deploy with `sudo cp ... /etc/systemd/system/ && daemon-reload`.
+Unit files are canonical at `/etc/systemd/system/smart-ring-*.service` — edit them directly there. (The old `~/.config/systemd/user/` mirrors were removed on 2026-07-24.) After editing: `sudo systemctl daemon-reload && sudo systemctl restart smart-ring-db smart-ring-api smart-ring-poller`.
 
 ---
 
@@ -108,6 +112,14 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-24 — Moved project out of encrypted home (the real autostart fix)
+- **Root cause of the recurring autostart failure:** project data + code lived in `/home/sz` (ecryptfs encrypted home), which only decrypts on login → boot-time services failed with `mkdir /home/sz/.local: permission denied` until someone logged in. This is why "autostart" never worked headless across prior sessions.
+- **Fix:** relocated everything to `/opt/smart-ring` (outside the encrypted home): code → `/opt/smart-ring/code`, Podman storage → `/opt/smart-ring/.local/share/containers` (via `XDG_DATA_HOME=` in the units). System units set `WantedBy=multi-user.target` + `After=user@1000.service network-online.target`.
+- **Rebuild, not move:** naive `mv` of podman storage broke (libpod DB hardcodes its path) and the venv's editable-install + script shebangs pointed at the old path. So: storage reset + image rebuilt from `api/Dockerfile`, DB restored from a `pg_dump`, editable install re-run (`venv/bin/python3 -m pip install -e . --no-deps`). Direct `venv/bin/pip`/`pytest` shebangs are still stale — use `python3 -m`.
+- **Verified by a real cold reboot (no login):** all 3 services came up at boot, zero encrypted-home errors. (Poller has a harmless ~10s DB-not-ready blip on first boot; self-heals via `Restart=on-failure`.)
+- **Also deleted** the 142 GB stale Win10 VM dupe in `/home/sz/vmware` (live VM is at `/opt/vmware`); cleaned VMware inventory + preferences.
+- **Lesson (do not repeat):** stale `~/.config/systemd/user/` unit mirrors and `/home/sz` paths in docs misled multiple sessions into chasing the wrong layer (linger, user-vs-system). Canonical units = `/etc/systemd/system/`; canonical code = `/opt/smart-ring/code`. **Always verify autostart with a cold-reboot + boot-log check, never an "is it running now" check.**
 
 ### 2026-07-21 — PWA (installable + offline shell)
 - Dashboard is now an installable PWA. Manifest + service worker + 5 PNG icons
@@ -181,7 +193,7 @@ For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
 - **When editing:** Update the work log above. Keep it lean — details go in `docs/` or git history.
 - **Secrets:** Never commit. Update `.env.example` for new env vars.
-- **Runtime:** Collector = bare-metal venv; API + DB = Podman. Never `systemctl --user`; services are system-level.
+- **Runtime:** Collector = bare-metal venv; API + DB = Podman. Never `systemctl --user`; services are system-level. Project root is `/opt/smart-ring/code` (NOT `/home/sz` — encrypted home breaks boot autostart; see 2026-07-24 entry).
 - **BLE protocol:** Cross-reference Gadgetbridge `yawell/ring` + `colmi.puxtril.com`.
 - **Never raw Python to the ring.** Always use `python -m collector.sync_ring --forget` (or `python -m collector.first_contact`). The R09 needs the forget+repair+wake flow.
 - **No wrapper services or shims.** If autostart is broken, find the real missing dependency instead of writing `smart-ring-startup.service`.
