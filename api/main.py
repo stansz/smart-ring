@@ -150,13 +150,13 @@ def get_current_status(hours: int = 168):
       hrv_component    — recent HRV z-score vs 7-day baseline
       hr_component     — recent HR delta from RHR baseline
       stress_component — recent raw stress (inverted)
-      trend_component  — HRV slope over last 2h
+      trend_component  — HRV slope over last 3h
 
     Raw values exposed for the vitals panel UI:
       hrv_zscore       — z-score of recent HRV vs ln-normal 7-day baseline
       hr_delta         — recent HR − RHR baseline (bpm)
-      stress_recent    — raw 0-99 stress reading (last 2h avg)
-      hrv_trend        — HRV slope (per hour) over last 2h
+      stress_recent    — raw 0-99 stress reading (last 3h avg)
+      hrv_trend        — HRV slope (per hour) over last 3h
 
     `confidence` is 'partial' if any component is missing, 'full' otherwise.
     """
