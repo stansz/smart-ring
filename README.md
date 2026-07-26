@@ -151,20 +151,29 @@ The poller watches for sync requests every 30s, runs the collector, then runs `p
 
 ## Milestones
 
-### 2026-07-26 — React Dashboard Rewrite
-Replaced the 3,230-line Alpine.js monolithic dashboard with a componentized React + TypeScript app (React 19, TypeScript 5, Vite 8, TanStack Query 5, Recharts 3, Tailwind 3). Full feature parity — all 3 tabs, custom DayRing SVG, PWA, and Web Bluetooth phone sync. 9/9 Vitest protocol tests pass. `npm run build` → `dashboard/dist/`, served by FastAPI at `/static/`. Branch `dashboard-react-rewrite` merged to `dev`.
+### 2026-07-02 — Project Start
+Phase 1: local BLE collector (bleak), FastAPI server, Postgres, first dashboard. Goal: private, self-hosted health tracking around the Colmi R09 smart ring.
 
-### 2026-07-25 — Phase 1: Dialect-Neutral SQL
-Replaced all Postgres-only query constructs with Python equivalents (cutoff params, `statistics.linear_regression`, `statistics.median`) so the same code runs on both PG and SQLite. Unblocks the planned packaged-app fork. 132/132 tests green, no scoring change.
+### 2026-07-10 — Full Data Pipeline + Validated Scoring
+All 8 raw data types collecting (HR, HRV, sleep, steps, SpO₂, stress, temperature, activity). Protocol reverse-engineered and cross-validated against Gadgetbridge. Health scores grounded in peer-reviewed HRV/RHR/sleep research (Plews, Altini, Buchheit).
 
-### 2026-07-24 — Relocated Project Out of Encrypted Home
-Moved code + Podman storage from `~` (ecryptfs) to `/opt/smart-ring`. Root cause of recurring autostart failures — encrypted home only decrypts on login. Verified cold reboot with no login: all 3 services boot without error.
+### 2026-07-18 — 3-Pillar Readiness Model
+WHOOP-style readiness overhaul: HRV 44% / Sleep 37% / RHR 19%. Replaced the ad-hoc scoring with a validated composite.
 
-### 2026-07-20 — Tier 1 Test Suite + API Cleanup
-65-test regression net (trap_score, BCD, dedupe, mobile_sync). Dropped dead ORM code, redundant dedup, shipped generic `upsert_many` dispatcher. Suite expanded to 132 tests by July 2026 with current_status and readiness_freeze.
+### 2026-07-19 — Collector Architecture Refactor
+Split the monolithic `sync_ring.py` + `analytics.py` into `protocol/` (BLE commands + parsers) + `analytics/` (per-scorer modules) + `jobs/` packages. Sacred clock-sync path extracted and pinned byte-for-byte by BCD tests.
 
-### 2026-07-21 — PWA + Offline Shell
-Dashboard shipped as installable PWA: manifest, service worker (network-first /api/*, cache-first static), 5 PNG icons. Verified on Android Chrome.
+### 2026-07-20 — Morning Readiness + Current Status + Test Suite
+Split readiness into a frozen morning score (locks at 6 AM, WHOOP-style) and a live intra-day Current Status (4-component: HRV / HR / Stress / Trend). Shipped a 132-test regression net (trap_score, BCD, dedupe, mobile_sync, current_status, readiness_freeze) with ephemeral DB fixtures.
+
+### 2026-07-21 — Installable PWA
+Offline shell, manifest, service worker (network-first API, cache-first static), icons. Verified on Android Chrome.
+
+### 2026-07-25 — Dialect-Neutral SQL
+Replaced all Postgres-only query constructs (`INTERVAL`, `REGR_SLOPE`, `PERCENTILE_CONT`) with Python equivalents so the same code runs on both PG and SQLite. Unblocks the planned packaged-app fork.
+
+### 2026-07-26 — React + TypeScript Dashboard
+Replaced the 3,230-line Alpine.js monolith with a componentized React 19 + TypeScript 5 app (Vite, TanStack Query, Recharts, Tailwind, vite-plugin-pwa). Full feature parity — 3 tabs, custom DayRing SVG, Web Bluetooth phone sync, 9/9 protocol tests.
 
 ## Attributions & Licensing
 
