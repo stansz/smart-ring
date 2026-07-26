@@ -13,12 +13,14 @@ DATE() uses session TZ set in db.connect.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
 
 def compute_data_quality(conn, days: int = 7) -> None:
-    log.info("Computing data quality...")
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    log.info(f"Computing data quality over last {days} days...")
     types = {
         "heart_rate":   "raw_heart_rate",
         "spo2":         "raw_spo2",
@@ -34,9 +36,9 @@ def compute_data_quality(conn, days: int = 7) -> None:
                 SELECT DATE(ts) AS day,
                        COUNT(*) AS cnt, MAX(ts) AS last_ts
                 FROM {table}
-                WHERE ts >= NOW() - INTERVAL %s
+                WHERE ts >= %s
                 GROUP BY 1
-            """, (f"{days} days",))
+            """, (cutoff,))
             for row in cur.fetchall():
                 d = str(row["day"])
                 day_counts.setdefault(d, {})[data_type] = row["cnt"]

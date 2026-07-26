@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import logging
 import math
+import statistics
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -138,6 +140,11 @@ def compute_current_status(conn) -> None:
     Returns silently if no input data at all (skip insert).
     """
     log.info("Computing current status...")
+    now = datetime.now(timezone.utc)
+    cutoff_8d = now - timedelta(days=8)
+    cutoff_2h = now - timedelta(hours=2)
+    cutoff_30m = now - timedelta(minutes=30)
+    cutoff_14d = date.today() - timedelta(days=14)
     with conn.cursor() as cur:
         # 1. HRV baseline — 7-day, ln-space, completed prior days only.
         #    Same source as hrv.compute_hrv_recovery's per-day baseline.
@@ -146,7 +153,7 @@ def compute_current_status(conn) -> None:
                 SELECT DATE(ts) AS day, AVG(hrv_value) AS avg_hrv
                 FROM raw_hrv
                 WHERE hrv_value > 0
-                  AND ts >= NOW() - INTERVAL '8 days'
+                  AND ts >= %s
                   AND DATE(ts) < CURRENT_DATE
                 GROUP BY 1
             )
@@ -154,28 +161,38 @@ def compute_current_status(conn) -> None:
                    STDDEV(LN(avg_hrv)) AS sd
             FROM daily
             WHERE avg_hrv > 0
-        """)
+        """, (cutoff_8d,))
         baseline = cur.fetchone()
         baseline_mean = baseline["mean"] if baseline else None
         baseline_sd = baseline["sd"] if baseline else None
 
         # 2. Recent HRV (last 2h) + slope (trend component)
         cur.execute("""
-            SELECT AVG(hrv_value) AS avg_hrv,
-                   REGR_SLOPE(hrv_value, EXTRACT(EPOCH FROM ts) / 3600.0) AS slope
+            SELECT ts, hrv_value
             FROM raw_hrv
-            WHERE hrv_value > 0 AND ts >= NOW() - INTERVAL '2 hours'
-        """)
-        recent_hrv_row = cur.fetchone()
-        recent_hrv = recent_hrv_row["avg_hrv"] if recent_hrv_row else None
-        hrv_slope = recent_hrv_row["slope"] if recent_hrv_row else None
+            WHERE hrv_value > 0 AND ts >= %s
+            ORDER BY ts
+        """, (cutoff_2h,))
+        hrv_rows = cur.fetchall()
+        if hrv_rows:
+            hrv_vals = [float(r["hrv_value"]) for r in hrv_rows]
+            recent_hrv = sum(hrv_vals) / len(hrv_vals)
+            if len(hrv_rows) >= 2:
+                x = [r["ts"].timestamp() / 3600.0 for r in hrv_rows]
+                y = hrv_vals
+                hrv_slope = statistics.linear_regression(x, y).slope
+            else:
+                hrv_slope = None
+        else:
+            recent_hrv = None
+            hrv_slope = None
 
         # 3. Recent HR (last 30 min) — short window so "current" feels live
         cur.execute("""
             SELECT AVG(bpm)::int AS avg_hr
             FROM raw_heart_rate
-            WHERE ts >= NOW() - INTERVAL '30 minutes'
-        """)
+            WHERE ts >= %s
+        """, (cutoff_30m,))
         recent_hr_row = cur.fetchone()
         recent_hr = recent_hr_row["avg_hr"] if recent_hr_row else None
 
@@ -183,29 +200,30 @@ def compute_current_status(conn) -> None:
         cur.execute("""
             SELECT AVG(stress_value)::int AS avg_stress
             FROM raw_stress
-            WHERE ts >= NOW() - INTERVAL '2 hours'
-        """)
+            WHERE ts >= %s
+        """, (cutoff_2h,))
         recent_stress_row = cur.fetchone()
         recent_stress = recent_stress_row["avg_stress"] if recent_stress_row else None
 
         # 5. RHR baseline — median of daily_activity.hr_min over last 14 days
         cur.execute("""
-            SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY hr_min) AS rhr_baseline
+            SELECT hr_min
             FROM daily_activity
-            WHERE day >= CURRENT_DATE - INTERVAL '14 days'
+            WHERE day >= %s
               AND day < CURRENT_DATE
               AND hr_min IS NOT NULL
-        """)
-        rhr_row = cur.fetchone()
-        rhr_baseline = int(rhr_row["rhr_baseline"]) if rhr_row and rhr_row["rhr_baseline"] else None
+            ORDER BY hr_min
+        """, (cutoff_14d,))
+        rhr_vals = [float(r["hr_min"]) for r in cur.fetchall()]
+        rhr_baseline = round(statistics.median(rhr_vals)) if rhr_vals else None
 
         # 6. Sample count for diagnostics + confidence signals
         cur.execute("""
             SELECT
-                (SELECT COUNT(*) FROM raw_hrv WHERE hrv_value > 0 AND ts >= NOW() - INTERVAL '2 hours')
-              + (SELECT COUNT(*) FROM raw_heart_rate WHERE ts >= NOW() - INTERVAL '30 minutes')
-              + (SELECT COUNT(*) FROM raw_stress WHERE ts >= NOW() - INTERVAL '2 hours') AS total
-        """)
+                (SELECT COUNT(*) FROM raw_hrv WHERE hrv_value > 0 AND ts >= %s)
+              + (SELECT COUNT(*) FROM raw_heart_rate WHERE ts >= %s)
+              + (SELECT COUNT(*) FROM raw_stress WHERE ts >= %s) AS total
+        """, (cutoff_2h, cutoff_30m, cutoff_2h))
         samples = cur.fetchone()["total"]
 
     # Compute derived values

@@ -7,22 +7,23 @@ average. See /api/readiness and analytics/readiness.py.
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
 
 def compute_resting_hr(conn) -> dict:
     """Compute resting heart rate from overnight samples (1-5 AM)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT DATE(ts) AS day, AVG(bpm) AS avg_hr, MIN(bpm) AS min_hr
             FROM raw_heart_rate
-            WHERE ts >= NOW() - INTERVAL '30 days'
+            WHERE ts >= %s
             AND EXTRACT(HOUR FROM ts) BETWEEN 1 AND 5
             GROUP BY DATE(ts)
             ORDER BY day
-        """)
+        """, (cutoff,))
         results = cur.fetchall()
 
     if not results:

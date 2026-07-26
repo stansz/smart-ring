@@ -5,22 +5,24 @@ Date(ts) and EXTRACT(HOUR FROM ts) use the session timezone set in db.connect().
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 
 log = logging.getLogger(__name__)
 
 
 def compute_circadian_hr(conn) -> None:
     log.info("Computing circadian HR...")
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT DATE(ts) AS day, EXTRACT(HOUR FROM ts) AS hour,
                    AVG(bpm) AS avg_hr, MIN(bpm) AS min_hr, MAX(bpm) AS max_hr,
                    COUNT(*) AS sample_count
             FROM raw_heart_rate
-            WHERE ts >= NOW() - INTERVAL '30 days'
+            WHERE ts >= %s
             GROUP BY DATE(ts), EXTRACT(HOUR FROM ts)
             ORDER BY day, hour
-        """)
+        """, (cutoff,))
         rows = cur.fetchall()
 
     for row in rows:

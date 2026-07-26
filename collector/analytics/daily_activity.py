@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Dict
 
 log = logging.getLogger(__name__)
@@ -14,6 +15,7 @@ log = logging.getLogger(__name__)
 
 def compute_daily_activity(conn) -> None:
     log.info("Computing daily activity...")
+    cutoff = datetime.now(timezone.utc) - timedelta(days=14)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT DATE(ts) AS day,
@@ -22,9 +24,9 @@ def compute_daily_activity(conn) -> None:
                    SUM(distance)::int AS distance,
                    SUM(calories)::int AS calories
             FROM raw_steps
-            WHERE ts >= NOW() - INTERVAL '14 days'
+            WHERE ts >= %s
             GROUP BY 1, 2
-        """)
+        """, (cutoff,))
         steps_rows = cur.fetchall()
         cur.execute("""
             SELECT DATE(ts) AS day,
@@ -36,18 +38,18 @@ def compute_daily_activity(conn) -> None:
                    MIN(ts) AS first_ts,
                    MAX(ts) AS last_ts
             FROM raw_heart_rate
-            WHERE ts >= NOW() - INTERVAL '14 days'
+            WHERE ts >= %s
             GROUP BY 1, 2
-        """)
+        """, (cutoff,))
         hr_rows = cur.fetchall()
         # Single round-trip via CTE: same UNION ALL, two projections.
         cur.execute("""
             WITH skin AS (
-                SELECT ts FROM raw_heart_rate WHERE ts >= NOW() - INTERVAL '14 days'
+                SELECT ts FROM raw_heart_rate WHERE ts >= %s
                 UNION ALL
-                SELECT ts FROM raw_hrv WHERE ts >= NOW() - INTERVAL '14 days' AND hrv_value >= 15
+                SELECT ts FROM raw_hrv WHERE ts >= %s AND hrv_value >= 15
                 UNION ALL
-                SELECT ts FROM raw_spo2 WHERE ts >= NOW() - INTERVAL '14 days' AND spo2_pct BETWEEN 85 AND 100
+                SELECT ts FROM raw_spo2 WHERE ts >= %s AND spo2_pct BETWEEN 85 AND 100
             )
             SELECT
                 DATE(ts) AS day,
@@ -57,7 +59,7 @@ def compute_daily_activity(conn) -> None:
                 ARRAY_AGG(DISTINCT EXTRACT(HOUR FROM ts)::int) AS hours
             FROM skin
             GROUP BY 1
-        """)
+        """, (cutoff, cutoff, cutoff))
         wear_rows = cur.fetchall()
 
     steps_by_day: Dict = {}
