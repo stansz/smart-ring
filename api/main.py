@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 
 from upsert import upsert_many
 
-DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard")
+DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard", "dist")
 
 
 class Settings(BaseSettings):
