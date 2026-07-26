@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Nav } from "./components/layout/Nav";
 import { DashboardTab } from "./tabs/DashboardTab";
 import { AnalyticsTab } from "./tabs/AnalyticsTab";
@@ -13,7 +13,11 @@ import { useRingSync } from "./hooks/useRingSync";
 type Tab = "dashboard" | "analytics" | "admin";
 
 function App() {
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(() => {
+    if (typeof window === "undefined") return "dashboard";
+    const h = window.location.hash.replace("#", "");
+    return h === "analytics" || h === "admin" ? h : "dashboard";
+  });
   const { darkMode, toggle: toggleDark } = useTheme();
   const { selectedKey, isToday, prevDay, nextDay, goToday, formatSelectedDate } = useSelectedDate();
   const { busy, error: syncError, dismissError, startSync, handleCancel, progress } = useSyncPolling();
@@ -21,12 +25,20 @@ function App() {
 
   const onTabSwitch = useCallback((t: Tab) => setTab(t), []);
 
+  // Sync URL hash so PWA shortcuts (#analytics) and browser back/forward work.
+  useEffect(() => {
+    const hash = tab === "dashboard" ? "" : `#${tab}`;
+    if (window.location.hash !== hash) {
+      window.history.replaceState(null, "", hash ? `/static/${hash}` : "/static/");
+    }
+  }, [tab]);
+
   const syncButtons = (
     <div className="flex items-center gap-1">
       <button
         onClick={syncFromPhone}
         disabled={!!phase || busy}
-        className="px-2 py-0.5 text-xs bg-green-600 text-white rounded disabled:bg-gray-300 dark:disabled:bg-gray-600"
+        className="px-3 py-1.5 text-xs sm:px-2 sm:py-0.5 bg-green-600 text-white rounded disabled:bg-gray-300 dark:disabled:bg-gray-600"
       >
         📱 BLE
       </button>

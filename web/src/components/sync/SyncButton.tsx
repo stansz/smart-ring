@@ -28,7 +28,7 @@ export function SyncButtons({ busy, startSync, handleCancel, progress }: {
       <button
         onClick={startSync}
         disabled={busy}
-        className={`px-2 py-0.5 text-xs rounded inline-flex items-center gap-1 ${busy ? "bg-gray-300 dark:bg-gray-600 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}
+        className={`px-3 py-1.5 text-xs sm:px-2 sm:py-0.5 rounded inline-flex items-center gap-1 ${busy ? "bg-gray-300 dark:bg-gray-600 cursor-not-allowed" : "bg-blue-600 text-white hover:bg-blue-700"}`}
       >
         {busy && (
           <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
@@ -39,7 +39,7 @@ export function SyncButtons({ busy, startSync, handleCancel, progress }: {
         <span>{busy ? (status || "...") : "Sync"}</span>
       </button>
       {busy && (
-        <button onClick={handleCancel} className="px-2 py-0.5 text-xs bg-red-600 text-white rounded hover:bg-red-700">
+        <button onClick={handleCancel} className="px-3 py-1.5 text-xs sm:px-2 sm:py-0.5 bg-red-600 text-white rounded hover:bg-red-700">
           Cancel
         </button>
       )}

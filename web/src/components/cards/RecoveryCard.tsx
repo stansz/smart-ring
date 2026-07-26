@@ -26,17 +26,16 @@ export function RecoveryCard({ selectedKey }: RecoveryCardProps) {
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 flex flex-col">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💓 Recovery</h2>
 
-      {/* Hero HRV (left) + 2-column stat grid (right). Wide gap separates the
-          hero from the stats; two tight label:value pairs per row fill the width
-          without boxes or far-edge stretching. */}
-      <div className="flex items-center gap-10">
+      {/* Hero HRV (top on mobile, left on desktop) + 2-column stat grid.
+          Stacks vertically on narrow screens to avoid overflow. */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-10">
         <div className="text-center flex-shrink-0">
           <p className={`text-4xl font-bold ${hrvLatest != null && hrvLatest >= 45 ? "text-green-600 dark:text-green-400" : hrvLatest != null && hrvLatest >= 30 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"}`}>
             {hrvLatest != null ? hrvLatest + "ms" : "—"}
           </p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">latest HRV</p>
         </div>
-        <div className="flex-1 grid grid-cols-2 gap-x-8 gap-y-2">
+        <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
           {recoveryMatch?.baseline_rmssd != null && (
             <div className="flex gap-3 text-base items-baseline">
               <span className="w-32 flex-shrink-0 text-gray-500 dark:text-gray-400">7-day baseline</span>

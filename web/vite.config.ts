@@ -35,6 +35,10 @@ export default defineConfig({
           { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
           { src: "/icon-apple-180.png", sizes: "180x180", type: "image/png" },
         ],
+        shortcuts: [
+          { name: "Dashboard", short_name: "Dashboard", url: "/static/" },
+          { name: "Analytics", short_name: "Analytics", url: "/static/#analytics" },
+        ],
       },
     }),
   ],

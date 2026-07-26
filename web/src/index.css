@@ -2,16 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-}
-
-/* Dark mode transition on root elements */
+/* Mobile app shell pattern: html clips all overflow (no scroll on the root),
+   body is the single scroll container with a fixed viewport height. This is
+   the standard PWA layout — guarantees no horizontal scroll while keeping
+   vertical scroll + sticky nav working. */
 html {
+  overflow: hidden;
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 html.dark {
   color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: none;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 /* Respect reduced-motion */

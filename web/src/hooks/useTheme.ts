@@ -9,6 +9,9 @@ export function useTheme() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", darkMode);
     localStorage.setItem("darkMode", String(darkMode));
+    // Update the Android status-bar / PWA theme-color to match the active mode.
+    const meta = document.querySelector('meta[name="theme-color"]:not([media])');
+    if (meta) meta.setAttribute("content", darkMode ? "#1e293b" : "#f9fafb");
   }, [darkMode]);
 
   const toggle = useCallback(() => setDarkMode((prev) => !prev), []);

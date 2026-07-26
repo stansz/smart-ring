@@ -178,7 +178,7 @@ export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
     <>
       <div className="flex flex-col items-center w-full flex-1">
         <div className="flex justify-center w-full" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-          <svg ref={svgRef} viewBox="-18 -18 276 276" className="w-full" style={{ width: 360, maxWidth: "100%" }}>
+          <svg ref={svgRef} viewBox="-18 -18 276 276" className="w-full max-w-[360px]">
             {segments}
             {labels}
             <text x={CX} y={CY - 4} textAnchor="middle" fontSize="30" fontWeight="700" fill={centerCol}>
