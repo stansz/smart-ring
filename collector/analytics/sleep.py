@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import statistics
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from .helpers import trap_score
@@ -159,13 +159,14 @@ def _score_sleep_day(day: date, stages: List[Dict], temps: List[Dict]) -> Option
 
 
 def _get_overnight_temps(conn) -> Dict[date, List[Dict]]:
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     with conn.cursor() as cur:
         cur.execute("""
             SELECT DATE(ts) as day, temp_c, ts
             FROM raw_temperature
-            WHERE ts >= NOW() - INTERVAL '30 days'
+            WHERE ts >= %s
             ORDER BY ts
-        """)
+        """, (cutoff,))
         rows = cur.fetchall()
     by_day = {}
     for r in rows:

@@ -1,6 +1,6 @@
 import os
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -86,13 +86,14 @@ def health():
 @app.get("/api/recovery")
 def get_recovery(days: int = 30):
     """Daily HRV recovery from persisted analytics (z-score + readiness)."""
+    cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, rmssd, baseline_rmssd, z_score, readiness_text
             FROM daily_recovery
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE day >= :cutoff_date
             ORDER BY day ASC
-        """), {"days": days}).mappings().all()
+        """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -101,15 +102,16 @@ def get_daily_activity(days: int = 14):
     """Per-day activity aggregates (server-computed in local tz).
     Powers the activity dials + 24h day ring + steps timeline, replacing
     flaky client-side day filtering of raw records."""
+    cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, steps_total, distance_m, calories_raw,
                    hr_avg, hr_min, hr_max, hr_samples, worn_minutes,
                    first_hr_ts, last_hr_ts, hourly_steps, hourly_worn
             FROM daily_activity
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE day >= :cutoff_date
             ORDER BY day ASC
-        """), {"days": days}).mappings().all()
+        """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -121,6 +123,7 @@ def get_readiness(days: int = 7):
     analytics pass at/after 6 AM local). Today's row may be NULL (preliminary,
     still updating) or non-NULL (locked for the day).
     """
+    cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, score, hrv_score, sleep_score, rhr_score,
@@ -128,9 +131,9 @@ def get_readiness(days: int = 7):
                    sleep_total_min, rhr_baseline, contributors,
                    confidence, missing_components, frozen_at
             FROM readiness_score
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE day >= :cutoff_date
             ORDER BY day DESC
-        """), {"days": days}).mappings().all()
+        """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -157,21 +160,23 @@ def get_current_status(hours: int = 168):
 
     `confidence` is 'partial' if any component is missing, 'full' otherwise.
     """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT ts, score, hrv_component, hr_component, stress_component,
                    trend_component, hrv_zscore, hr_delta, stress_recent,
                    hrv_trend, samples, confidence, computed_at
             FROM current_status
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            WHERE ts >= :cutoff
             ORDER BY ts DESC
-        """), {"hours": hours}).mappings().all()
+        """), {"cutoff": cutoff}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/sleep")
 def get_sleep(days: int = 30):
     """Sleep quality scores from persisted analytics."""
+    cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, score, deep_pct, rem_pct, light_pct, wake_pct,
@@ -179,21 +184,22 @@ def get_sleep(days: int = 30):
                    deep_min, rem_min, light_min, awake_min,
                    sleep_start_ts, sleep_end_ts
             FROM sleep_quality
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE day >= :cutoff_date
             ORDER BY day DESC
-        """), {"days": days}).mappings().all()
+        """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/hrv-trends")
 def get_hrv_trends(days: int = 60):
+    cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, rmssd_7d, rmssd_28d, pnn50_7d
             FROM hrv_trends
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE day >= :cutoff_date
             ORDER BY day DESC
-        """), {"days": days}).mappings().all()
+        """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -216,26 +222,28 @@ def get_circadian_hr():
 
 @app.get("/api/stress")
 def get_stress(days: int = 30):
+    cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, morning_rmssd, noon_rmssd, evening_rmssd, classification
             FROM stress_classification
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE day >= :cutoff_date
             ORDER BY day DESC
-        """), {"days": days}).mappings().all()
+        """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/data-quality")
 def get_data_quality(days: int = 7):
     """Per-type data freshness status (ok | stale | missing)."""
+    cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, data_type, last_ts, sample_count, status, checked_at
             FROM data_quality
-            WHERE day >= CURRENT_DATE - INTERVAL ':days days'
+            WHERE day >= :cutoff_date
             ORDER BY day DESC, data_type
-        """), {"days": days}).mappings().all()
+        """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -243,8 +251,6 @@ def get_data_quality(days: int = 7):
 def get_resting_hr(days: int = 30):
     """Daily resting HR: average bpm between 1:00–5:00 AM local time."""
     # Timezone from env var or system /etc/timezone, fallback to America/Vancouver.
-    # Use bind params (no string interpolation) — the schema is fixed but the
-    # pattern is wrong and worth fixing while we're here.
     tz = os.getenv("TZ", "")
     if not tz:
         try:
@@ -252,6 +258,7 @@ def get_resting_hr(days: int = 30):
                 tz = f.read().strip()
         except Exception:
             tz = "America/Vancouver"
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT
@@ -261,43 +268,46 @@ def get_resting_hr(days: int = 30):
             FROM raw_heart_rate
             WHERE
                 EXTRACT(HOUR FROM ts AT TIME ZONE :tz) BETWEEN 1 AND 5
-                AND ts >= NOW() - INTERVAL :interval
+                AND ts >= :cutoff
             GROUP BY 1
             ORDER BY 1 DESC
-        """), {"tz": tz, "interval": f"{days} days"}).mappings().all()
+        """), {"tz": tz, "cutoff": cutoff}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/heart-rate")
 def get_raw_hr(hours: int = 48, limit: int = 1000):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT ts, bpm FROM raw_heart_rate
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            WHERE ts >= :cutoff
             ORDER BY ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
+        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/steps")
 def get_raw_steps(hours: int = 168, limit: int = 1000):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT ts, steps, calories, distance FROM raw_steps
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            WHERE ts >= :cutoff
             ORDER BY ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
+        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/stress")
 def get_raw_stress(hours: int = 168, limit: int = 500):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT ts, stress_value FROM raw_stress
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            WHERE ts >= :cutoff
             ORDER BY ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
+        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -314,48 +324,52 @@ def get_goals():
 
 @app.get("/api/raw/sleep")
 def get_raw_sleep(hours: int = 168, limit: int = 200):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT day, stage, start_ts, end_ts, duration_minutes FROM raw_sleep s
-            WHERE start_ts >= NOW() - INTERVAL ':hours hours'
+            WHERE start_ts >= :cutoff
               AND source = CASE WHEN EXISTS (
                     SELECT 1 FROM raw_sleep r WHERE r.day = s.day AND r.source = 'ring'
                   ) THEN 'ring' ELSE 'phone' END
             ORDER BY start_ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
+        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/spo2")
 def get_raw_spo2(hours: int = 168, limit: int = 200):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT ts, spo2_pct FROM raw_spo2
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            WHERE ts >= :cutoff
             ORDER BY ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
+        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/hrv")
 def get_raw_hrv(hours: int = 168, limit: int = 500):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT ts, hrv_value FROM raw_hrv
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            WHERE ts >= :cutoff
             ORDER BY ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
+        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/temperature")
 def get_raw_temp(hours: int = 48, limit: int = 1000):
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT ts, temp_c FROM raw_temperature
-            WHERE ts >= NOW() - INTERVAL ':hours hours'
+            WHERE ts >= :cutoff
             ORDER BY ts DESC LIMIT :limit
-        """), {"hours": hours, "limit": limit}).mappings().all()
+        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
     return [dict(r) for r in rows]
 
 

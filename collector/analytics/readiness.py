@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -58,6 +58,7 @@ def should_freeze(
 
 def compute_readiness_score(conn, days: int = 30) -> None:
     log.info("Computing readiness scores...")
+    cutoff_date = date.today() - timedelta(days=days)
     # Local hour comes from the DB session TZ (set in db.connect via $TZ env).
     with conn.cursor() as cur:
         cur.execute("SELECT EXTRACT(HOUR FROM NOW())::int AS hr, CURRENT_DATE AS today")
@@ -70,11 +71,11 @@ def compute_readiness_score(conn, days: int = 30) -> None:
 
         cur.execute("""
             WITH days AS (
-                SELECT day FROM sleep_quality WHERE day >= CURRENT_DATE - INTERVAL '%s days'
+                SELECT day FROM sleep_quality WHERE day >= %s
                 UNION
-                SELECT day FROM daily_recovery WHERE day >= CURRENT_DATE - INTERVAL '%s days'
+                SELECT day FROM daily_recovery WHERE day >= %s
                 UNION
-                SELECT day FROM daily_activity WHERE day >= CURRENT_DATE - INTERVAL '%s days'
+                SELECT day FROM daily_activity WHERE day >= %s
             )
             SELECT d.day,
                    sq.score AS sleep_score,
@@ -87,7 +88,7 @@ def compute_readiness_score(conn, days: int = 30) -> None:
             LEFT JOIN daily_recovery dr ON d.day = dr.day
             LEFT JOIN daily_activity da ON d.day = da.day
             ORDER BY d.day
-        """, (days, days, days))
+        """, (cutoff_date, cutoff_date, cutoff_date))
         rows = cur.fetchall()
 
     rhr_vals = [r['resting_hr_approx'] for r in rows if r['resting_hr_approx']]
