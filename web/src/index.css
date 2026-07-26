@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+}
+
+/* Dark mode transition on root elements */
+html {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+/* Respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Chart host — match legacy sizing */
+.chart-host {
+  position: relative;
+}
+.chart-host canvas {
+  display: block;
+}
+
+/* Smooth ring tooltip animation */
+.ringbar {
+  transition: opacity 0.15s ease;
+}
+.ringbar:hover {
+  opacity: 0.85;
+}
