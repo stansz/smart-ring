@@ -50,7 +50,7 @@ export function AnalyticsTab() {
               <button
                 key={d}
                 onClick={() => setRange(d)}
-                className={`px-3 py-1 text-xs rounded transition ${
+                className={`px-3 py-2 sm:py-1 text-xs rounded transition ${
                   range === d
                     ? "bg-blue-600 text-white"
                     : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"

@@ -34,7 +34,7 @@ export function Tabs({ tab, onSwitch }: TabsProps) {
       <select
         value={tab}
         onChange={(e) => onSwitch(e.target.value as Tab)}
-        className="sm:hidden px-1.5 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+        className="sm:hidden px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
       >
         {tabs.map((t) => (
           <option key={t.key} value={t.key}>

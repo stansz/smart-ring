@@ -44,7 +44,7 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
       </div>
 
       {/* Concentric rings */}
-      <div className="relative mx-auto mb-3" style={{ width: 300, maxWidth: "100%" }}>
+      <div className="relative mx-auto mb-3 w-full max-w-[300px]">
         <svg viewBox="0 0 100 100" className="w-full -rotate-90">
           {/* Tracks */}
           <circle cx="50" cy="50" r="40" fill="none" className="text-gray-200 dark:text-gray-700" strokeWidth="6" stroke="currentColor" />

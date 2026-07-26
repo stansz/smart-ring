@@ -13,6 +13,11 @@ const queryClient = new QueryClient({
   },
 });
 
+// Force SW update check on every launch so PWA changes are picked up promptly.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.ready.then((reg) => reg.update());
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
