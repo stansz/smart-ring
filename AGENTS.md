@@ -71,8 +71,11 @@ Unit files are canonical at `/etc/systemd/system/smart-ring-*.service` — edit 
 | `collector/sync_request_poller.py` | Host poller watching `sync_requests` |
 | `api/main.py` | FastAPI app + all endpoints (mobile_sync uses dispatch loop) |
 | `api/upsert.py` | `upsert_many` generic dispatcher for simple point tables |
-| `dashboard/index.html` | Pure client-side UI (Alpine.js + Tailwind, no build) |
-| `dashboard/manifest.webmanifest` + `sw.js` | PWA manifest + offline-shell service worker |
+| `dashboard/index.html` | ~~Pure client-side UI (Alpine.js + Tailwind, no build)~~ **retired 2026-07-26** — replaced by React app |
+| `web/` | React + TypeScript dashboard (Vite build → `dashboard/dist/`). TanStack Query, Recharts, Tailwind 3, vite-plugin-pwa. See `docs/DASHBOARD_REWRITE_PLAN.md`. |
+| `web/src/api/` | Typed API client: `types.ts` (25 interfaces), `hooks.ts` (25 TanStack Query hooks per endpoint), `client.ts` (fetch wrapper) |
+| `web/src/components/ble/ringProtocol.ts` | Colmi R09 Web Bluetooth protocol + 9/9 Vitest byte-level tests |
+| `dashboard/dist/` | Built React app (served by FastAPI at `/static/`). `npm run build` in `web/` to rebuild. |
 | `scripts/gen_icons.py` | One-shot Pillow icon generator (192/512/maskable/apple-180) |
 | `tests/` + `pytest.ini` | 132-test regression net (trap_score, BCD, dedupe, mobile_sync, current_status, readiness_freeze) |
 | `docs/RING_BEHAVIOR.md` | Firmware quirks, data publish cadence, logger stall |
@@ -84,7 +87,7 @@ Unit files are canonical at `/etc/systemd/system/smart-ring-*.service` — edit 
 
 ## Current State
 
-All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard ships as an installable PWA (offline shell + manifest + icons).
+All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard is now a React + TypeScript app (replaced Alpine.js monolith on 2026-07-26) served at `/static/` from `dashboard/dist/`. The legacy `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, and icons are deleted. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
 **Test suite:** 132 tests across 6 files (`tests/test_{trap_score,time_sync_bcd,dedupe,mobile_sync,current_status,readiness_freeze}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~5s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
 
@@ -112,6 +115,17 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-26 — Dashboard React rewrite (cutover complete)
+- **Replaced** the 3,230-line Alpine.js monolithic `dashboard/index.html` with a
+  componentized React + TypeScript app in `web/`. Vite builds to `dashboard/dist/`;
+  `DASHBOARD_DIR` flipped from `dashboard` to `dashboard/dist` in `api/main.py`.
+- **Stack:** React 19, TypeScript 5, Vite 8, Tailwind CSS 3, TanStack Query 5,
+  Recharts 3, vite-plugin-pwa. 9/9 Vitest protocol tests for Web Bluetooth.
+- **Legacy files deleted:** `dashboard/index.html`, `sw.js`, `manifest.webmanifest`,
+  5 icon PNGs (now served from `dashboard/dist/` via Vite build).
+- **Branch:** `dashboard-react-rewrite` → merged/PR pending.
+- **Next:** packaged-app fork (`docs/PACKAGED_APP.md`).
 
 ### 2026-07-25 — Phase 1: dialect-neutral SQL (packaged-app prep)
 - **Goal:** replace Postgres-only query constructs so the same code runs on both PG

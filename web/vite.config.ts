@@ -49,4 +49,5 @@ export default defineConfig({
     outDir: "../dashboard/dist",
     emptyOutDir: true,
   },
+  base: "/static/",
 });
