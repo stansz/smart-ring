@@ -116,6 +116,21 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-07-26 — Recovery card label/value tightening + hero HRV bug fix
+- **RecoveryCard** (`web/src/components/cards/RecoveryCard.tsx`): the `flex
+  justify-between` rows stretched labels to the left edge and values to the far
+  right of a ~450px column, leaving a big gap between them. Reworked into a
+  hero HRV (left) + 2-column stat grid (right, two tight label:value pairs per
+  row) + a description line grounded in the Plews/Altini z-score framework.
+  Fills the card width without boxes or far-edge stretching.
+- **Removed the Stress row** (redundant — stress is shown in Current Status).
+  Dropped the now-dead `useStress` fetch + `stressDailyAvg`/trend computation.
+- **Bug fix:** "latest HRV" was `hrvToday[0]` (insertion order = first sample of
+  the day, not latest). Now sorts by `ts` desc before picking. Label is truthful.
+- **Tiny polish:** added `dark:` color variants to the hero HRV number, bumped
+  stat text to `text-base` with `gap-10` separation from the hero.
+- Presentational only; `npm run build` + `npm run lint` clean. No pytest/vitest impact.
+
 ### 2026-07-26 — Dashboard React rewrite (cutover complete)
 - **Replaced** the 3,230-line Alpine.js monolithic `dashboard/index.html` with a
   componentized React + TypeScript app in `web/`. Vite builds to `dashboard/dist/`;

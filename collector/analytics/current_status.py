@@ -8,7 +8,7 @@ Components (each 0-100, weighted to composite):
   - HRV   (40%): recent HRV z-score vs 7-day baseline (same source as daily)
   - HR    (25%): recent HR delta from RHR baseline (0 bpm over = 100, 50 over = 0)
   - Stress(20%): inverted raw stress (0 raw = 100, 99 raw = 1)
-  - Trend (15%): HRV slope over last 2h (rising = recovering = higher score)
+  - Trend (15%): HRV slope over last 3h (rising = recovering = higher score)
 
 Each component returns None if input data missing. Weighted aggregate
 renormalizes over available components. 'confidence' field mirrors the
@@ -134,7 +134,7 @@ def status_label(score: Optional[int]) -> Optional[str]:
 def compute_current_status(conn) -> None:
     """Compute current status snapshot and append to current_status table.
 
-    Queries last 2h of raw HRV/HR/stress + 7-day HRV baseline + RHR baseline.
+    Queries last 3h of raw HRV/HR/stress + 7-day HRV baseline + RHR baseline.
     Appends one row per call (history retained for v2 trend chart).
 
     Returns silently if no input data at all (skip insert).
@@ -142,7 +142,7 @@ def compute_current_status(conn) -> None:
     log.info("Computing current status...")
     now = datetime.now(timezone.utc)
     cutoff_8d = now - timedelta(days=8)
-    cutoff_2h = now - timedelta(hours=2)
+    cutoff_3h = now - timedelta(hours=3)
     cutoff_30m = now - timedelta(minutes=30)
     cutoff_14d = date.today() - timedelta(days=14)
     with conn.cursor() as cur:
@@ -166,13 +166,13 @@ def compute_current_status(conn) -> None:
         baseline_mean = baseline["mean"] if baseline else None
         baseline_sd = baseline["sd"] if baseline else None
 
-        # 2. Recent HRV (last 2h) + slope (trend component)
+        # 2. Recent HRV (last 3h) + slope (trend component)
         cur.execute("""
             SELECT ts, hrv_value
             FROM raw_hrv
             WHERE hrv_value > 0 AND ts >= %s
             ORDER BY ts
-        """, (cutoff_2h,))
+        """, (cutoff_3h,))
         hrv_rows = cur.fetchall()
         if hrv_rows:
             hrv_vals = [float(r["hrv_value"]) for r in hrv_rows]
@@ -196,12 +196,12 @@ def compute_current_status(conn) -> None:
         recent_hr_row = cur.fetchone()
         recent_hr = recent_hr_row["avg_hr"] if recent_hr_row else None
 
-        # 4. Recent stress (last 2h)
+        # 4. Recent stress (last 3h)
         cur.execute("""
             SELECT AVG(stress_value)::int AS avg_stress
             FROM raw_stress
             WHERE ts >= %s
-        """, (cutoff_2h,))
+        """, (cutoff_3h,))
         recent_stress_row = cur.fetchone()
         recent_stress = recent_stress_row["avg_stress"] if recent_stress_row else None
 
@@ -223,7 +223,7 @@ def compute_current_status(conn) -> None:
                 (SELECT COUNT(*) FROM raw_hrv WHERE hrv_value > 0 AND ts >= %s)
               + (SELECT COUNT(*) FROM raw_heart_rate WHERE ts >= %s)
               + (SELECT COUNT(*) FROM raw_stress WHERE ts >= %s) AS total
-        """, (cutoff_2h, cutoff_30m, cutoff_2h))
+        """, (cutoff_3h, cutoff_30m, cutoff_3h))
         samples = cur.fetchone()["total"]
 
     # Compute derived values

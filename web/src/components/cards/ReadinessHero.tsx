@@ -19,14 +19,6 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
   const frozenAt = row?.frozen_at;
   const showPreliminary = isToday && !frozenAt;
 
-  const contributors = row?.contributors;
-  const contribText =
-    contributors ?
-      Object.entries(contributors)
-        .map(([k, v]) => `${k} ${v >= 0 ? "+" : ""}${v}`)
-        .join(" · ")
-    : "";
-
   // Concentric ring computations (circumference: 2πr — outer ≈ 251, middle ≈ 201, inner ≈ 151)
   const circumferences = { sleep: 251, hrv: 201, rhr: 151 };
 
@@ -87,25 +79,20 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
       </p>
 
       {/* Sub-score legend */}
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-[11px] mt-4">
-        <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
-          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: "#6366f1" }} />
-          Sleep <span className="font-semibold text-indigo-600 dark:text-indigo-400">{row?.sleep_score ?? "—"}</span>
+      <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm mt-4">
+        <span className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: "#6366f1" }} />
+          Sleep <span className="text-base font-bold text-indigo-600 dark:text-indigo-400">{row?.sleep_score ?? "—"}</span>
         </span>
-        <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
-          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: "#a855f7" }} />
-          HRV <span className="font-semibold text-purple-600 dark:text-purple-400">{row?.hrv_score ?? "—"}</span>
+        <span className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: "#a855f7" }} />
+          HRV <span className="text-base font-bold text-purple-600 dark:text-purple-400">{row?.hrv_score ?? "—"}</span>
         </span>
-        <span className="flex items-center gap-1.5 text-gray-500 dark:text-gray-400">
-          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: "#f43f5e" }} />
-          RHR <span className="font-semibold text-rose-600 dark:text-rose-400">{row?.rhr_score ?? "—"}</span>
+        <span className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+          <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: "#f43f5e" }} />
+          RHR <span className="text-base font-bold text-rose-600 dark:text-rose-400">{row?.rhr_score ?? "—"}</span>
         </span>
       </div>
-
-      {/* Contributors / detail */}
-      {contribText && (
-        <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-4">{contribText}</p>
-      )}
     </div>
   );
 }

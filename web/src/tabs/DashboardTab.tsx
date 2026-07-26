@@ -55,7 +55,7 @@ export function DashboardTab({
       </Card>
 
       {/* 2. Current Status */}
-      <CurrentStatusPanel />
+      <CurrentStatusPanel selectedKey={selectedKey} isToday={isToday} />
 
       {/* 3. 2-col grid: Recovery + Sleep + Vitals + Circadian */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
