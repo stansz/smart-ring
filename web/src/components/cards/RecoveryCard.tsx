@@ -44,7 +44,7 @@ export function RecoveryCard({ selectedKey }: RecoveryCardProps) {
           )}
           {hrvRangeVal != null && (
             <div className="flex gap-3 text-base items-baseline">
-              <span className="w-24 flex-shrink-0 text-gray-500 dark:text-gray-400">Range</span>
+              <span className="w-32 sm:w-24 flex-shrink-0 text-gray-500 dark:text-gray-400">Range</span>
               <span className="font-mono text-gray-700 dark:text-gray-300">{hrvRangeVal.min}–{hrvRangeVal.max}ms</span>
             </div>
           )}
@@ -58,7 +58,7 @@ export function RecoveryCard({ selectedKey }: RecoveryCardProps) {
           )}
           {readinessMatch?.resting_hr != null && (
             <div className="flex gap-3 text-base items-baseline">
-              <span className="w-24 flex-shrink-0 text-gray-500 dark:text-gray-400">Resting HR</span>
+              <span className="w-32 sm:w-24 flex-shrink-0 text-gray-500 dark:text-gray-400">Resting HR</span>
               <span className="font-mono text-gray-700 dark:text-gray-300">{readinessMatch.resting_hr} bpm</span>
             </div>
           )}
