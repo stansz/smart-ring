@@ -44,7 +44,7 @@ Home Network
        └─ python -m collector.sync_ring --forget  (force-sync outside the poller)
 ```
 
-Dashboard: single-page Alpine.js + Tailwind CSS app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; sleep donut; circadian HR line graph; vitals chart with HR + SpO₂ + Temp triple-axis; dark mode toggle), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, trend charts for HRV/sleep/stress/resting-HR with 7d/14d/30d/90d range selector), and **Admin** (ring status, manual sync controls, full sync log, system health, raw data tables). No build step. **Installable PWA** — manifest + offline-shell service worker + icons; install to home screen on Android Chrome (or any Chromium browser), works offline once cached. See [`docs/done/PWA_PLAN.md`](docs/done/PWA_PLAN.md).
+Dashboard: React + TypeScript app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; current status 3-box panel with vibe ladder + stress sparkline + trend gradient; recovery card; sleep donut; vitals hourly chart; circadian HR pattern), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, 5 trend charts with 7d/14d/30d/90d range selector, research references), and **Admin** (ring status, system health, full sync log with pagination, raw HR/steps tables). Built with Vite → `dashboard/dist/`. **Installable PWA** — manifest + offline-shell service worker + icons; install to home screen on Android Chrome (or any Chromium browser), works offline once cached.
 
 ## Usage
 
@@ -79,7 +79,7 @@ Detailed docs live in **[`docs/`](docs/)**:
 - **[`docs/done/PWA_PLAN.md`](docs/done/PWA_PLAN.md)** — installable PWA: manifest, offline-shell service worker strategies, icon generation, verification. Shipped.
 - **[`docs/done/CLEANUP_PLAN.md`](docs/done/CLEANUP_PLAN.md)** — refactor history (collector/analytics Phases 0–4 + API cleanup Steps 1, 2, 4 + Tier 1 test suite). All complete.
 - **[`docs/PACKAGED_APP.md`](docs/PACKAGED_APP.md)** — design review for a standalone, container-free, SQLite-backed packaged app (Gadgetbridge model).
-- **[`docs/DASHBOARD_REWRITE_PLAN.md`](docs/DASHBOARD_REWRITE_PLAN.md)** — React + TypeScript dashboard rewrite: phased plan, stack choices, PWA/cutover strategy (reviewed, ready to execute).
+- **[`docs/DASHBOARD_REWRITE_PLAN.md`](docs/DASHBOARD_REWRITE_PLAN.md)** — React + TypeScript dashboard rewrite: phased plan, stack choices, PWA/cutover strategy. **Complete — shipped 2026-07-26.**
 - **[`AGENTS.md`](AGENTS.md)** — operational/deployment context (architecture, service commands, current state, work log).
 - **[`TASKS.md`](TASKS.md)** — phase history, open backlog, CFW ideas, readiness improvements.
 
@@ -134,11 +134,11 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 - ✅ **HRV trends** — 7-day and 28-day rolling averages
 
 ### Dashboard
-- **Dashboard tab**: Unified hero panel (24h activity ring with radial step bars + sleep overlay + tap tooltips along-side Readiness Score 0-100 ring with 4 sub-score cards + contributors), Vitals chart (HR line + SpO₂ dots + Temp dots triple-axis SVG with hover tooltips + smooth Catmull-Rom curves), sleep donut ring (empty state when no data), circadian HR SVG line graph, recovery panel, dark mode toggle
-- **Analytics tab**: Data pipeline reference (ring-measured vs ring-computed vs our-validated-score), score breakdown cards with expandable formula explanations, 4 trend charts (HRV recovery, sleep quality, stress, resting HR) with 7d/14d/30d/90d range selector + hover crosshair tooltips
-- **Admin tab**: Sync Now, ring status, full sync log, system health, raw data tables
-- **Phone sync**: Web Bluetooth ("📱 BLE" button) — syncs ring from Android Chrome, posts to `/api/mobile/sync`, dedup on insert (ring canonical, phone fills gaps)
-- **PWA**: Installable to home screen (manifest + offline-shell service worker); UI loads without network, data goes stale but never white. `/api/mobile/sync` POST stays network-only.
+- **Dashboard tab**: Unified hero panel (24h activity ring with radial step bars + sleep overlay + hover tooltip alongside Readiness Score 0-100 with concentric rings + sub-scores + contributors), Current Status 3-box panel (vibe ladder + stress sparkline + trend gradient track), Recovery card, Sleep donut (conic CSS gradient with bed/wake times + stage breakdown), Vitals hourly chart, Circadian HR pattern (24h avg with dots + min/max/avg stats)
+- **Analytics tab**: Data pipeline reference (ring-measured vs ring-computed vs our-validated-score), 4 score breakdown cards with expandable formula explanations, 5 trend charts with 7d/14d/30d/90d range selector, research references
+- **Admin tab**: Ring status, system health, clock alert, full sync log with pagination, HR + Steps raw data tables
+- **Phone sync**: Web Bluetooth ("📱 BLE" button) — syncs ring from Android Chrome, posts to `/api/mobile/sync`, screen wake-lock, 12-phase progress dialog
+- **PWA**: Installable to home screen (manifest + offline-shell service worker via vite-plugin-pwa); UI loads without network, data goes stale but never white. `/api/mobile/sync` POST stays network-only.
 
 ### How it works
 ```
@@ -148,6 +148,23 @@ Ring → BLE sync (on-demand) → Postgres raw tables → `python -m collector.a
 ```
 
 The poller watches for sync requests every 30s, runs the collector, then runs `python -m collector.analytics` to recompute all scores. Fully automated after clicking "Sync Now".
+
+## Milestones
+
+### 2026-07-26 — React Dashboard Rewrite
+Replaced the 3,230-line Alpine.js monolithic dashboard with a componentized React + TypeScript app (React 19, TypeScript 5, Vite 8, TanStack Query 5, Recharts 3, Tailwind 3). Full feature parity — all 3 tabs, custom DayRing SVG, PWA, and Web Bluetooth phone sync. 9/9 Vitest protocol tests pass. `npm run build` → `dashboard/dist/`, served by FastAPI at `/static/`. Branch `dashboard-react-rewrite` merged to `dev`.
+
+### 2026-07-25 — Phase 1: Dialect-Neutral SQL
+Replaced all Postgres-only query constructs with Python equivalents (cutoff params, `statistics.linear_regression`, `statistics.median`) so the same code runs on both PG and SQLite. Unblocks the planned packaged-app fork. 132/132 tests green, no scoring change.
+
+### 2026-07-24 — Relocated Project Out of Encrypted Home
+Moved code + Podman storage from `/home/sz` (ecryptfs) to `/opt/smart-ring`. Root cause of recurring autostart failures — encrypted home only decrypts on login. Verified cold reboot with no login: all 3 services boot without error.
+
+### 2026-07-20 — Tier 1 Test Suite + API Cleanup
+65-test regression net (trap_score, BCD, dedupe, mobile_sync). Dropped dead ORM code, redundant dedup, shipped generic `upsert_many` dispatcher. Suite expanded to 132 tests by July 2026 with current_status and readiness_freeze.
+
+### 2026-07-21 — PWA + Offline Shell
+Dashboard shipped as installable PWA: manifest, service worker (network-first /api/*, cache-first static), 5 PNG icons. Verified on Android Chrome.
 
 ## Attributions & Licensing
 
@@ -176,8 +193,13 @@ This project would not exist without the open work of the Colmi R09 reverse-engi
 | **[SQLAlchemy](https://www.sqlalchemy.org/)** | Python SQL toolkit and ORM. |
 | **[psycopg2](https://www.psycopg.org/)** | PostgreSQL adapter for Python. |
 | **[PostgreSQL 16](https://www.postgresql.org/)** | Primary data store — raw sensor tables + computed health scores. |
-| **[Alpine.js](https://alpinejs.dev/)** | Lightweight JS framework for the dashboard UI (3 tabs, reactive charts, Web Bluetooth sync). |
-| **[Tailwind CSS](https://tailwindcss.com/)** | Utility-first CSS framework. Dashboard uses CDN build (no build step). |
+| **[React 19](https://react.dev/)** | Component-based UI framework for the dashboard (3 tabs, TanStack Query data layer, Recharts visualizations, Web Bluetooth sync). |
+| **[TypeScript 5](https://www.typescriptlang.org/)** | Typed JavaScript — 25 typed API interfaces, component props, and BLE protocol types. |
+| **[Vite 8](https://vite.dev/)** | Build tool and dev server. Bundles React app to `dashboard/dist/`. |
+| **[Tailwind CSS 3](https://tailwindcss.com/)** | Utility-first CSS with PostCSS build. Dark mode via `class` strategy. |
+| **[TanStack Query 5](https://tanstack.com/query)** | Server-state management — typed hooks per endpoint, auto-refetch, cache invalidation. |
+| **[Recharts 3](https://recharts.org/)** | Composable charting library for React — used for Vitals, Circadian, and all trend charts. |
+| **[vite-plugin-pwa](https://vite-pwa-org.netlify.app/)** | PWA integration — workbox service worker generation, manifest, icon injection. |
 | **[Python asyncio](https://docs.python.org/3/library/asyncio.html)** | Async I/O for BLE collector (stdlib). |
 | **[Podman](https://podman.io/)** | Rootless container engine for DB + API services. |
 | **[systemd](https://systemd.io/)** | User services for poller + container quadlets. |

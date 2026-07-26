@@ -45,7 +45,7 @@
 | C | Sleep stage parsing — math was OK; real bug was an extra `}` closing `connect()` early (fixed) | ✅ brace fixed / ⬜ live test |
 | D | HR multi-packet response handled now (header pkt0 → pkt1 ts+9 vals → pkts 2..N 13 vals, 288 slots) | ✅ |
 | E | Root cause of "only 6 records": response queue dropped all but 1st pkt → HR/HRV got ~0 data + extra `}` killed module | ✅ fixed / ⬜ verify on phone |
-| F | `syncFromPhone()` Alpine method works, wired correctly | ✅ |
+| F | `syncFromPhone()` works, wired correctly | ✅ |
 | G | HRV (0x39) is multi-packet too (sub0/1/2..4) — rewritten via `sendCmdMulti` | ✅ |
 | H | API had duplicate SpO2 insert block (double-counted accepted) — removed | ✅ |
 
@@ -69,7 +69,7 @@
 
 | # | File | Fix |
 |---|------|-----|
-| 1-2 | `dashboard/index.html` | Phone sync uses local timezone, not UTC |
+| 1-2 | dashboard | Phone sync uses local timezone, not UTC |
 | 3 | `api/main.py` | TZ from `$TZ` env var or `/etc/timezone` |
 | 4 | `collector/ring_client.py` | Fixed `get_steps()` broken `.astimezone(tz=utc)` |
 | 5 | `collector/sync_ring.py` | Fixed `upsert_steps()` UTC fallback |
@@ -88,7 +88,7 @@ Dashboard ships as installable PWA. Manifest + offline-shell SW + 5 PNG icons
 | 2 | `dashboard/sw.js` — offline-shell strategies (network-first `/api/*` + navigations, SWR CDN, cache-first static, network-only POST) | ✅ |
 | 3 | Icons (192/512/maskable-192/maskable-512/apple-180) via Pillow one-shot | ✅ |
 | 4 | `api/main.py`: `/sw.js` + `/manifest.webmanifest` root routes (Service-Worker-Allowed: /) | ✅ |
-| 5 | `dashboard/index.html`: PWA meta tags + feature-detected SW registration | ✅ |
+| 5 | dashboard: PWA meta tags + feature-detected SW registration | ✅ |
 | 6 | Verified live on Android Chrome | ✅ |
 
 See `docs/PWA_PLAN.md` for full details. 132/132 tests still pass; no Python
