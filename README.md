@@ -158,7 +158,7 @@ Replaced the 3,230-line Alpine.js monolithic dashboard with a componentized Reac
 Replaced all Postgres-only query constructs with Python equivalents (cutoff params, `statistics.linear_regression`, `statistics.median`) so the same code runs on both PG and SQLite. Unblocks the planned packaged-app fork. 132/132 tests green, no scoring change.
 
 ### 2026-07-24 — Relocated Project Out of Encrypted Home
-Moved code + Podman storage from `/home/sz` (ecryptfs) to `/opt/smart-ring`. Root cause of recurring autostart failures — encrypted home only decrypts on login. Verified cold reboot with no login: all 3 services boot without error.
+Moved code + Podman storage from `~` (ecryptfs) to `/opt/smart-ring`. Root cause of recurring autostart failures — encrypted home only decrypts on login. Verified cold reboot with no login: all 3 services boot without error.
 
 ### 2026-07-20 — Tier 1 Test Suite + API Cleanup
 65-test regression net (trap_score, BCD, dedupe, mobile_sync). Dropped dead ORM code, redundant dedup, shipped generic `upsert_many` dispatcher. Suite expanded to 132 tests by July 2026 with current_status and readiness_freeze.

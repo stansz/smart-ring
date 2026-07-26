@@ -41,7 +41,7 @@
 | # | Issue | Status |
 |---|-------|--------|
 | A | `const` → `let` reassignment bug fixed (was silently killing module) | ✅ |
-| B | BLE picker should show on `https://mint.tail1b421.ts.net` after refresh | ⬜ needs phone test |
+| B | BLE picker should show on `https://<hostname>.<ts-domain>` after refresh | ⬜ needs phone test |
 | C | Sleep stage parsing — math was OK; real bug was an extra `}` closing `connect()` early (fixed) | ✅ brace fixed / ⬜ live test |
 | D | HR multi-packet response handled now (header pkt0 → pkt1 ts+9 vals → pkts 2..N 13 vals, 288 slots) | ✅ |
 | E | Root cause of "only 6 records": response queue dropped all but 1st pkt → HR/HRV got ~0 data + extra `}` killed module | ✅ fixed / ⬜ verify on phone |
@@ -53,7 +53,7 @@
 
 ```
 0. (done) Host-side: JS + API syntax-checked; service restarted; dashboard 200.
-1. Hard refresh https://mint.tail1b421.ts.net  (clear cache — old JS cached)
+1. Hard refresh https://<hostname>.<ts-domain>  (clear cache — old JS cached)
 2. Open DevTools (Chrome) → Console, watch for errors during sync
 3. Tap 📱 BLE → picker → select ring
 4. Expect: hundreds of HR records (8 days × 288 slots) + HRV + temp + SpO2 + sleep

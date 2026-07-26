@@ -45,10 +45,10 @@
 ```
 Phone (Android Chrome, via Tailscale HTTPS)        ← the real target
    │
-   ├── https://mint.tail1b421.ts.net        (prod, legacy until cutover)
+   ├── https://<hostname>.<ts-domain>        (prod, legacy until cutover)
    │     └─ tailscale serve → 127.0.0.1:8000  (FastAPI → dashboard/index.html)
    │
-   └── https://mint.tail1b421.ts.net/beta   (NEW: pre-cutover phone test)
+   └── https://<hostname>.<ts-domain>/beta   (NEW: pre-cutover phone test)
          └─ tailscale serve → 127.0.0.1:4173  (Vite preview build)
 
 Dev machine (browser)
