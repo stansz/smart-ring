@@ -113,6 +113,20 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-07-25 — Phase 1: dialect-neutral SQL (packaged-app prep)
+- **Goal:** replace Postgres-only query constructs so the same code runs on both PG
+  and SQLite. Unblocks the packaged-app fork planned in `docs/PACKAGED_APP.md`.
+- **Changes:** `api/main.py` (15 sites) + 7 analytics scorers (20 sites): all
+  `NOW()`/`CURRENT_DATE - INTERVAL` → Python-computed cutoff params passed as bind
+  parameters. `REGR_SLOPE` → `statistics.linear_regression`, `PERCENTILE_CONT` →
+  `statistics.median`. All changes PG-compatible — no behavior change.
+- **Dialect surface:** shrank from ~35 PG-only constructs to 2 (both in the poller,
+  which the packaged fork drops).
+- **Test suite:** 132/132 green (4.84s). No scoring change expected — README_REGR
+  + median parity pinned against production data.
+- **Commit:** `eba7848` on `dev`.
+- **Next:** dashboard React rewrite (`docs/DASHBOARD_REWRITE_PLAN.md`), then fork.
+
 ### 2026-07-24 — Moved project out of encrypted home (the real autostart fix)
 - **Root cause of the recurring autostart failure:** project data + code lived in `/home/sz` (ecryptfs encrypted home), which only decrypts on login → boot-time services failed with `mkdir /home/sz/.local: permission denied` until someone logged in. This is why "autostart" never worked headless across prior sessions.
 - **Fix:** relocated everything to `/opt/smart-ring` (outside the encrypted home): code → `/opt/smart-ring/code`, Podman storage → `/opt/smart-ring/.local/share/containers` (via `XDG_DATA_HOME=` in the units). System units set `WantedBy=multi-user.target` + `After=user@1000.service network-online.target`.
