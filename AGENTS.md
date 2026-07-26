@@ -9,8 +9,8 @@
 
 Private, self-hosted health tracking around the **Colmi R09** (~$45 CAD).
 
-- **Hardware:** Colmi R09 (FW RT09_3.10.21_251107), BLE → Postgres → health metrics → Alpine.js dashboard
-- **Stack:** Python (bleak), FastAPI, Postgres 16, Alpine.js + Tailwind (no build)
+- **Hardware:** Colmi R09 (FW RT09_3.10.21_251107), BLE → Postgres → health metrics → React dashboard
+- **Stack:** Python (bleak), FastAPI, Postgres 16, React 19 + TypeScript 5 + Vite (build → `dashboard/dist/`)
 - **Deployment:** Linux Mint HTPC (AMD 3800x / 64 GB) — bare metal for collector
 
 **BLE address** is in `.env` as `RING_ADDRESS`. Ring size 11. Host on 24/7.
@@ -153,8 +153,7 @@ For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 - Dashboard is now an installable PWA. Manifest + service worker + 5 PNG icons
   (regular/maskable/192/512/apple-180) generated via `scripts/gen_icons.py`
   (Pillow, one-shot). Verified live on Android Chrome.
-- SW strategies: network-first for `/api/*` + navigations, stale-while-revalidate
-  for CDN assets (Alpine + Tailwind), cache-first for `/static/*`. Mobile sync
+- SW strategies: network-first for `/api/*` + navigations, cache-first for `/static/*`. Mobile sync
   POST stays network-only — errors surface via existing banner.
 - `api/main.py` got two new root-scope routes (`/sw.js`, `/manifest.webmanifest`)
   because the existing `/static` mount would only give the SW `/static/` scope.

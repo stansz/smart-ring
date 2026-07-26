@@ -1,9 +1,8 @@
 # Dashboard Rewrite Plan
 
-Replace the 3,230-line monolithic `dashboard/index.html` with a componentized React + TypeScript
-app while keeping the FastAPI backend untouched. Reach full feature parity, then cut over.
-The legacy Alpine dashboard continues serving at `:8000` until the new app is feature-complete
-and signed off.
+> **Status: COMPLETE (2026-07-26).** All 10 phases shipped and cutover to production.
+> Legacy `dashboard/index.html` deleted; React app now serving at `:8000` from
+> `dashboard/dist/`. Merged to `dev` branch. Doc retained for historical reference.
 
 > **Active-file warning:** `dashboard/index.html` is the most-changed file in the repo
 > (5+ commits in recent history, latest days ago). The transition rules below (feature freeze,
