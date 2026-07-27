@@ -116,6 +116,14 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-07-26 — Activity detection plan (research → concrete Phases 1–2)
+- Rewrote `docs/ACTIVITY_DETECTION_RESEARCH.md` from sketch into a build contract:
+  Phase 1 = Edwards TRIMP→strain 0–21 + zone minutes; Phase 2 = 15-min step+HR
+  segments (`walking`/`running`/`general_activity` only). Fixes from review:
+  schema stores minutes (not thresholds), 7d prior RHR baseline, per-slot wear,
+  idempotent segments, `USER_AGE`, no fake cycling, readiness unchanged until
+  prior-day strain later. Not implemented yet — design only.
+
 ### 2026-07-26 — Recovery card label/value tightening + hero HRV bug fix
 - **RecoveryCard** (`web/src/components/cards/RecoveryCard.tsx`): the `flex
   justify-between` rows stretched labels to the left edge and values to the far

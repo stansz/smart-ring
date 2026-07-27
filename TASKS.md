@@ -100,6 +100,7 @@ logic touched.
 
 | # | Task |
 |---|------|
+| — | **Activity detection** — Phase 1 (HR zones + strain) then Phase 2 (step+HR segments). Contract: `docs/ACTIVITY_DETECTION_RESEARCH.md`. Not started. |
 | — | Parser tests (Tier 1 item 4 — deferred as optional, see `docs/CLEANUP_PLAN.md`) |
 | — | Fix per-attempt `accepted` counting in `/api/mobile/sync` (use `cursor.rowcount`; pinned by `tests/test_mobile_sync.py`) |
 | — | **Investigate `stress_classification` schema bug**: columns named `_rmssd` but store stress_values (0-99). Documented in `db/init.sql`. Rename via migration when next touching the table. |
