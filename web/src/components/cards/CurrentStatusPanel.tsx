@@ -92,14 +92,14 @@ export function CurrentStatusPanel({ selectedKey, isToday }: CurrentStatusPanelP
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium uppercase tracking-wide">partial</span>
             )}
           </div>
-          <span className="text-xs text-gray-400 dark:text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {updated ? `as of ${updated}` : ""}
           </span>
         </div>
 
         {/* Empty state for days with no snapshots */}
         {daySnapshots.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-gray-500 py-6 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400 py-6 text-center">
             No status snapshots for this day.
           </p>
         ) : (
@@ -138,7 +138,7 @@ export function CurrentStatusPanel({ selectedKey, isToday }: CurrentStatusPanelP
               </p>
               {stressHistory.length >= 2 && (
                 <div className="flex gap-1.5 mt-2 flex-1 min-h-[50px]">
-                  <div className="flex flex-col justify-between text-[9px] text-gray-400 dark:text-gray-500 py-0.5 leading-none">
+                  <div className="flex flex-col justify-between text-[9px] text-gray-500 dark:text-gray-400 py-0.5 leading-none">
                     <span>99</span><span>50</span><span>0</span>
                   </div>
                   <div className="flex-1 flex flex-col">
@@ -146,7 +146,7 @@ export function CurrentStatusPanel({ selectedKey, isToday }: CurrentStatusPanelP
                       <path d={sparklinePath(stressHistory)} fill="none" stroke="currentColor" strokeWidth="1.5"
                         strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
                     </svg>
-                    <div className="flex justify-between text-[9px] text-gray-400 dark:text-gray-500 mt-0.5 leading-none">
+                    <div className="flex justify-between text-[9px] text-gray-500 dark:text-gray-400 mt-0.5 leading-none">
                       <span>{oldestStressTs}</span>
                       <span>{isToday ? "now" : latestStressTs}</span>
                     </div>
@@ -182,12 +182,12 @@ export function CurrentStatusPanel({ selectedKey, isToday }: CurrentStatusPanelP
                       <span className="w-1/4 text-right">Rising</span>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 leading-snug">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-snug">
                     HRV slope per hour (last 3h). Rising = recovering, Falling = fatiguing.
                   </p>
                 </>
               ) : (
-                <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-auto pt-2 leading-snug">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-auto pt-2 leading-snug">
                   Need ≥2 HRV samples in the last 3h — sync again after wearing the ring.
                 </p>
               )}

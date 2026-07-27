@@ -17,8 +17,8 @@ export function TrendChart({ data, title, description, color }: TrendChartProps)
     return (
       <div>
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{title}</h3>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">{description}</p>
-        <p className="text-sm text-gray-400 dark:text-gray-500 italic">{chartData.length === 0 ? "No data yet" : "Need more data points"}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{description}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 italic">{chartData.length === 0 ? "No data yet" : "Need more data points"}</p>
       </div>
     );
   }
@@ -26,7 +26,7 @@ export function TrendChart({ data, title, description, color }: TrendChartProps)
   return (
     <div>
       <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{title}</h3>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">{description}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{description}</p>
       <div style={{ minHeight: 140 }}>
         <ResponsiveContainer width="100%" height={140}>
           <LineChart data={chartData}>

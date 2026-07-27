@@ -36,7 +36,7 @@ export function ScoreCards() {
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
       {/* Recovery */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-        <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Recovery</p>
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Recovery</p>
         <p className="text-2xl font-bold mt-1 text-gray-900 dark:text-gray-100">
           {latestRecovery?.z_score != null
             ? `${latestRecovery.z_score > 0 ? "+" : ""}${latestRecovery.z_score.toFixed(2)}`
@@ -55,7 +55,7 @@ export function ScoreCards() {
 
       {/* Sleep */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-        <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Sleep Quality</p>
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Sleep Quality</p>
         <p className={`text-2xl font-bold mt-1 ${sleepColor(latestSleep?.score)}`}>
           {latestSleep?.score != null ? `${Math.round(latestSleep.score)}/100` : "—"}
         </p>
@@ -74,7 +74,7 @@ export function ScoreCards() {
 
       {/* Stress */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-        <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Stress</p>
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Stress</p>
         <p className={`text-2xl font-bold mt-1 ${stressColor(latestStress?.classification ?? null)}`}>
           {stressDailyScore != null ? stressDailyScore : "—"}
         </p>
@@ -91,12 +91,12 @@ export function ScoreCards() {
 
       {/* Resting HR */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
-        <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">Resting HR</p>
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Resting HR</p>
         <p className="text-2xl font-bold mt-1 text-blue-600 dark:text-blue-400">
           {latestResting?.resting_hr != null ? `${Math.round(latestResting.resting_hr)} bpm` : "—"}
         </p>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Overnight avg (1-5 AM)</p>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{latestResting?.day || ""}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Overnight avg (1-5 AM)</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{latestResting?.day || ""}</p>
         <details className="mt-2 text-xs text-gray-500 dark:text-gray-400">
           <summary className="cursor-pointer">How this works</summary>
           <p className="mt-1 pl-3 border-l-2 border-gray-200 dark:border-gray-600">

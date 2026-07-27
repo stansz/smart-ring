@@ -34,15 +34,19 @@ function App() {
     }
   }, [tab]);
 
+  const hasBluetooth = typeof navigator !== "undefined" && !!navigator.bluetooth;
+
   const syncButtons = (
     <div className="flex items-center gap-1">
-      <button
-        onClick={syncFromPhone}
-        disabled={!!phase || busy}
-        className="px-3 py-1.5 text-xs sm:px-2 sm:py-0.5 bg-green-600 text-white rounded disabled:bg-gray-300 dark:disabled:bg-gray-600"
-      >
-        📱 BLE
-      </button>
+      {hasBluetooth && (
+        <button
+          onClick={syncFromPhone}
+          disabled={!!phase || busy}
+          className="px-3 py-1.5 text-xs sm:px-2 sm:py-0.5 bg-green-600 text-white rounded disabled:bg-gray-300 dark:disabled:bg-gray-600"
+        >
+          📱 BLE
+        </button>
+      )}
       <SyncButtons busy={busy} startSync={startSync} handleCancel={handleCancel} progress={progress} />
     </div>
   );

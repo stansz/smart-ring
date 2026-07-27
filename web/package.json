@@ -11,8 +11,6 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
-    "clsx": "^2.1.1",
-    "date-fns": "^4.4.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "recharts": "^3.10.1",

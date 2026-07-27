@@ -15,10 +15,12 @@ export function Tabs({ tab, onSwitch }: TabsProps) {
   return (
     <>
       {/* Desktop tabs */}
-      <div className="hidden sm:flex space-x-1">
+      <div className="hidden sm:flex space-x-1" role="tablist">
         {tabs.map((t) => (
           <button
             key={t.key}
+            role="tab"
+            aria-selected={tab === t.key}
             onClick={() => onSwitch(t.key)}
             className={`px-3 py-1.5 text-sm rounded-md transition ${
               tab === t.key
@@ -34,6 +36,7 @@ export function Tabs({ tab, onSwitch }: TabsProps) {
       <select
         value={tab}
         onChange={(e) => onSwitch(e.target.value as Tab)}
+        aria-label="Select tab"
         className="sm:hidden px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
       >
         {tabs.map((t) => (

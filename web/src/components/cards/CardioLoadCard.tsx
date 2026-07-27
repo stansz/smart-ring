@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 import { useHeartRateZones, useStrainTrend } from "../../api/hooks";
+import { Skeleton } from "../ui";
 
 interface CardioLoadCardProps {
   selectedKey: string;
@@ -30,7 +31,7 @@ const ZONE_COLORS: Record<string, string> = {
 };
 
 export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
-  const { data: zoneData } = useHeartRateZones(30);
+  const { data: zoneData, isLoading, isError, refetch } = useHeartRateZones(30);
   const { data: strainTrendData } = useStrainTrend(30);
 
   const zoneRow = zoneData?.find((r) => r.day === selectedKey);
@@ -76,6 +77,25 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
     }
   }
 
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">❤️ Cardio Load</h2>
+        <Skeleton className="h-32" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">❤️ Cardio Load</h2>
+        <p className="text-sm text-rose-500">Failed to load cardio data.</p>
+        <button onClick={() => refetch()} className="text-xs text-blue-600 mt-2 underline">Retry</button>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 flex flex-col">
       {/* Header */}
@@ -90,7 +110,7 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
 
       {!zoneRow ? (
         <div className="flex-1 flex items-center justify-center py-8">
-          <p className="text-sm text-gray-400 dark:text-gray-500">No HR data for this day</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No HR data for this day</p>
         </div>
       ) : (
         <>
@@ -99,7 +119,7 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
             <p className="text-4xl font-bold text-blue-600 dark:text-blue-400">
               {Number(zoneRow.strain_score).toFixed(1)}
             </p>
-            <span className="text-sm text-gray-400 dark:text-gray-500">/ 21</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">/ 21</span>
             {trendRow && TREND_ARROWS[trendRow.trend_direction] && (
               <span className={`text-sm ${TREND_ARROWS[trendRow.trend_direction].color}`}>
                 {TREND_ARROWS[trendRow.trend_direction].symbol} {TREND_ARROWS[trendRow.trend_direction].text}
@@ -122,7 +142,7 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
               </div>
             ) : (
               <div className="flex w-full h-3 rounded-full bg-gray-100 dark:bg-gray-700 items-center justify-center">
-                <span className="text-[10px] text-gray-400 dark:text-gray-500">Rest day</span>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">Rest day</span>
               </div>
             )}
           </div>
@@ -156,7 +176,7 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
               ) : (
                 <>
                   <p className="text-gray-500 dark:text-gray-400">ACWR</p>
-                  <p className="italic text-gray-400 dark:text-gray-500 text-[10px]">Building baseline…</p>
+                  <p className="italic text-gray-500 dark:text-gray-400 text-[10px]">Building baseline…</p>
                 </>
               )}
             </div>
@@ -166,7 +186,7 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
 
       {/* Footer */}
       <div className="mt-auto pt-4 border-t border-gray-100 dark:border-gray-700">
-        <p className="text-xs text-gray-400 dark:text-gray-500 leading-relaxed">
+        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
           Cardiovascular load from HR zones (Edwards TRIMP, 0–21). Walking stays low — it's movement, not cardio work. Lights up on sustained elevated HR.
         </p>
       </div>
