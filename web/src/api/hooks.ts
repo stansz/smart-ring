@@ -11,6 +11,8 @@ import type {
   StressClassificationRow,
   RestingHrRow,
   DailyActivityRow,
+  HeartRateZonesRow,
+  StrainTrendRow,
   DataQualityRow,
   RawHeartRateRow,
   RawStepsRow,
@@ -103,6 +105,20 @@ export function useDailyActivity(days = 14) {
   return useQuery({
     queryKey: ["dailyActivity", days],
     queryFn: () => get<DailyActivityRow[]>(`/api/daily-activity?days=${days}`),
+  });
+}
+
+export function useHeartRateZones(days = 14) {
+  return useQuery({
+    queryKey: ["heartRateZones", days],
+    queryFn: () => get<HeartRateZonesRow[]>(`/api/heart-rate-zones?days=${days}`),
+  });
+}
+
+export function useStrainTrend(days = 14) {
+  return useQuery({
+    queryKey: ["strainTrend", days],
+    queryFn: () => get<StrainTrendRow[]>(`/api/strain-trend?days=${days}`),
   });
 }
 

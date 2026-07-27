@@ -41,7 +41,8 @@ TABLES_TO_TRUNCATE = (
     "raw_spo2, raw_temperature, raw_stress, "
     "ring_goals, ring_status, sync_log, sync_requests, "
     "daily_recovery, sleep_quality, daily_activity, readiness_score, "
-    "current_status, hrv_trends, circadian_hr, stress_classification, data_quality"
+    "current_status, hrv_trends, circadian_hr, stress_classification, data_quality, "
+    "heart_rate_zones, strain_trend"
 )
 
 
@@ -108,7 +109,9 @@ def db(test_db_url):
     """
     conn = psycopg2.connect(test_db_url)
     try:
+        tz = os.getenv("TZ", "") or "America/Vancouver"
         with conn.cursor() as cur:
+            cur.execute("SET TIME ZONE %s", (tz,))
             cur.execute(f"TRUNCATE {TABLES_TO_TRUNCATE} RESTART IDENTITY CASCADE")
         conn.commit()
         yield conn
@@ -125,7 +128,9 @@ def db_dict(test_db_url):
     """
     conn = psycopg2.connect(test_db_url, cursor_factory=RealDictCursor)
     try:
+        tz = os.getenv("TZ", "") or "America/Vancouver"
         with conn.cursor() as cur:
+            cur.execute("SET TIME ZONE %s", (tz,))
             cur.execute(f"TRUNCATE {TABLES_TO_TRUNCATE} RESTART IDENTITY CASCADE")
         conn.commit()
         yield conn
