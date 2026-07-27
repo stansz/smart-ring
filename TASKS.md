@@ -155,7 +155,7 @@ The API container can't run the host collector (no venv, no BLE), so phone syncs
 
 ## Timezone cutoffs ✅ (2026-07-13)
 
-Day boundaries were inconsistent: analytics + `/api/resting-hr` used Pacific, but the API container had no `$TZ` and the Postgres session was UTC — so `CURRENT_DATE`/`ts::date` grouped by UTC day. Evening Pacific activity (after 5pm PDT) got attributed to the next day (e.g. a Saturday 7pm walk showed under Sunday). Fix: `ALTER SYSTEM SET TimeZone='America/Vancouver'` (server-wide, persists) + `TZ=America/Vancouver` on both containers (`~/.config/containers/systemd/*.container`). No data rewrite — stored `ts` are correct instants; only the day-boundary interpretation changed. Ring time-setting unaffected (host collector's `set_time_local` still sends Pacific-local BCD).
+Day boundaries were inconsistent: analytics + `/api/resting-hr` used Pacific, but the API container had no `$TZ` and the Postgres session was UTC — so `CURRENT_DATE`/`ts::date` grouped by UTC day. Evening Pacific activity (after 5pm PDT) got attributed to the next day (e.g. a Saturday 7pm walk showed under Sunday). Fix: `ALTER SYSTEM SET TimeZone='America/Vancouver'` (server-wide, persists) + `TZ=America/Vancouver` on both containers (`smart-ring-db` / `smart-ring-api` system units). No data rewrite — stored `ts` are correct instants; only the day-boundary interpretation changed. Ring time-setting unaffected (host collector's `set_time_local` still sends Pacific-local BCD).
 
 
 ---

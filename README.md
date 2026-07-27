@@ -28,21 +28,26 @@ Build a private, self-hosted health tracking system that:
 
 ## Deployment
 
-**Local-first, fully wired up.** All services run on the Linux box — rootless Podman containers for Postgres + FastAPI, bare-metal Python venv for the BLE collector (it needs direct BlueZ/DBus access).
+**Local-first, fully wired up.** System systemd units on the Linux box: rootless Podman
+(`podman run`, not quadlets) for Postgres + FastAPI, bare-metal Python venv for the BLE
+collector (BlueZ/DBus) and the poller. Ops details: [`docs/RUNTIME.md`](docs/RUNTIME.md).
 
 ```
 Home Network
 └─ Linux Mint Box (AMD 3800x, 64GB RAM, BT enabled)
-   ├─ smart-ring-db.service      (rootless Podman quadlet, Postgres 16)
-   │   └─ port localhost:5432, volume smart-ring-pgdata, health check
-   ├─ smart-ring-api.service     (rootless Podman quadlet, FastAPI)
+   ├─ smart-ring-db.service      (system unit → rootless podman, Postgres 16)
+   │   └─ 127.0.0.1:5432, volume smart-ring-pgdata
+   ├─ smart-ring-api.service     (system unit → rootless podman, FastAPI)
    │   ├─ Requires=smart-ring-db.service
-   │   └─ port localhost:8000, serves dashboard
-   ├─ smart-ring-poller.service  (bare metal, system systemd)
-   │   └─ 30s poll of sync_requests → runs sync_ring.py + analytics
-   └─ Manual collector commands also available
-       └─ python -m collector.sync_ring --forget  (force-sync outside the poller)
+   │   └─ 0.0.0.0:8000, serves dashboard
+   ├─ smart-ring-poller.service  (system unit, bare metal)
+   │   └─ 30s poll of sync_requests → sync_ring + analytics
+   └─ Manual collector: venv/bin/python3 -m collector.sync_ring --forget
 ```
+
+**Podman must use production storage:** `export XDG_DATA_HOME=/opt/smart-ring/.local/share`
+before any `podman` command. Bare `podman ps` looks at `~` and is often empty while the
+stack is running — that is not “services down.”
 
 Dashboard: React + TypeScript app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; current status 3-box panel with vibe ladder + stress sparkline + trend gradient; recovery card; sleep donut; vitals hourly chart; circadian HR pattern), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, 5 trend charts with 7d/14d/30d/90d range selector, research references), and **Admin** (ring status, system health, full sync log with pagination, raw HR/steps tables). Built with Vite → `dashboard/dist/`. **Installable PWA** — manifest + offline-shell service worker + icons; install to home screen on Android Chrome (or any Chromium browser), works offline once cached.
 
@@ -73,6 +78,7 @@ venv/bin/python3 -m pytest tests/               # 132 tests, ~5s
 
 Detailed docs live in **[`docs/`](docs/)**:
 
+- **[`docs/RUNTIME.md`](docs/RUNTIME.md)** — how the stack actually runs: dual Podman store, system units, ports, volumes, commands that work.
 - **[`docs/RING_BEHAVIOR.md`](docs/RING_BEHAVIOR.md)** — empirical Colmi R09 behavior: connection quirks, per-data-type reference (interval / buffer / publish cadence / format), V2 big-data protocol, background-logger stall, time-sync.
 - **[`docs/RESEARCH.md`](docs/RESEARCH.md)** — hardware specs, validated score formulas (with peer-reviewed citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis, Oura comparison.
 - **[`docs/done/ROADMAP.md`](docs/done/ROADMAP.md)** — mobile sync design (WebBluetooth PWA + Gadgetbridge fork options). Historical.
@@ -210,8 +216,8 @@ This project would not exist without the open work of the Colmi R09 reverse-engi
 | **[Recharts 3](https://recharts.org/)** | Composable charting library for React — used for Vitals, Circadian, and all trend charts. |
 | **[vite-plugin-pwa](https://vite-pwa-org.netlify.app/)** | PWA integration — workbox service worker generation, manifest, icon injection. |
 | **[Python asyncio](https://docs.python.org/3/library/asyncio.html)** | Async I/O for BLE collector (stdlib). |
-| **[Podman](https://podman.io/)** | Rootless container engine for DB + API services. |
-| **[systemd](https://systemd.io/)** | User services for poller + container quadlets. |
+| **[Podman](https://podman.io/)** | Rootless container engine for DB + API (`podman run` via system units; storage under `/opt/smart-ring` via `XDG_DATA_HOME`). |
+| **[systemd](https://systemd.io/)** | System units (`/etc/systemd/system/smart-ring-*.service`) for db, api, and bare-metal poller. |
 
 ### Scientific & Research References
 

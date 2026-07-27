@@ -248,10 +248,9 @@ Then:
    together.
 4. Smoke test at `:8000` and via the Tailscale URL on the phone.
 5. Delete `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, old icons.
-6. Update `AGENTS.md`: the dashboard row now reflects the build step (the old "no build" claim is
-   retired). Note `docker-compose.yml` is stale vs the systemd units (compose binds `127.0.0.1`,
-   units bind `0.0.0.0`) — **the units are canonical**; update compose or mark it stale.
-7. Remove the Tailscale `/beta` path.
+  6. Update `AGENTS.md`: the dashboard row now reflects the build step (the old "no build" claim is
+    retired). Production stack = `/etc/systemd/system/smart-ring-*.service` only (see `docs/RUNTIME.md`).
+  7. Remove the Tailscale `/beta` path.
 
 ---
 
