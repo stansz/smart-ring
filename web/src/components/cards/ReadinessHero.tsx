@@ -1,13 +1,14 @@
 import { useReadiness } from "../../api/hooks";
 import type { ReadinessRow } from "../../api/types";
 import { todayKey } from "../../utils/date";
+import { Skeleton } from "../ui";
 
 interface ReadinessHeroProps {
   selectedKey: string;
 }
 
 export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
-  const { data } = useReadiness(30);
+  const { data, isLoading } = useReadiness(30);
   const row: ReadinessRow | undefined = data?.find((r) => r.day === selectedKey);
 
   const score = row?.score;
@@ -22,6 +23,15 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
 
   // Concentric ring computations (circumference: 2πr — outer ≈ 251, middle ≈ 201, inner ≈ 151)
   const circumferences = { sleep: 251, hrv: 201, rhr: 151 };
+
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Readiness</h2>
+        <Skeleton className="h-48" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
@@ -39,7 +49,7 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
             </span>
           )}
         </div>
-        <span className="text-xs text-gray-400 dark:text-gray-500">
+        <span className="text-xs text-gray-500 dark:text-gray-400">
           {row?.day ? new Date(row.day + "T00:00").toLocaleDateString() : ""}
         </span>
       </div>

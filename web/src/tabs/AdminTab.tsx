@@ -58,7 +58,7 @@ function SyncLogTable({ rows }: { rows: AdminSyncLogRow[] | undefined }) {
               </tr>
             ))}
             {safe.length === 0 && (
-              <tr><td colSpan={7} className="py-6 text-center text-gray-400 dark:text-gray-500">No syncs yet. Ring hasn't been paired.</td></tr>
+              <tr><td colSpan={7} className="py-6 text-center text-gray-500 dark:text-gray-400">No syncs yet. Ring hasn't been paired.</td></tr>
             )}
           </tbody>
         </table>
@@ -96,23 +96,23 @@ export function AdminTab() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Battery</p>
           <p className="text-3xl font-bold text-gray-900 dark:text-gray-100 mt-1">
-            {ring?.ring?.battery_pct != null ? <>{ring.ring.battery_pct}<span className="text-base text-gray-400 dark:text-gray-500">%</span></> : "—"}
+            {ring?.ring?.battery_pct != null ? <>{ring.ring.battery_pct}<span className="text-base text-gray-500 dark:text-gray-400">%</span></> : "—"}
           </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {ring?.ring?.ts ? `As of ${new Date(ring.ring.ts).toLocaleString()}` : "No data yet — ring not synced"}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Firmware</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{ring?.ring?.firmware_version || "—"}</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">From device info read</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">From device info read</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-5 border border-gray-100 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Last Sync</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
             {ring?.last_sync?.completed_at ? new Date(ring.last_sync.completed_at).toLocaleString() : "Never"}
           </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {ring?.last_sync?.records_synced != null ? `${ring.last_sync.records_synced} records` : ""}
           </p>
         </div>
@@ -121,7 +121,7 @@ export function AdminTab() {
           <p className={`text-2xl font-bold mt-1 ${health?.db === "connected" ? "text-green-600" : "text-red-600"}`}>
             {health?.db === "connected" ? "OK" : "DOWN"}
           </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{health?.container_host ? `host: ${health.container_host}` : ""}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{health?.container_host ? `host: ${health.container_host}` : ""}</p>
         </div>
       </div>
 
@@ -153,7 +153,7 @@ export function AdminTab() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             Heart Rate Log
-            <span className="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2">{rawHr?.length || 0} records</span>
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">{rawHr?.length || 0} records</span>
           </h2>
           <div className="overflow-y-auto" style={{ maxHeight: 300 }}>
             <table className="w-full text-sm">
@@ -177,7 +177,7 @@ export function AdminTab() {
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             Steps Log
-            <span className="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2">{rawSteps?.length || 0} records</span>
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">{rawSteps?.length || 0} records</span>
           </h2>
           <div className="overflow-y-auto" style={{ maxHeight: 300 }}>
             <table className="w-full text-sm">

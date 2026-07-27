@@ -62,10 +62,10 @@ export function VitalsChart({ hours = 48, selectedKey }: VitalsChartProps) {
       <div className="flex justify-between items-baseline mb-1">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Vitals</h2>
         {selectedKey !== today && (
-          <span className="text-xs text-gray-400 dark:text-gray-500">{new Date(selectedKey + "T00:00").toLocaleDateString()}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{new Date(selectedKey + "T00:00").toLocaleDateString()}</span>
         )}
       </div>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">{subtitle}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{subtitle}</p>
       <div style={{ minHeight: 120 }}>
         <ResponsiveContainer width="100%" height={165}>
           <LineChart data={chartData}>
@@ -85,11 +85,11 @@ export function VitalsChart({ hours = 48, selectedKey }: VitalsChartProps) {
       </div>
       <div className="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-2 gap-2 text-xs">
         <div className="text-center">
-          <p className="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
+          <p className="text-gray-500 dark:text-gray-400">🩸 SpO₂</p>
           <p className="font-bold text-sm mt-0.5 text-teal-500 dark:text-teal-400">{spo2Latest != null ? `${spo2Latest}%` : "—"}</p>
         </div>
         <div className="text-center">
-          <p className="text-gray-400 dark:text-gray-500">Avg HR</p>
+          <p className="text-gray-500 dark:text-gray-400">Avg HR</p>
           <p className="font-bold text-sm mt-0.5 text-blue-600">
             {(chartData.filter((d) => d.hr != null).length > 0)
               ? `${Math.round(chartData.filter((d) => d.hr != null).reduce((a, b) => a + b.hr!, 0) / chartData.filter((d) => d.hr != null).length)} bpm`

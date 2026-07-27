@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, useCallback, type ReactNode } from "react";
+import { useMemo, useState, useCallback, type ReactNode } from "react";
 import { polar, arc, tsToDayMinutes } from "../../utils/dayring";
 import type { DailyActivityRow, RawSleepRow } from "../../api/types";
 
@@ -39,7 +39,6 @@ interface TooltipState {
 }
 
 export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
-  const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
   const grey = darkMode ? "#374151" : "#e5e7eb";
@@ -139,7 +138,9 @@ export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
 
     // ── Legend ──
     const fmtMin = (m: number) => m > 0 ? `${Math.floor(m / 60)}h ${m % 60}m` : "—";
-    const wornH = row ? Math.round(((new Date(row.last_hr_ts!).getTime() - new Date(row.first_hr_ts!).getTime()) / 3_600_000)) : 0;
+    const wornH = row?.first_hr_ts && row?.last_hr_ts
+      ? Math.round((new Date(row.last_hr_ts).getTime() - new Date(row.first_hr_ts).getTime()) / 3_600_000)
+      : 0;
     const legendItems: [string, string, string][] = [
       ["#10b981", "Steps", row ? row.steps_total.toLocaleString() : "—"],
       ["#4338ca", "Deep", fmtMin(stageMin.deep || 0)],
@@ -170,6 +171,21 @@ export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
 
   const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
+  // Touch: tap a segment to toggle its tooltip (Android support).
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const target = el?.closest?.(".ringbar") as HTMLElement | null;
+    if (target?.dataset.tip) {
+      const text = target.dataset.tip;
+      // Toggle off if tapping the same segment again.
+      setTooltip((prev) => prev?.text === text ? null : { text, x: touch.clientX + 14, y: touch.clientY - 32 });
+    } else {
+      setTooltip(null);
+    }
+  }, []);
+
   const centerCol = darkMode ? "#e5e7eb" : "#111827";
   const subCol = darkMode ? "#9ca3af" : "#6b7280";
   const legendValCol = darkMode ? "#e5e7eb" : "#374151";
@@ -177,8 +193,8 @@ export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
   return (
     <>
       <div className="flex flex-col items-center w-full flex-1">
-        <div className="flex justify-center w-full" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
-          <svg ref={svgRef} viewBox="-18 -18 276 276" className="w-full max-w-[360px]">
+        <div className="flex justify-center w-full" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onTouchStart={handleTouchStart}>
+          <svg viewBox="-18 -18 276 276" className="w-full max-w-[360px]">
             {segments}
             {labels}
             <text x={CX} y={CY - 4} textAnchor="middle" fontSize="30" fontWeight="700" fill={centerCol}>

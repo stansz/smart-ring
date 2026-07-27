@@ -22,7 +22,7 @@ export function Nav({ tab, onTabSwitch, darkMode, onToggleDark, syncButtons }: N
   return (
     <nav className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 sticky top-0 z-50 [padding-top:env(safe-area-inset-top)]">
       <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-12 sm:h-12">
+        <div className="flex items-center justify-between h-12 sm:h-10">
           <div className="flex items-center space-x-2 sm:space-x-4 min-w-0">
             <h1 className="text-sm sm:text-xl font-semibold text-gray-900 dark:text-gray-100 truncate">Stan's Ring</h1>
             <Tabs tab={tab} onSwitch={onTabSwitch} />

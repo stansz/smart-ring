@@ -29,7 +29,7 @@ export function SyncProgressDialog({ phase, onDismiss }: SyncProgressDialogProps
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 max-w-sm w-[90%] text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 dark:border-gray-600 border-t-blue-600 mx-auto mb-5" />
         <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{phase}</p>
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">Keep this screen on</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">Keep this screen on</p>
       </div>
     </div>
   );

@@ -13,11 +13,3 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
     </div>
   );
 }
-
-export function EmptyState({ message = "No data yet" }: { message?: string }) {
-  return (
-    <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-      <p className="text-lg">{message}</p>
-    </div>
-  );
-}

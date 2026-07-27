@@ -36,33 +36,3 @@ export function DataQualityBanner() {
     </div>
   );
 }
-
-export function DataQualityGrid() {
-  const { data } = useDataQuality(3);
-  if (!data || data.length === 0) return null;
-
-  const today = todayKey();
-  const todayRows = data.filter((r) => r.day === today);
-
-  const statusColor = (status: string) =>
-    status === "ok" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300" :
-    status === "stale" ? "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300" :
-    "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
-
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-100 dark:border-gray-700 p-6 mb-8">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">Data Quality</h2>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-        {todayRows.map((r) => (
-          <div key={r.data_type} className="text-center p-2 rounded-lg bg-gray-50 dark:bg-gray-700/50">
-            <p className="text-xs text-gray-500 dark:text-gray-400">{TYPE_LABELS[r.data_type] || r.data_type}</p>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded mt-1 inline-block ${statusColor(r.status)}`}>
-              {r.status}
-            </span>
-            <p className="text-xs font-mono text-gray-400 dark:text-gray-500 mt-1">{r.sample_count}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}

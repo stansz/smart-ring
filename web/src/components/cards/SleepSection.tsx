@@ -1,5 +1,6 @@
 import { useRawSleep } from "../../api/hooks";
 import { todayKey } from "../../utils/date";
+import { Skeleton } from "../ui";
 
 interface SleepSectionProps {
   selectedKey: string;
@@ -20,9 +21,18 @@ const STAGE_LABELS: Record<string, string> = {
 const STAGE_ORDER = ["deep", "rem", "light", "awake"];
 
 export function SleepSection({ selectedKey }: SleepSectionProps) {
-  const { data: rawSleep } = useRawSleep(720, 1000);
+  const { data: rawSleep, isLoading } = useRawSleep(720, 1000);
 
   const stages = rawSleep?.filter((s) => s.day === selectedKey && s.duration_minutes > 0) || [];
+
+  if (isLoading) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Last Night's Sleep</h2>
+        <Skeleton className="h-44" />
+      </div>
+    );
+  }
 
   // Empty state
   if (stages.length === 0) {
@@ -86,7 +96,7 @@ export function SleepSection({ selectedKey }: SleepSectionProps) {
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700">
       <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Last Night's Sleep
-        <span className="text-sm font-normal text-gray-400 dark:text-gray-500 ml-2">
+        <span className="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">
           ({new Date(selectedKey + "T00:00").toLocaleDateString()})
         </span>
       </h2>
@@ -112,7 +122,7 @@ export function SleepSection({ selectedKey }: SleepSectionProps) {
             <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {totalHours}h {remMin}m
             </span>
-            <span className="text-xs text-gray-400 dark:text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {bedTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – {wakeTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
             </span>
           </div>
@@ -120,7 +130,7 @@ export function SleepSection({ selectedKey }: SleepSectionProps) {
 
         {/* Stage legend */}
         <div className="flex-1 space-y-1.5">
-          <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide mb-2">Stage Breakdown</p>
+          <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Stage Breakdown</p>
           {legendRows.map((r) => (
             <div key={r.stage} className="flex items-center gap-2 text-sm">
               <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: STAGE_COLORS[r.stage] }} />
