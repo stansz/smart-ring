@@ -115,6 +115,39 @@ def get_daily_activity(days: int = 14):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/heart-rate-zones")
+def get_heart_rate_zones(days: int = 14):
+    """Per-day heart rate zones and Edwards TRIMP strain scores."""
+    cutoff_date = date.today() - timedelta(days=days)
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT day, rhr_used, max_hr_used,
+                   zone1_min, zone2_min, zone3_min, zone4_min, zone5_min,
+                   below_zone_min, elevated_min, peak_zone,
+                   trimp, strain_score, hr_samples, computed_at
+            FROM heart_rate_zones
+            WHERE day >= :cutoff_date
+            ORDER BY day ASC
+        """), {"cutoff_date": cutoff_date}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/strain-trend")
+def get_strain_trend(days: int = 14):
+    """Per-day strain trend, ACWR, and load labels."""
+    cutoff_date = date.today() - timedelta(days=days)
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT day, strain_today, load_label,
+                   strain_7d_sum, strain_7d_avg, strain_28d_avg,
+                   acwr, trend_direction, days_with_data, computed_at
+            FROM strain_trend
+            WHERE day >= :cutoff_date
+            ORDER BY day ASC
+        """), {"cutoff_date": cutoff_date}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/readiness")
 def get_readiness(days: int = 7):
     """Unified readiness score (0-100 WHOOP-style) with sub-scores + context.

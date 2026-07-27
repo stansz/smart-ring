@@ -5,7 +5,7 @@ import logging
 import sys
 
 from . import circadian, current_status, data_quality, daily_activity, dedupe, db
-from . import hrv, readiness, rhr, sleep, stress
+from . import heart_rate_zones, hrv, readiness, rhr, sleep, strain_trend, stress
 
 log = logging.getLogger(__name__)
 
@@ -26,6 +26,8 @@ def run_all() -> None:
             ("Stress", stress.compute_stress),
             ("Circadian HR", circadian.compute_circadian_hr),
             ("Daily activity", daily_activity.compute_daily_activity),
+            ("Heart rate zones", heart_rate_zones.compute_heart_rate_zones),
+            ("Strain trend", strain_trend.compute_strain_trend),
             ("Readiness", readiness.compute_readiness_score),
             ("Current status", current_status.compute_current_status),
             ("Resting HR", rhr.compute_resting_hr),

@@ -218,6 +218,48 @@ CREATE TABLE IF NOT EXISTS current_status (
 );
 CREATE INDEX IF NOT EXISTS idx_current_status_ts ON current_status(ts DESC);
 
+-- Heart rate zones: per-day zone minutes + Edwards TRIMP-based strain score.
+-- Zone times are computed from raw_heart_rate 5-min samples using Karvonen
+-- HR reserve boundaries. strain_score is scaled to 0-21 like WHOOP's product
+-- surface, but derived from a transparent Edwards TRIMP, not their proprietary
+-- formula. Empty/unworn days are skipped entirely.
+CREATE TABLE IF NOT EXISTS heart_rate_zones (
+    day DATE PRIMARY KEY,
+    rhr_used INT NOT NULL,              -- baseline applied that day
+    max_hr_used INT NOT NULL,
+    zone1_min INT NOT NULL DEFAULT 0,   -- minutes in 50-60% HRR
+    zone2_min INT NOT NULL DEFAULT 0,   -- minutes in 60-70% HRR
+    zone3_min INT NOT NULL DEFAULT 0,   -- minutes in 70-80% HRR
+    zone4_min INT NOT NULL DEFAULT 0,   -- minutes in 80-90% HRR
+    zone5_min INT NOT NULL DEFAULT 0,   -- minutes in 90-100% HRR
+    below_zone_min INT NOT NULL DEFAULT 0, -- worn samples under Z1, as minutes
+    elevated_min INT NOT NULL DEFAULT 0,   -- Z2+Z3+Z4+Z5 minutes
+    peak_zone INT CHECK (peak_zone IS NULL OR peak_zone BETWEEN 0 AND 5),
+    trimp NUMERIC(8,1) NOT NULL DEFAULT 0,  -- Edwards raw load
+    strain_score NUMERIC(4,1) NOT NULL DEFAULT 0,  -- 0.0-21.0
+    hr_samples INT NOT NULL DEFAULT 0,
+    computed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Strain trend & training load: rolling 7d acute load, 28d chronic load (ACWR),
+-- daily load labels, and trend direction.
+CREATE TABLE IF NOT EXISTS strain_trend (
+    day DATE PRIMARY KEY,
+    strain_today NUMERIC(4,1) NOT NULL DEFAULT 0,
+    load_label TEXT CHECK (load_label IN (
+        'rest','light','moderate','hard','very_hard'
+    )),
+    strain_7d_sum NUMERIC(5,1),     -- acute load (7d sum)
+    strain_7d_avg NUMERIC(4,1),
+    strain_28d_avg NUMERIC(4,1),    -- chronic load (28d avg)
+    acwr NUMERIC(4,2),              -- 7d_sum / 28d_avg; NULL until 28d baseline built
+    trend_direction TEXT CHECK (trend_direction IN (
+        'increasing','stable','decreasing'
+    )),
+    days_with_data INT,
+    computed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Sync tracking
 CREATE TABLE IF NOT EXISTS sync_log (
     id BIGSERIAL PRIMARY KEY,

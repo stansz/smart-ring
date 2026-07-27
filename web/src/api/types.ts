@@ -115,6 +115,37 @@ export interface DailyActivityRow {
   hourly_worn: number[] | null;
 }
 
+export interface HeartRateZonesRow {
+  day: string;
+  rhr_used: number;
+  max_hr_used: number;
+  zone1_min: number;
+  zone2_min: number;
+  zone3_min: number;
+  zone4_min: number;
+  zone5_min: number;
+  below_zone_min: number;
+  elevated_min: number;
+  peak_zone: number;
+  trimp: number;
+  strain_score: number;
+  hr_samples: number;
+  computed_at: string;
+}
+
+export interface StrainTrendRow {
+  day: string;
+  strain_today: number;
+  load_label: "rest" | "light" | "moderate" | "hard" | "very_hard";
+  strain_7d_sum: number | null;
+  strain_7d_avg: number | null;
+  strain_28d_avg: number | null;
+  acwr: number | null;
+  trend_direction: "increasing" | "stable" | "decreasing";
+  days_with_data: number | null;
+  computed_at: string;
+}
+
 // ─── Data Quality ───────────────────────────────────────────────────────────
 export interface DataQualityRow {
   day: string;

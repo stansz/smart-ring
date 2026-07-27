@@ -3,7 +3,7 @@ import { DataPipeline } from "../components/analytics/DataPipeline";
 import { ScoreCards } from "../components/analytics/ScoreCards";
 import { TrendChart } from "../components/analytics/TrendChart";
 import { Card } from "../components/ui";
-import { useRecovery, useSleep, useStress, useRestingHr, useRawTemperature } from "../api/hooks";
+import { useRecovery, useSleep, useStress, useRestingHr, useRawTemperature, useStrainTrend } from "../api/hooks";
 
 const RANGES = [7, 14, 30, 90] as const;
 
@@ -15,6 +15,7 @@ export function AnalyticsTab() {
   const { data: stress } = useStress(range);
   const { data: restingHr } = useRestingHr(range);
   const { data: rawTemp } = useRawTemperature(range * 24, 2000);
+  const { data: strainTrend } = useStrainTrend(range);
 
   const hrvData = recovery?.map((r) => ({ day: r.day, value: r.z_score })) || [];
   const sleepData = sleep?.map((r) => ({ day: r.day, value: r.score })) || [];
@@ -24,6 +25,7 @@ export function AnalyticsTab() {
     return { day: r.day, value: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null };
   }) || [];
   const rhrData = restingHr?.map((r) => ({ day: r.day, value: r.resting_hr })) || [];
+  const strainData = strainTrend?.map((r) => ({ day: r.day, value: Number(r.strain_today) })) || [];
 
   const tempMap = new Map<string, { sum: number; n: number }>();
   for (const r of rawTemp || []) {
@@ -76,6 +78,9 @@ export function AnalyticsTab() {
           <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
             <TrendChart data={tempData} title="Skin Temperature Trend" description="Daily average °C. Shows overnight baseline over time." color="#f43f5e" />
           </div>
+          <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
+            <TrendChart data={strainData} title="Cardio Load / Strain Trend" description="Edwards TRIMP daily strain (0-21). Reflects cardiovascular load & training stress." color="#3b82f6" />
+          </div>
         </div>
       </Card>
 
@@ -98,6 +103,10 @@ export function AnalyticsTab() {
           <div>
             <p className="font-semibold text-gray-700 dark:text-gray-300">Trapezoidal Scoring</p>
             <p>Inspired by Oura's reverse-engineered algorithms (Chheda). R²=0.846 correlation with Oura sleep scores.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-gray-700 dark:text-gray-300">Training Load & ACWR</p>
+            <p>Gabbett, T. J. (2016). "The training-injury paradox: acute:chronic workload ratios." <em>Br J Sports Med</em>, 50(5), 273-275. Edwards TRIMP methodology for cardiovascular strain (0-21).</p>
           </div>
         </div>
       </div>
