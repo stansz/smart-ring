@@ -26,10 +26,11 @@ function App() {
   const onTabSwitch = useCallback((t: Tab) => setTab(t), []);
 
   // Sync URL hash so PWA shortcuts (#analytics) and browser back/forward work.
+  // Only change the hash — never touch the path (changing the path breaks reload).
   useEffect(() => {
     const hash = tab === "dashboard" ? "" : `#${tab}`;
     if (window.location.hash !== hash) {
-      window.history.replaceState(null, "", hash ? `/static/${hash}` : "/static/");
+      window.history.replaceState(null, "", hash || window.location.pathname + window.location.search);
     }
   }, [tab]);
 
