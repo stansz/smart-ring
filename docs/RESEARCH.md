@@ -238,7 +238,7 @@ The `source` column survives on every row; phone rows only persist where ring ha
 
 Day boundaries are consistently Pacific:
 - **Postgres**: `ALTER SYSTEM SET TimeZone='America/Vancouver'` — persists across restarts
-- **Containers**: `TZ=America/Vancouver` in both quadlets
+- **Containers**: `TZ=America/Vancouver` in both system units (`smart-ring-db`, `smart-ring-api`)
 - **Ring time-setting**: host collector's `set_time_local()` sends Pacific-local BCD bytes
 - **Stored timestamps**: correct instants (unchanged). Only date-boundary interpretation changed.
 

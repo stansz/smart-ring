@@ -339,7 +339,7 @@ first, then iterates through the scorers in dependency order.
 - `git diff api/main.py` — read the diff, confirm it's just deletions.
 - `python3 -c "from api.main import app; print('ok')"` — must succeed.
 - After rebuild + restart: `curl http://localhost:8000/health` returns 200.
-- After rebuild + restart: `podman exec smart-ring-api grep "create_all\|DeclarativeBase" /app/main.py` returns nothing.
+- After rebuild + restart (with `XDG_DATA_HOME=/opt/smart-ring/.local/share`): `podman exec smart-ring-api grep "create_all\|DeclarativeBase" /app/main.py` returns nothing.
 
 **Reversibility:** trivial. The deleted lines are 5 lines of no-op code. `git revert` restores them exactly.
 
@@ -410,8 +410,8 @@ These rules fix the failure mode that burned us this session. Non-negotiable.
 1. **One step per session.** Not all four. Each step is independently shippable and reversible. If a step blows up, you've lost ~30 minutes max, not ~3 hours.
 2. **You read the diff.** I show the diff, you read it, you confirm. I do not claim "verified" without showing the actual image contents.
 3. **I do not run operational commands.** No `podman build`, no `podman restart`, no `systemctl`, no `podman exec grep`. I can read (`cat`, `grep`, `head`); I do not write or restart.
-4. **You run the build + restart.** Sequence: `podman build --no-cache -t smart-ring-api:latest api/` (you run), `sudo systemctl restart smart-ring-api` (you run).
-5. **Verification by image inspection, not by HTTP.** Show exactly what to check inside the container: `podman exec smart-ring-api grep "PATTERN" /app/main.py` and similar. If the image doesn't have the change baked in, the change isn't live — no matter what `curl` says.
+4. **You run the build + restart.** Always `export XDG_DATA_HOME=/opt/smart-ring/.local/share` first (see `docs/RUNTIME.md`). Sequence: `podman build --no-cache -t localhost/smart-ring-api:latest api/` (you run), `sudo systemctl restart smart-ring-api` (you run).
+5. **Verification by image inspection, not by HTTP.** With XDG set: `podman exec smart-ring-api grep "PATTERN" /app/main.py`. If the image doesn't have the change baked in, the change isn't live — no matter what `curl` says.
 6. **Don't push until you've seen the verification yourself.** `git push origin dev` only happens after you've read the image contents and confirmed the code is live.
 
 ### Estimated cost per step

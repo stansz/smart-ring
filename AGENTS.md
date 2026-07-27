@@ -13,9 +13,27 @@ Private, self-hosted health tracking around the **Colmi R09** (~$45 CAD).
 - **Stack:** Python (bleak), FastAPI, Postgres 16, React 19 + TypeScript 5 + Vite (build → `dashboard/dist/`)
 - **Deployment:** Linux Mint HTPC (AMD 3800x / 64 GB) — bare metal for collector
 
-**BLE address** is in `.env` as `RING_ADDRESS`. Ring size 11. Host on 24/7.
+**BLE address** is in `.env` as `RING_ADDRESS` (local only — never commit). Host on 24/7.
 
 **Target device is Android.** The dashboard's phone sync uses Web Bluetooth, which iOS doesn't support (and never will — WebKit has no implementation). Don't propose iOS workarounds (Bluefy, WebBLE, native apps), don't flag iOS as a limitation in plans, and don't bend designs to accommodate iOS. The PWA installs fine on iOS as a read-only dashboard; that's a side-effect, not a target.
+
+---
+
+## Runtime (read before any podman/systemctl)
+
+**Full ops contract: [`docs/RUNTIME.md`](docs/RUNTIME.md).** Do not skip it.
+
+**Dual Podman store trap:** bare `podman ps` uses `$HOME/.local/share/containers` and is
+often **empty** even when the stack is up. Production storage is only visible when
+`XDG_DATA_HOME=/opt/smart-ring/.local/share` is set (units set this; interactive shells do not).
+
+```bash
+# Wrong store (often empty) ≠ stack down:
+podman ps -a
+# Production store (must show smart-ring-db + smart-ring-api when healthy):
+export XDG_DATA_HOME=/opt/smart-ring/.local/share
+podman ps -a
+```
 
 ---
 
@@ -23,38 +41,46 @@ Private, self-hosted health tracking around the **Colmi R09** (~$45 CAD).
 
 ```
 Ring ──BLE──> Linux Box (bare metal, forget+repair each sync)
-                ├─ smart-ring-poller.service  (system systemd, User=<username>, 30s poll)
-                │    └─ watches sync_requests → runs sync_ring.py
-                ├─ smart-ring-db.service      (system systemd, User=<username>, rootless Podman)
-                └─ smart-ring-api.service     (system systemd, User=<username>, rootless Podman)
-                     └─ serves dashboard, all API endpoints
+                ├─ smart-ring-poller.service  (system systemd, bare metal, 30s poll)
+                │    └─ watches sync_requests → sync_ring / analytics
+                ├─ smart-ring-db.service      (system systemd, rootless podman run)
+                └─ smart-ring-api.service     (system systemd, rootless podman run)
+                     └─ serves dashboard + API
 
-Project root:  /opt/smart-ring/code                          (code + venv — OUTSIDE the encrypted home; see note below)
-Podman storage:/opt/smart-ring/.local/share/containers       (rootless; located via XDG_DATA_HOME in the units)
-Unit files:    /etc/systemd/system/smart-ring-*.service      (CANONICAL — edit directly; no user-unit mirror)
+Code:          /opt/smart-ring/code
+Podman store:  /opt/smart-ring/.local/share/containers   (ONLY via XDG_DATA_HOME in units)
+Units:         /etc/systemd/system/smart-ring-*.service  (canonical — no user-unit, no quadlets, no compose)
 ```
 
 **Critical facts (do not violate):**
 
-- Collector is **bare metal only** (needs BlueZ/DBus) — runs `python -m collector.sync_ring`. Phone pairing requires `forget_ring()` after each sync.
-- **R09 single-connection**: Linux box holds the BLE connection; `forget_ring()` releases the ring for phone use.
-- **Poller** (`smart-ring-poller.service`): DB-only 30s loop. Watches `sync_requests`, dispatches jobs, then runs analytics. Auto-reaps stuck `sync_log` rows.
-- **Services are system-level** (`/etc/systemd/system/`, `User=<username>`). Never use `systemctl --user` for production autostart. Use `sudo systemctl`.
-- **Code + Podman storage live at `/opt/smart-ring`, NOT `~`.** Reason: the original home path was an **ecryptfs encrypted home** — it only decrypts on login, so anything stored in an encrypted home is unreachable at boot and boot-time services fail (`mkdir ... permission denied`) until someone logged in. That's why the project was relocated out of the home (2026-07-24). **Never move service data/code back into `~`.** This mirrors how `ollama` (dedicated system user) and the Win10 VM (`/opt/vmware`) already autostart reliably.
+- **Every smart-ring `podman` command needs** `export XDG_DATA_HOME=/opt/smart-ring/.local/share` (or the same prefix). Bare podman is a different graph root.
+- Collector is **bare metal only** (BlueZ/DBus) — `python -m collector.sync_ring`. Phone pairing needs `forget_ring()` after each sync.
+- **R09 single-connection:** box holds BLE; forget releases the ring for the phone.
+- **Poller** (`smart-ring-poller.service`): bare-metal 30s loop; not a container.
+- **Services are system units** (`/etc/systemd/system/`). Lifecycle = `sudo systemctl` / `sudo journalctl`. Never `systemctl --user` for production.
+- **Code + Podman storage live at `/opt/smart-ring`, never under an encrypted home.** Encrypted homes (e.g. ecryptfs) only decrypt on login — paths there kill boot autostart. Same pattern as ollama / data under `/opt`.
+- **No docker-compose, no Podman quadlets, no user systemd units** for this stack.
 
 ### Key commands
-Run from the project root `/opt/smart-ring/code` (commands use relative paths). Note: the venv was relocated on 2026-07-24, so its `bin/pip` / `bin/pytest` shebangs are stale — always invoke via `venv/bin/python3 -m pip` / `venv/bin/python3 -m pytest`.
+
 ```bash
 cd /opt/smart-ring/code
+export XDG_DATA_HOME=/opt/smart-ring/.local/share   # required for all podman below
+
+sudo systemctl status smart-ring-db smart-ring-api smart-ring-poller
 sudo systemctl restart smart-ring-api smart-ring-poller
 sudo journalctl -u smart-ring-poller -f
+
+podman ps -a
+podman exec -it smart-ring-db psql -U smart_ring -d smart_ring
+
 venv/bin/python3 -m collector.sync_ring --forget
 venv/bin/python3 -m collector.first_contact
-venv/bin/python3 -m pytest tests/                # full regression net (65 tests, ~4s)
-podman exec smart-ring-db psql -U smart_ring -d smart_ring
+venv/bin/python3 -m pytest tests/          # use python3 -m; venv shebangs may be stale
 ```
 
-Unit files are canonical at `/etc/systemd/system/smart-ring-*.service` — edit them directly there. (The old `~/.config/systemd/user/` mirrors were removed on 2026-07-24.) After editing: `sudo systemctl daemon-reload && sudo systemctl restart smart-ring-db smart-ring-api smart-ring-poller`.
+After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart smart-ring-db smart-ring-api smart-ring-poller`.
 
 ---
 
@@ -62,6 +88,7 @@ Unit files are canonical at `/etc/systemd/system/smart-ring-*.service` — edit 
 
 | File | Purpose |
 |------|---------|
+| `docs/RUNTIME.md` | **Ops truth:** dual Podman store, units, ports, volumes, commands that work |
 | `collector/ring_client.py` | BLE wrapper (timeout, `set_time_local`, forget/repair helpers, `_encode_time_bcd` pure helper) |
 | `collector/sync_ring.py` + `protocol/` | Thin orchestrator + all BLE protocol, parsers, upserts |
 | `collector/analytics/` | Package of per-scorer modules; `python -m collector.analytics` |
@@ -115,6 +142,12 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-26 — Runtime docs truth-up (dual Podman store)
+- Added `docs/RUNTIME.md` as the ops contract. Fixed AGENTS/README/TASKS/RESEARCH so
+  commands never imply bare `podman` or quadlets/compose/user units. Deleted
+  `docker-compose.yml`. Host opencode AGENTS got the dual-store line. Root cause of
+  “no containers” agent failures: interactive Podman ≠ unit `XDG_DATA_HOME` store.
 
 ### 2026-07-26 — Activity detection plan (research → concrete Phases 1–2)
 - Rewrote `docs/ACTIVITY_DETECTION_RESEARCH.md` from sketch into a build contract:
@@ -243,7 +276,7 @@ For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
 - **When editing:** Update the work log above. Keep it lean — details go in `docs/` or git history.
 - **Secrets:** Never commit. Update `.env.example` for new env vars.
-- **Runtime:** Collector = bare-metal venv; API + DB = Podman. Never `systemctl --user`; services are system-level. Project root is `/opt/smart-ring/code` (NOT `~` — encrypted home breaks boot autostart; see 2026-07-24 entry).
+- **Runtime:** Follow `docs/RUNTIME.md`. Empty bare `podman ps` is not “stack down.” Never `systemctl --user`. Never compose/quadlets.
 - **BLE protocol:** Cross-reference Gadgetbridge `yawell/ring` + `colmi.puxtril.com`.
-- **Never raw Python to the ring.** Always use `python -m collector.sync_ring --forget` (or `python -m collector.first_contact`). The R09 needs the forget+repair+wake flow.
-- **No wrapper services or shims.** If autostart is broken, find the real missing dependency instead of writing `smart-ring-startup.service`.
+- **Never raw Python to the ring.** Always `python -m collector.sync_ring --forget` (or `first_contact`). R09 needs forget+repair+wake.
+- **No wrapper services or shims.** If autostart is broken, fix real unit deps — do not add startup wrapper units.

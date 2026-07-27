@@ -449,6 +449,7 @@ No BLE/protocol changes. No readiness formula change in Phases 1–2.
 cd /opt/smart-ring/code
 venv/bin/python3 -m pytest tests/test_heart_rate_zones.py tests/test_activity_segments.py tests/ -q
 venv/bin/python3 -m collector.analytics
+export XDG_DATA_HOME=/opt/smart-ring/.local/share   # required — see docs/RUNTIME.md
 podman exec smart-ring-db psql -U smart_ring -d smart_ring -c \
   'SELECT day, strain_score, zone2_min, zone3_min, zone4_min FROM heart_rate_zones ORDER BY day DESC LIMIT 7;'
 podman exec smart-ring-db psql -U smart_ring -d smart_ring -c \
