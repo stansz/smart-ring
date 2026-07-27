@@ -254,6 +254,7 @@ The ring and Gadgetbridge provide **raw measurements** without context. A compos
 | **Sleep Quality (0-100)** | Sleep stages + duration | 5-component validated score using Ohayon 2004 norms |
 | **Stress Classification** | Stress 1-99 | Garmin/Firstbeat clinical thresholds + daily weighted score |
 | **Circadian HR / Resting HR** | Hourly HR | 24h pattern + overnight baseline + trend detection |
+| **Cardio Load / Strain** | 5-min HR samples | Edwards TRIMP daily strain (0-21), load labels, ACWR (Gabbett 2016) |
 
 ### Key Differentiators
 

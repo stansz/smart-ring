@@ -232,6 +232,8 @@ Health score formulas are grounded in peer-reviewed research:
 | **Shen et al. 2025** — *Frontiers in Physiology* | Circadian rhythm removal improves stress classification accuracy by 13.67%. |
 | **Doherty & Altini 2025** | Comparative study of wearable readiness scores (Oura, WHOOP, Garmin, Fitbit). Validates that wearable readiness scores estimate recovery, not measure it. |
 | **Dial et al. 2025** | Multi-wearable study (536 nights) showing Oura's nocturnal RHR accuracy vs ECG. |
+| **Gabbett 2016** — *Br J Sports Med* | Acute:Chronic Workload Ratio (ACWR) for training load management and injury risk prevention (7d acute vs 28d chronic). |
+| **Edwards 1993** | TRIMP (Training Impulse) methodology for calculating cardiovascular training load from heart rate zone durations. |
 
 ### Deployment & Infrastructure
 
