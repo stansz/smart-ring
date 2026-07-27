@@ -7,6 +7,7 @@ export function DataPipeline() {
     ["HRV", "Ring computed", "Composite ms value (single byte)", "Recovery score — z-score vs 7-day baseline (Plews/Altini)", "raw_hrv → daily_recovery"],
     ["Sleep", "Ring computed", "Deep/REM/light/awake stages", "Sleep quality score — 5-component formula (Ohayon 2004)", "raw_sleep → sleep_quality"],
     ["Stress", "Ring computed", "0-99 scale (unknown algorithm)", "Classification — Garmin/Firstbeat thresholds + weighted daily score", "raw_stress → stress_classification"],
+    ["Cardio Load / Strain", "Server computed", "5-min HR samples", "Edwards TRIMP strain (0-21), load labels, ACWR (Gabbett 2016)", "heart_rate_zones → strain_trend"],
   ];
 
   return (
