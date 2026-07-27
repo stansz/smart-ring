@@ -23,7 +23,7 @@ export function CircadianChart() {
 
   const range = data?.range;
   const fmtDay = (d: string) => new Date(d + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const subtitle = range?.min_day ? `${fmtDay(range.min_day)} – ${fmtDay(range.max_day)} — 7-day hourly averages` : "7-day hourly averages";
+  const subtitle = range?.min_day ? `${fmtDay(range.min_day)} – ${fmtDay(range.max_day)} — hourly average by time of day` : "Hourly average by time of day";
 
   const vals = chartData.map((d) => d.avg).filter((v): v is number => v != null);
   const circMin = vals.length > 0 ? Math.round(Math.min(...vals)) : null;

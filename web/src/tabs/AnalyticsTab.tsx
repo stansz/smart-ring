@@ -14,7 +14,7 @@ export function AnalyticsTab() {
   const { data: sleep } = useSleep(range);
   const { data: stress } = useStress(range);
   const { data: restingHr } = useRestingHr(range);
-  const { data: rawTemp } = useRawTemperature(range * 24, 2000);
+  const { data: rawTemp } = useRawTemperature(range * 24, range * 48);
   const { data: strainTrend } = useStrainTrend(range);
 
   const hrvData = recovery?.map((r) => ({ day: r.day, value: r.z_score })) || [];

@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   SVC, make16, makeBig, encodeTimeBCD, localISO,
   parseTemp, parseSpo2, parseSleep, parseHrv, parseStress,
@@ -26,13 +27,20 @@ function writeCh(char: BluetoothRemoteGATTCharacteristic, data: Uint8Array) {
 type Phase = string | null;
 
 export function useRingSync() {
+  const queryClient = useQueryClient();
   const [phase, setPhase] = useState<Phase>(null);
   const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
   const [complete, setComplete] = useState(false);
   const deviceRef = useRef<BluetoothDevice | null>(null);
+  // Tracks whether the sync finished successfully so the disconnect listener
+  // (which fires after our explicit gatt.disconnect()) doesn't clobber the
+  // success message with "Ring disconnected".
+  const expectDisconnect = useRef(false);
 
   const dismiss = useCallback(() => {
     setError(null);
+    setResult(null);
     setComplete(false);
   }, []);
 
@@ -43,7 +51,9 @@ export function useRingSync() {
     }
     setPhase("Opening device picker…");
     setError(null);
+    setResult(null);
     setComplete(false);
+    expectDisconnect.current = false;
 
     try {
       await lockScreen();
@@ -55,6 +65,9 @@ export function useRingSync() {
       });
       deviceRef.current = dev;
       dev.addEventListener("gattserverdisconnected", () => {
+        // If we intentionally disconnected after a successful upload, this is
+        // expected — don't clobber the success message with an error.
+        if (expectDisconnect.current) return;
         setPhase(null);
         setError("Ring disconnected");
       });
@@ -246,17 +259,26 @@ export function useRingSync() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = await res.json();
-      setPhase(null);
+      const resultData = await res.json();
+      setResult(`Synced! ${resultData.accepted} new, ${resultData.skipped} skipped.`);
       setComplete(true);
-      setError(`Synced! ${result.accepted} new, ${result.skipped} skipped.`);
+      // Refresh all dashboard data — phone sync changed the DB.
+      queryClient.invalidateQueries();
     } catch (e: any) {
       setPhase(null);
       setError(`Sync failed: ${e.message || e}`);
     } finally {
+      // Explicitly disconnect so the R09 (single-connection) is freed for the
+      // phone app or the next sync. Mark this as expected so the disconnect
+      // listener doesn't fire an error.
+      expectDisconnect.current = true;
+      if (deviceRef.current?.gatt?.connected) {
+        try { await deviceRef.current.gatt.disconnect(); } catch { /* already gone */ }
+      }
       await unlockScreen();
+      setPhase(null);
     }
-  }, []);
+  }, [queryClient]);
 
-  return { phase, error, complete, dismiss, sync } as const;
+  return { phase, error, result, complete, dismiss, sync } as const;
 }

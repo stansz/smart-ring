@@ -1,5 +1,6 @@
 import { useReadiness } from "../../api/hooks";
 import type { ReadinessRow } from "../../api/types";
+import { todayKey } from "../../utils/date";
 
 interface ReadinessHeroProps {
   selectedKey: string;
@@ -15,7 +16,7 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
       score >= 80 ? "Excellent" : score >= 60 ? "Good" : score >= 40 ? "Fair" : "Low"
     : null;
 
-  const isToday = selectedKey === new Date().toISOString().slice(0, 10);
+  const isToday = selectedKey === todayKey();
   const frozenAt = row?.frozen_at;
   const showPreliminary = isToday && !frozenAt;
 
