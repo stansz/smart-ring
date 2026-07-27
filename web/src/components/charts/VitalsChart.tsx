@@ -1,5 +1,6 @@
 import { useRawHeartRate, useRawSpo2 } from "../../api/hooks";
 import { Skeleton, Card } from "../ui";
+import { todayKey, dayKeyFromTs, dateKey } from "../../utils/date";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
@@ -17,12 +18,12 @@ export function VitalsChart({ hours = 48, selectedKey }: VitalsChartProps) {
   const byHour: Record<number, { hr: number[]; spo2: number[] }> = {};
   for (let h = 0; h < 24; h++) byHour[h] = { hr: [], spo2: [] };
   for (const r of hr || []) {
-    if (r.ts.slice(0, 10) !== selectedKey) continue;
+    if (dayKeyFromTs(r.ts) !== selectedKey) continue;
     const h = new Date(r.ts).getHours();
     if (byHour[h]) byHour[h].hr.push(r.bpm);
   }
   for (const s of spo2 || []) {
-    if (s.ts.slice(0, 10) !== selectedKey) continue;
+    if (dayKeyFromTs(s.ts) !== selectedKey) continue;
     const h = new Date(s.ts).getHours();
     if (byHour[h]) byHour[h].spo2.push(s.spo2_pct);
   }
@@ -42,8 +43,10 @@ export function VitalsChart({ hours = 48, selectedKey }: VitalsChartProps) {
   const spo2Today = chartData.filter((d) => d.spo2 != null);
   const spo2Latest = spo2Today.length > 0 ? Math.round(spo2Today[spo2Today.length - 1].spo2!) : null;
 
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = todayKey();
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterday = dateKey(yesterdayDate);
   let dateLabel: string;
   if (selectedKey === today) dateLabel = "Today";
   else if (selectedKey === yesterday) dateLabel = "Yesterday";
@@ -80,13 +83,13 @@ export function VitalsChart({ hours = 48, selectedKey }: VitalsChartProps) {
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <div className="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-3 gap-2 text-xs">
+      <div className="border-t border-gray-100 dark:border-gray-700 pt-3 grid grid-cols-2 gap-2 text-xs">
         <div className="text-center">
           <p className="text-gray-400 dark:text-gray-500">🩸 SpO₂</p>
           <p className="font-bold text-sm mt-0.5 text-teal-500 dark:text-teal-400">{spo2Latest != null ? `${spo2Latest}%` : "—"}</p>
         </div>
         <div className="text-center">
-          <p className="text-gray-400 dark:text-gray-500">Resting HR</p>
+          <p className="text-gray-400 dark:text-gray-500">Avg HR</p>
           <p className="font-bold text-sm mt-0.5 text-blue-600">
             {(chartData.filter((d) => d.hr != null).length > 0)
               ? `${Math.round(chartData.filter((d) => d.hr != null).reduce((a, b) => a + b.hr!, 0) / chartData.filter((d) => d.hr != null).length)} bpm`

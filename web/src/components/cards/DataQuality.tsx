@@ -1,4 +1,5 @@
 import { useDataQuality } from "../../api/hooks";
+import { todayKey } from "../../utils/date";
 
 const TYPE_LABELS: Record<string, string> = {
   heart_rate: "Heart Rate",
@@ -13,7 +14,7 @@ export function DataQualityBanner() {
   const { data } = useDataQuality(3);
   if (!data) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKey();
   const todayRows = data.filter((r) => r.day === today);
   const staleTypes = [...new Set(
     todayRows.filter((r) => r.status === "stale").map((r) => r.data_type)
@@ -40,7 +41,7 @@ export function DataQualityGrid() {
   const { data } = useDataQuality(3);
   if (!data || data.length === 0) return null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayKey();
   const todayRows = data.filter((r) => r.day === today);
 
   const statusColor = (status: string) =>

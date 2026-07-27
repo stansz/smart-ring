@@ -1,8 +1,5 @@
 import { useState, useCallback, useMemo } from "react";
-
-function dateKey(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
+import { dateKey } from "../utils/date";
 
 export function useSelectedDate() {
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -12,13 +9,19 @@ export function useSelectedDate() {
   const isToday = selectedKey === todayKey;
 
   const prevDay = useCallback(() => {
-    setSelectedDate((d) => new Date(d.getTime() - 86_400_000));
+    setSelectedDate((d) => {
+      const n = new Date(d);
+      n.setDate(n.getDate() - 1);
+      return n;
+    });
   }, []);
 
   const nextDay = useCallback(() => {
     setSelectedDate((d) => {
       if (dateKey(d) === dateKey(new Date())) return d; // don't go past today
-      return new Date(d.getTime() + 86_400_000);
+      const n = new Date(d);
+      n.setDate(n.getDate() + 1);
+      return n;
     });
   }, []);
 

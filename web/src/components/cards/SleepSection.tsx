@@ -1,4 +1,5 @@
 import { useRawSleep } from "../../api/hooks";
+import { todayKey } from "../../utils/date";
 
 interface SleepSectionProps {
   selectedKey: string;
@@ -38,7 +39,7 @@ export function SleepSection({ selectedKey }: SleepSectionProps) {
           </div>
           <div className="flex-1 self-center">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {new Date().toISOString().slice(0, 10) === selectedKey
+              {todayKey() === selectedKey
                 ? "No sleep recorded last night"
                 : "No sleep data for this day"}
             </p>

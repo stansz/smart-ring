@@ -21,7 +21,7 @@ function App() {
   const { darkMode, toggle: toggleDark } = useTheme();
   const { selectedKey, isToday, prevDay, nextDay, goToday, formatSelectedDate } = useSelectedDate();
   const { busy, error: syncError, dismissError, startSync, handleCancel, progress } = useSyncPolling();
-  const { phase, error: bleError, complete, dismiss, sync: syncFromPhone } = useRingSync();
+  const { phase, error: bleError, result: bleResult, dismiss, sync: syncFromPhone } = useRingSync();
 
   const onTabSwitch = useCallback((t: Tab) => setTab(t), []);
 
@@ -51,7 +51,11 @@ function App() {
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
       <ErrorBanner error={syncError} onDismiss={dismissError} />
       <SyncProgressDialog phase={phase} onDismiss={dismiss} />
-      <SyncToast message={complete ? bleError! : (bleError && !phase ? bleError : "")} onDismiss={dismiss} />
+      <SyncToast
+        message={!phase ? (bleResult || bleError || "") : ""}
+        success={!!bleResult && !bleError}
+        onDismiss={dismiss}
+      />
       <Nav
         tab={tab} onTabSwitch={onTabSwitch} darkMode={darkMode} onToggleDark={toggleDark}
         syncButtons={syncButtons}

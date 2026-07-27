@@ -48,16 +48,12 @@ export function useSyncPolling() {
     }
   }, [busy, queryClient]);
 
-  // Auto-refresh on sync complete
+  // Auto-refresh on sync complete — invalidate everything so Recovery, Sleep,
+  // Vitals, Cardio Load, battery, and all raw tables refresh after a sync.
   const wasBusy = useRef(busy);
   useEffect(() => {
     if (wasBusy.current && !busy) {
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["readiness"] });
-      queryClient.invalidateQueries({ queryKey: ["currentStatus"] });
-      queryClient.invalidateQueries({ queryKey: ["dailyActivity"] });
-      queryClient.invalidateQueries({ queryKey: ["circadianHr"] });
-      queryClient.invalidateQueries({ queryKey: ["sleep"] });
+      queryClient.invalidateQueries();
     }
     wasBusy.current = busy;
   }, [busy, queryClient]);

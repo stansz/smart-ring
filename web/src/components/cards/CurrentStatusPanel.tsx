@@ -1,4 +1,5 @@
 import { useCurrentStatus } from "../../api/hooks";
+import { dayKeyFromTs } from "../../utils/date";
 
 interface CurrentStatusPanelProps {
   selectedKey: string;
@@ -28,7 +29,7 @@ export function CurrentStatusPanel({ selectedKey, isToday }: CurrentStatusPanelP
   // Filter to the selected day. Data is sorted DESC by ts from the API, so
   // daySnapshots[0] is that day's latest (frozen) snapshot. For today this is
   // live; for past days it's the last status that day resolved to.
-  const daySnapshots = (data || []).filter((r) => r.ts.slice(0, 10) === selectedKey);
+  const daySnapshots = (data || []).filter((r) => dayKeyFromTs(r.ts) === selectedKey);
   const latest = daySnapshots[0] ?? null;
   const score = latest?.score ?? null;
   const stressRaw = latest?.stress_recent ?? null;
