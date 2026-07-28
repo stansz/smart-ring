@@ -68,21 +68,9 @@ export function CircadianChart() {
           <p className="text-gray-500 dark:text-gray-400">Max HR</p>
           <p className="font-bold text-sm mt-0.5 text-orange-500 dark:text-orange-400">{circMax != null ? `${circMax} bpm` : "—"}</p>
         </div>
-        <div className="text-center relative group">
-          <p className="text-gray-500 dark:text-gray-400">
-            Avg HR{" "}
-            <span
-              className="cursor-help text-gray-300 dark:text-gray-600 select-none"
-              onClick={(e) => {
-                const tip = (e.currentTarget.nextElementSibling as HTMLElement);
-                if (tip) tip.style.opacity = tip.style.opacity === "1" ? "0" : "1";
-              }}
-            >ⓘ</span>
-          </p>
+        <div className="text-center">
+          <p className="text-gray-500 dark:text-gray-400">Avg HR</p>
           <p className="font-bold text-sm mt-0.5 text-teal-500 dark:text-teal-400">{circAvg != null ? `${circAvg} bpm` : "—"}</p>
-          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 px-3 py-2 bg-gray-800 dark:bg-gray-700 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 leading-relaxed">
-            Your heart rate mapped across a 24-hour clock. The dip at night reflects deep sleep (better recovery). A flatter line can indicate stress, overtraining, or poor sleep quality.
-          </div>
         </div>
       </div>
     </Card>
