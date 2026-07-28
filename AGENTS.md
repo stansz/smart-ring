@@ -149,6 +149,37 @@ For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
   `docker-compose.yml`. Host opencode AGENTS got the dual-store line. Root cause of
   “no containers” agent failures: interactive Podman ≠ unit `XDG_DATA_HOME` store.
 
+### 2026-07-27 — Steps queue-pollution fix + intra-day freshness alert
+- **Symptom:** user reported steps not pulling in; dashboard freshness banner
+  silent. DB showed sync #182 completed cleanly (HR/HRV/stress fresh) but
+  `raw_steps` had zero new rows after 16:00 — the ring had the data
+  (Gadgetbridge confirmed), our collector silently dropped it.
+- **Root cause 1 (steps):** stale packets in `client.queues[67]` from a prior
+  per-day request were consumed by `get_steps()`'s single `.get()` before the
+  new response arrived → `fetch_steps` returned `[]` for today, no exception
+  raised. Same class of bug as the V2 big-data path documented in
+  `docs/RING_BEHAVIOR.md`. Fix in `collector/protocol/parsers/steps.py`:
+  added `_drain_steps_queue()` + `_reset_steps_parser()` prologue before each
+  per-day request, plus per-day `log.info` with parsed `time_index` ranges.
+  Also bumped `get_steps` timeout 2 s → 4 s (`collector/ring_client.py:430`)
+  for busy R09 days (up to 96 slot packets).
+- **Root cause 2 (alert):** `collector/analytics/data_quality.py` only flagged
+  "stale" when `cnt == 0` for the day — totally missed the intra-day gap
+  (steps has 9 samples today, just none past 16:00 while HR is current).
+  Added peer-relative freshness check: per-type thresholds (HR 30 m · HRV 90 m
+  · Steps 90 m · SpO₂ 3 h · Stress 90 m; temp exempt), gated on a peer being
+  fresh within 30 m (ring is actively worn). Catches the steps-stall case
+  without false-alarming overnight when the ring is off.
+- **Verified live:** triggered sync #173 via `sync_requests` → pulled the 3
+  missing hours (17:00/18:00/19:00). All types fresh post-sync, banner
+  correctly silent. Reproducible via `INSERT INTO sync_requests(requested_by)
+  VALUES ('admin-ui')` and watching `journalctl -u smart-ring-poller`.
+- **Tests:** +13 (6 in `tests/test_steps_drain.py`, 7 in
+  `tests/test_data_quality.py`). Suite total: 173 passing in 6.76 s.
+  New data_quality tests cover both the original `cnt==0` rule and the
+  new intra-day peer-relative rule (stale flag, threshold boundary,
+  ring-off no-false-alarm, historical-day skip, temp exemption).
+
 ### 2026-07-26 — Activity detection plan (research → concrete Phases 1–2)
 - Rewrote `docs/ACTIVITY_DETECTION_RESEARCH.md` from sketch into a build contract:
   Phase 1 = Edwards TRIMP→strain 0–21 + zone minutes; Phase 2 = 15-min step+HR
