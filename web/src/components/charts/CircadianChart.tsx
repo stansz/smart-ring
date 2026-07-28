@@ -50,9 +50,9 @@ export function CircadianChart() {
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
             <XAxis dataKey="hour" tick={{ fontSize: 10 }} ticks={[0, 3, 6, 9, 12, 15, 18, 21]}
               tickFormatter={(h: unknown) => `${h}:00`} />
-            <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 10 }} />
+            <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 10 }} tickFormatter={(v: number) => String(Math.round(v))} />
             <Tooltip
-              labelFormatter={(h: unknown) => `${String(h).padStart(2, "0")}:00 — 7-day avg`}
+              labelFormatter={(h: unknown) => `${String(h).padStart(2, "0")}:00 — hourly avg`}
               contentStyle={{ background: "#1f2937", border: "none", borderRadius: 6, fontSize: 12 }}
             />
             <Area type="monotone" dataKey="avg" stroke="#3b82f6" fill="url(#circGrad)" dot={{ r: 2.5, fill: "#3b82f6" }} name="HR" connectNulls />
