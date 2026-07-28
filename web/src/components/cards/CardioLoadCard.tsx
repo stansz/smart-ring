@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 import { useHeartRateZones, useStrainTrend } from "../../api/hooks";
-import { Skeleton } from "../ui";
+import { CountUp, FreshDot, Skeleton } from "../ui";
 
 interface CardioLoadCardProps {
   selectedKey: string;
@@ -31,7 +31,7 @@ const ZONE_COLORS: Record<string, string> = {
 };
 
 export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
-  const { data: zoneData, isLoading, isError, refetch } = useHeartRateZones(30);
+  const { data: zoneData, dataUpdatedAt, isLoading, isError, refetch } = useHeartRateZones(30);
   const { data: strainTrendData } = useStrainTrend(30);
 
   const zoneRow = zoneData?.find((r) => r.day === selectedKey);
@@ -100,7 +100,7 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">❤️ Cardio Load</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">❤️ Cardio Load<FreshDot updatedAt={dataUpdatedAt} /></h2>
         {trendRow && (
           <span className={`px-2 py-0.5 rounded-full text-xs font-medium uppercase ${LABEL_COLORS[trendRow.load_label] || "bg-gray-100 text-gray-700"}`}>
             {trendRow.load_label.replace("_", " ")}
@@ -117,7 +117,10 @@ export function CardioLoadCard({ selectedKey }: CardioLoadCardProps) {
           {/* Hero: strain number + trend */}
           <div className="flex items-baseline gap-3 mb-4">
             <p className="text-4xl font-bold text-blue-600 dark:text-blue-400">
-              {Number(zoneRow.strain_score).toFixed(1)}
+              <CountUp
+                value={zoneRow ? Number(zoneRow.strain_score) : null}
+                format={(n) => n.toFixed(1)}
+              />
             </p>
             <span className="text-sm text-gray-500 dark:text-gray-400">/ 21</span>
             {trendRow && TREND_ARROWS[trendRow.trend_direction] && (

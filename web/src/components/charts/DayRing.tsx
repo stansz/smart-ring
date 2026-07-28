@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, type ReactNode } from "react";
 import { polar, arc, tsToDayMinutes } from "../../utils/dayring";
+import { useCountUp } from "../../hooks/useCountUp";
 import type { DailyActivityRow, RawSleepRow } from "../../api/types";
 
 const CX = 120;
@@ -41,9 +42,14 @@ interface TooltipState {
 export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
+  // Animate the center step total. Hook must be top-level (can't be inside
+  // useMemo), so the animated value is computed AFTER the memo below and
+  // spliced into the SVG <text> separately.
+  const animatedSteps = useCountUp(row?.steps_total ?? 0);
+
   const grey = darkMode ? "#374151" : "#e5e7eb";
 
-  const { segments, labels, centerTop, centerSub, legend } = useMemo(() => {
+  const { segments, labels, centerSub, legend } = useMemo(() => {
     const worn = (row?.hourly_worn) || new Array(24).fill(0) as number[];
     const steps = (row?.hourly_steps) || new Array(24).fill(0) as number[];
     const maxSteps = Math.max(...steps, 1);
@@ -126,14 +132,13 @@ export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
     });
 
     // ── Center text ──
-    let top = "—", sub = "no data";
-    if (row) {
-      top = (row.steps_total || 0).toLocaleString();
-      if (row.first_hr_ts && row.last_hr_ts) {
-        const ms = new Date(row.last_hr_ts).getTime() - new Date(row.first_hr_ts).getTime();
-        const wornH = Math.round(ms / 3_600_000);
-        sub = wornH > 0 ? `${wornH}h worn` : "no wear data";
-      }
+    // Note: step total is animated outside useMemo (see animatedSteps). Only
+    // compute the sub-line ("3h worn" / "no wear data") here.
+    let sub = "no data";
+    if (row?.first_hr_ts && row?.last_hr_ts) {
+      const ms = new Date(row.last_hr_ts).getTime() - new Date(row.first_hr_ts).getTime();
+      const wornH = Math.round(ms / 3_600_000);
+      sub = wornH > 0 ? `${wornH}h worn` : "no wear data";
     }
 
     // ── Legend ──
@@ -154,11 +159,12 @@ export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
     return {
       segments: [...segs, ...sleepSegs],
       labels: labelEls,
-      centerTop: top,
       centerSub: sub,
       legend: legendItems,
     } as const;
   }, [row, sleepStages, darkMode, dayKey, grey]);
+
+  const centerTop = row ? Math.round(animatedSteps).toLocaleString() : "—";
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const target = (e.target as Element).closest?.(".ringbar") as HTMLElement | null;
