@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { get } from "./client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { get, post } from "./client";
 import type {
   HealthResponse,
   RecoveryRow,
@@ -22,6 +22,7 @@ import type {
   RawHrvRow,
   RawTemperatureRow,
   GoalsResponse,
+  UserGoals,
   SyncLogRow,
   RingStatusResponse,
   AdminHealthResponse,
@@ -185,6 +186,26 @@ export function useGoals() {
   return useQuery({
     queryKey: ["goals"],
     queryFn: () => get<GoalsResponse>("/api/goals"),
+  });
+}
+
+// User-set goals (the user's own targets, NOT the firmware ring_goals).
+export function useUserGoals() {
+  return useQuery({
+    queryKey: ["userGoals"],
+    queryFn: () => get<UserGoals>("/api/user-goals"),
+    staleTime: 60_000,  // rarely changes — 1 min stale time
+  });
+}
+
+export function useUpdateUserGoal() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (update: Partial<UserGoals>) =>
+      post<{ updated: number }>("/api/user-goals", update),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["userGoals"] });
+    },
   });
 }
 

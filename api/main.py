@@ -355,6 +355,45 @@ def get_goals():
     return dict(row) if row else {}
 
 
+# ─── User-set goals (NOT the firmware-stored ring_goals) ─────────────────────
+# These are the user's own targets, edited from the dashboard. Stored as
+# key/value so we can add new goal types without schema changes. Defaults
+# applied on read if a key is missing — no need to seed the table.
+DEFAULT_USER_GOALS = {
+    "steps_goal": 5000,
+    "sleep_min_goal": 480,  # 8 hours
+}
+
+
+@app.get("/api/user-goals")
+def get_user_goals():
+    with SessionLocal() as db:
+        rows = db.execute(text("SELECT key, value FROM user_goals")).mappings().all()
+    stored = {r["key"]: r["value"] for r in rows}
+    # Merge defaults under stored values so the frontend always sees full shape
+    return {**DEFAULT_USER_GOALS, **stored}
+
+
+@app.post("/api/user-goals")
+def update_user_goal(body: dict):
+    """Partial update — accepts one or more {key: value} pairs."""
+    allowed = set(DEFAULT_USER_GOALS.keys())
+    updates = {k: int(v) for k, v in body.items() if k in allowed and isinstance(v, (int, float, str)) and str(v).strip().lstrip("-").isdigit()}
+    if not updates:
+        return {"updated": 0, "error": "no valid keys supplied"}
+    with SessionLocal() as db:
+        for key, value in updates.items():
+            db.execute(text("""
+                INSERT INTO user_goals (key, value, updated_at)
+                VALUES (:key, :value, NOW())
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+            """), {"key": key, "value": value})
+        db.commit()
+    return {"updated": len(updates), "values": updates}
+
+
 @app.get("/api/raw/sleep")
 def get_raw_sleep(hours: int = 168, limit: int = 200):
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
