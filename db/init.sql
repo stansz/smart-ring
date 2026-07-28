@@ -308,3 +308,13 @@ CREATE TABLE IF NOT EXISTS data_quality (
     checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (day, data_type)
 );
+
+-- User-set goals (NOT the firmware-stored ring_goals — those are the ring's
+-- defaults, which we still sync to ring_goals for compatibility but don't
+-- surface). This table holds the user's own targets, edited from the UI.
+-- Key-value so we can add new goals without schema changes.
+CREATE TABLE IF NOT EXISTS user_goals (
+    key TEXT PRIMARY KEY,
+    value INT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

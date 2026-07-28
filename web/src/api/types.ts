@@ -206,6 +206,13 @@ export interface GoalsResponse {
   sleep_min_goal: number | null;
 }
 
+// User-set goals (distinct from GoalsResponse above, which is the firmware-stored
+// values synced from the ring). These are the user's own targets, edited via UI.
+export interface UserGoals {
+  steps_goal: number;
+  sleep_min_goal: number;
+}
+
 // ─── Sync ───────────────────────────────────────────────────────────────────
 export interface SyncLogRow {
   started_at: string;
