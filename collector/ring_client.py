@@ -427,9 +427,12 @@ class Client:
         today = today.replace(tzinfo=None)
         days = (today.date() - target.date()).days
         await self.send_packet(steps.read_steps_packet(days))
+        # 4s timeout: a busy day can fill up to 96 non-empty slots, each in
+        # its own 16-byte notify packet. 2s was tight for R02 and was causing
+        # silent truncation on the R09 (today's later hours never landed).
         return await asyncio.wait_for(
             self.queues[steps.CMD_GET_STEP_SOMEDAY].get(),
-            timeout=2,
+            timeout=4,
         )
 
     async def reboot(self) -> None:

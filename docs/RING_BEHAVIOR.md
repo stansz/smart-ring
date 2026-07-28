@@ -39,7 +39,7 @@ the ring commits them (see Temperature).
 | Type | Command | Interval | Buffer | Publish cadence | Format / gotchas |
 |------|---------|----------|--------|-----------------|------------------|
 | Heart Rate | `0x15` | 5-min | ~7 days (288 slots/day) | current day readable | processed BPM, multi-packet per day |
-| Steps / Activity | `0x43` | 15-min slots (0–95/day) | ~7 days | current day readable | steps + calories + distance per slot. **Hourly zero-suppressed in practice** — the ring emits a sample only for hours with steps, so Gadgetbridge's gap-fill renders zero-step hours as "not worn" (it has no wear sensor). |
+| Steps / Activity | `0x43` | 15-min slots (0–95/day) | ~7 days | current day readable | steps + calories + distance per slot. **Hourly zero-suppressed in practice** — the ring emits a sample only for hours with steps, so Gadgetbridge's gap-fill renders zero-step hours as "not worn" (it has no wear sensor). **Multi-packet response**: header + one packet per non-empty slot, terminated when `packet[5] == packet[6] - 1`. The collector must drain `queues[67]` and reset `SportDetailParser` before each per-day request (`collector/protocol/parsers/steps.py`), or stale items silently no-op the fetch (same class of bug as V2 big-data). |
 | HRV | `0x39` | 30-min | ~3 days | current day readable | composite single-byte ms value (0–255), NOT RR intervals — see [HRV limitations](#hrv-limitations-no-rr-intervals) |
 | Sleep | `0xBC` + type `0x27` | per-session | ~7 days | current day readable | V2 big-data: per-session stages with timestamps |
 | SpO₂ | `0xBC` + type `0x2A` | hourly | ~7 days | current day readable | V2 big-data: hourly min/max averaged to single % |
