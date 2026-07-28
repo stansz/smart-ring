@@ -1,14 +1,14 @@
 import { useReadiness } from "../../api/hooks";
 import type { ReadinessRow } from "../../api/types";
 import { todayKey } from "../../utils/date";
-import { Skeleton } from "../ui";
+import { CountUp, FreshDot, Skeleton } from "../ui";
 
 interface ReadinessHeroProps {
   selectedKey: string;
 }
 
 export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
-  const { data, isLoading } = useReadiness(30);
+  const { data, isLoading, dataUpdatedAt } = useReadiness(30);
   const row: ReadinessRow | undefined = data?.find((r) => r.day === selectedKey);
 
   const score = row?.score;
@@ -37,7 +37,7 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
     <div className="p-6">
       <div className="flex justify-between items-baseline mb-4">
         <div className="flex items-center gap-2 flex-wrap">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Readiness<FreshDot updatedAt={dataUpdatedAt} /></h2>
           {showPreliminary && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-medium uppercase tracking-wide">
               Preliminary
@@ -79,7 +79,7 @@ export function ReadinessHero({ selectedKey }: ReadinessHeroProps) {
           />
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-4xl font-bold text-gray-900 dark:text-gray-100">{score ?? "—"}</span>
+          <span className="text-4xl font-bold text-gray-900 dark:text-gray-100"><CountUp value={score} /></span>
         </div>
       </div>
 

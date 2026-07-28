@@ -8,7 +8,7 @@ import { RecoveryCard } from "../components/cards/RecoveryCard";
 import { CardioLoadCard } from "../components/cards/CardioLoadCard";
 import { SleepSection } from "../components/cards/SleepSection";
 import { DataQualityBanner } from "../components/cards/DataQuality";
-import { Skeleton, Card } from "../components/ui";
+import { Skeleton, Card, FreshDot } from "../components/ui";
 import { useDailyActivity, useRawSleep } from "../api/hooks";
 
 interface DashboardTabProps {
@@ -20,7 +20,7 @@ interface DashboardTabProps {
 export function DashboardTab({
   selectedKey, isToday, prevDay, nextDay, goToday, formatSelectedDate, darkMode,
 }: DashboardTabProps) {
-  const { data: dailyData, isLoading } = useDailyActivity(60);
+  const { data: dailyData, dataUpdatedAt: dailyUpdatedAt, isLoading } = useDailyActivity(60);
   const { data: rawSleep } = useRawSleep(720, 1000);
 
   const dayRow = dailyData?.find((r) => r.day === selectedKey);
@@ -49,7 +49,7 @@ export function DashboardTab({
       <Card className="mb-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100 dark:divide-gray-700">
           <div className="px-6 py-4 flex flex-col items-center">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 self-start">Activity</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1 self-start">Activity<FreshDot updatedAt={dailyUpdatedAt} /></h2>
             <DayRing row={dayRow} sleepStages={daySleep} darkMode={darkMode} dayKey={selectedKey} />
           </div>
           <ReadinessHero selectedKey={selectedKey} />

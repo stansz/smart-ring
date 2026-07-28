@@ -1,12 +1,12 @@
 import { useRecovery, useReadiness } from "../../api/hooks";
-import { Skeleton } from "../ui";
+import { CountUp, FreshDot, Skeleton } from "../ui";
 
 interface RecoveryCardProps {
   selectedKey: string;
 }
 
 export function RecoveryCard({ selectedKey }: RecoveryCardProps) {
-  const { data: recoveryRows, isLoading, isError, refetch } = useRecovery(30);
+  const { data: recoveryRows, dataUpdatedAt, isLoading, isError, refetch } = useRecovery(30);
   const { data: readinessRows } = useReadiness(30);
 
   const recoveryMatch = recoveryRows?.find((r) => r.day === selectedKey);
@@ -39,12 +39,12 @@ export function RecoveryCard({ selectedKey }: RecoveryCardProps) {
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border border-gray-100 dark:border-gray-700 flex flex-col">
-      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💓 Recovery</h2>
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">💓 Recovery<FreshDot updatedAt={dataUpdatedAt} /></h2>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-10">
         <div className="text-center flex-shrink-0">
           <p className={`text-4xl font-bold ${hrvAvg != null && hrvAvg >= 45 ? "text-green-600 dark:text-green-400" : hrvAvg != null && hrvAvg >= 30 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"}`}>
-            {hrvAvg != null ? Math.round(hrvAvg) + "ms" : "—"}
+            {hrvAvg != null ? <CountUp value={hrvAvg} format={(n) => `${Math.round(n)}ms`} /> : "—"}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">today's avg</p>
         </div>

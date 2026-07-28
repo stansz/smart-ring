@@ -13,3 +13,6 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
     </div>
   );
 }
+
+export { CountUp } from "./CountUp";
+export { FreshDot } from "./FreshDot";
