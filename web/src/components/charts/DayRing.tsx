@@ -172,15 +172,17 @@ export function DayRing({ row, sleepStages, darkMode, dayKey }: DayRingProps) {
   const handleMouseLeave = useCallback(() => setTooltip(null), []);
 
   // Touch: tap a segment to toggle its tooltip (Android support).
+  // Uses e.target directly (the SVG path that was tapped) rather than
+  // document.elementFromPoint, which can be unreliable during touchstart.
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    if (!touch) return;
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    const target = el?.closest?.(".ringbar") as HTMLElement | null;
+    const target = (e.target as Element).closest?.(".ringbar") as HTMLElement | null;
     if (target?.dataset.tip) {
       const text = target.dataset.tip;
+      const touch = e.changedTouches[0];
+      const x = touch?.clientX ?? 0;
+      const y = touch?.clientY ?? 0;
       // Toggle off if tapping the same segment again.
-      setTooltip((prev) => prev?.text === text ? null : { text, x: touch.clientX + 14, y: touch.clientY - 32 });
+      setTooltip((prev) => prev?.text === text ? null : { text, x: x + 14, y: y - 32 });
     } else {
       setTooltip(null);
     }
