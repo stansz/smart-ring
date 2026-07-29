@@ -60,12 +60,12 @@ export function DashboardTab({
       {/* 2. Current Status */}
       <CurrentStatusPanel selectedKey={selectedKey} isToday={isToday} />
 
-      {/* 3. 2-col grid: Goals + Recovery + Cardio Load + Sleep + Vitals + Circadian */}
+      {/* 3. 2-col grid: Sleep + Recovery + Cardio Load + Goals + Vitals + Circadian */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
-        <GoalsCard selectedKey={selectedKey} />
+        <SleepSection selectedKey={selectedKey} />
         <RecoveryCard selectedKey={selectedKey} />
         <CardioLoadCard selectedKey={selectedKey} />
-        <SleepSection selectedKey={selectedKey} />
+        <GoalsCard selectedKey={selectedKey} />
         <VitalsChart hours={48} selectedKey={selectedKey} />
         <CircadianChart />
       </div>
