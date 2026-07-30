@@ -29,7 +29,7 @@ The smart-ring project currently tracks health data from a **Colmi R09** ring vi
 Postgres → React dashboard. The goal is to add data from a **Garmin Forerunner 745** as a
 second source, providing:
 
-- **Richer health metrics** (multi-band GPS, barometric altitude, running dynamics, training effect)
+- **Richer health metrics** (multi-constellation GNSS, barometric altitude, running dynamics, training effect)
 - **Structured activity/workout data** (GPS tracks, lap splits, per-km pace, HR zones)
 - **Cross-device redundancy** (both devices worn simultaneously — coverage when one is off)
 - **Cross-validation** (independent HR readings during overlapping windows)
@@ -111,7 +111,7 @@ Our smart-ring setup is **more private than Apple Watch with E2EE**:
 | Data Type | Capability | Notes |
 |-----------|------------|-------|
 | Heart Rate | 24/7 wrist HR (Elevate v3) | More accurate than Colmi |
-| GPS | Multi-band GNSS (GPS + GLONASS + Galileo) | Full track recording |
+| GPS | Multi-constellation GNSS (GPS + GLONASS + Galileo, **single-frequency**) | Full track recording. Not dual-band/multi-band (that arrived with FR255/955, Fenix 7 era, 2022) |
 | Barometer | Barometric altitude | Elevation, stairs, climbs |
 | Accelerometer | Activity detection, running dynamics | Cadence, stride length |
 | Gyroscope | Running dynamics | Ground contact time, vertical oscillation |
@@ -164,7 +164,11 @@ With Bluetooth disabled:
 - Pull activities, daily health metrics, sleep, HR, stress, HRV, SpO2
 - Runs as a one-time backfill or recurring cron
 - **Privacy:** Garmin already has this data; pulling a copy doesn't change the privacy picture
-- **Effort:** Low — libraries exist for both Python and Rust
+- **Effort:** Medium — libraries exist (`garminconnect` Python, `garmin_client` /
+  `garmin_download` Rust), **but** Garmin Connect enforces per-session download limits (one
+  endpoint per session token; repeated OAuth token requests trigger multi-hour lockouts) and now
+  commonly requires email 2FA on new logins, which the older username/password flows in these
+  crates don't handle. A backfill needs throttling + a 2FA story.
 - **Use case:** Historical backfill + bridge until private sync is built
 
 ### Option B: USB + FIT Files (Direct, Private)
@@ -183,10 +187,12 @@ With Bluetooth disabled:
 - Can auto-export FIT files to local storage
 - **Privacy:** Bypasses Garmin cloud entirely; no vendor app required
 - **Effort:** Medium — Gadgetbridge works, but needs a bridge to get files to the server
-- **745 Status:** **Experimental / Unknown support** — listed in device database but untested
-  by the community. Protocol family is the same as tested devices (Forerunner 245/570, Venu 4,
-  Descent G1).
-- **Use case:** Wireless private sync if/when 745 support is confirmed
+- **745 Status:** **Initial support shipped** — Freeyourgadget release notes now list the
+  Forerunner 745 alongside Venu 4, Descent G2, Epix, Fenix 6 Pro, Quatix 8, etc. under "Initial
+  support." This is no longer hypothetical; on-device verification of *which* features work (FIT
+  sync vs. real-time HR/stress/etc.) is still wanted, but Gadgetbridge is now the leading Phase 2
+  candidate rather than a maybe.
+- **Use case:** Wireless private sync — preferred Phase 2 path (pending on-device verification)
 
 ### Option D: Custom BLE Client (Python/Rust)
 
@@ -209,7 +215,7 @@ With Bluetooth disabled:
 |--------|:---:|:---:|:---:|:---:|:---:|
 | A. Garmin Connect API | ❌ | ✅ | ✅ | Low | ✅ |
 | B. USB + FIT | ✅ | ❌ | ❌ | Low | ✅ |
-| C. Gadgetbridge | ✅ | ✅ | ✅* | Medium | ❓ Experimental |
+| C. Gadgetbridge | ✅ | ✅ | ✅* | Medium | ✅ (initial) |
 | D. Custom BLE Client | ✅ | ✅ | ✅ | High | N/A |
 | E. ANT+ Live | ✅ | ✅ | ✅ | Low | ✅ (limited) |
 
@@ -344,8 +350,9 @@ Newer devices use MLR instead of plain ML. MLR adds:
   the protocol page. Gadgetbridge's source code would contain the implementations.
 - **Third protocol variant:** A third version adds sequence bytes between handle and
   payload (issue #3063 on Gadgetberg). May affect newer firmware versions.
-- **745-specific testing:** The 745 is listed as "experimental / unknown support" — nobody
-  has confirmed which features work and which don't.
+- **745-specific testing:** The 745 now has "initial support" in Gadgetbridge releases, but
+  nobody has confirmed which services (FIT file sync vs. the real-time HR/stress/HRV/etc.
+  streams) actually work end-to-end on it.
 
 ### Gadgetbridge's Implementation
 
@@ -368,11 +375,11 @@ Gadgetbridge (Java/Kotlin, Android) is the only working open-source implementati
 
 ## 6. Schema & Multi-Source Architecture
 
-### Existing Schema Is Already Ready
+### Storage Layer: Already Multi-Source Ready
 
-The current schema (in `db/init.sql`) was designed with multi-source support from day one.
+The current schema (in `db/init.sql`) was designed with multi-source **storage** from day one.
 Every raw data table has a `source TEXT DEFAULT 'ring'` column with `UNIQUE (ts, source)`
-constraints:
+constraints, so ring / phone / garmin records can coexist without clobbering each other:
 
 | Table | Unique Constraint |
 |-------|-------------------|
@@ -385,6 +392,17 @@ constraints:
 | `raw_stress` | `UNIQUE (ts, source)` |
 | `ring_goals` | N/A — ring-specific |
 | `ring_status` | N/A — device-specific (battery, firmware) |
+
+> ⚠️ **Resolution layer is NOT ready — this is the real blocker.** Storing a third source is
+> trivial; *consuming* it correctly is not. Today every scorer reads `FROM raw_*` with **no
+> `source` filter** (verified in `hrv.py`, `rhr.py`, `stress.py`, `heart_rate_zones.py`,
+> `daily_activity.py`, `current_status.py`) and relies on `collector/analytics/dedupe.py`
+> collapsing everything to one row per timestamp *first*. That dedupe is **hardcoded binary** —
+> it deletes `'phone'` rows wherever a `'ring'` row exists, nothing more. A third `'garmin'`
+> source has no resolution rule, so overlapping ring + garmin readings at the same instant would
+> both survive → every daily score (HRV, RHR, strain, readiness…) **double-counts**.
+> Generalizing this is the single largest piece of missing work and must land **before** any
+> overlapping Garmin data enters the raw tables. See **Phase 0** (§10).
 
 **New tables needed** for Garmin activity/sport data: GPS track points, lap splits, running
 dynamics, training effect — these have no equivalent in the current schema.
@@ -459,9 +477,18 @@ CREATE TABLE IF NOT EXISTS activity_hr (
 CREATE INDEX idx_activity_hr_activity ON activity_hr(activity_id, ts);
 ```
 
+> **Relationship to `docs/ACTIVITY_DETECTION_RESEARCH.md`:** that doc derives activity/strain
+> **from the Colmi ring** (HR-zone minutes → Edwards TRIMP strain in the already-running
+> `heart_rate_zones` table; planned `activity_segments` for walk/run blocks). These are
+> **different calculations from different sources** — the Garmin tables above hold structured
+> sport sessions the ring cannot produce. They coexist fine today; merging them into one unified
+> strain number needs new math and is out of scope here (far future, if ever).
+
 > **Note:** Computed metric tables (`daily_recovery`, `sleep_quality`, `heart_rate_zones`,
-> `strain_trend`, `readiness_score`, `current_status`) use `day DATE` primary keys and are
-> source-agnostic — they consume from the raw tables regardless of source.
+> `strain_trend`, `readiness_score`) use `day DATE` primary keys; `current_status` is the
+> exception (`id BIGSERIAL`, one row per analytics pass). They are "source-agnostic" only in the
+> sense that they read whatever the dedupe stage left behind — they do not themselves pick a
+> source. See Phase 0 (§10).
 
 ### Source-Aware Analytics
 
@@ -475,6 +502,12 @@ The analytics pipeline would need a "source preference" strategy:
 - For training load → Garmin only (GPS pace, altitude, training effect)
 - Redundancy: if one device is off/not worn, use the other. Analytics don't break — just
   lower confidence.
+
+This preference strategy is **not implemented** today and is the substance of **Phase 0** (§10).
+Until it exists, Garmin data must be kept out of the shared raw tables during any window where
+both devices are worn, or the source-blind scorers will double-count. The Garmin-only tables
+(`activities`, `activity_laps`, `activity_trackpoints`) are safe to ingest at any time because
+no existing scorer reads them.
 
 ---
 
@@ -644,7 +677,9 @@ Not all sources are equal for all metrics:
 - Forgot to charge/wear one device? The other covers.
 - Analytics don't break — they degrade gracefully with a confidence drop.
 - The `readiness_score.confidence` column already supports `'full' | 'partial'`.
-- The `data_quality` table can track per-source, per-type freshness.
+- ⚠️ The `data_quality` table currently keys on `(day, data_type)` with **no `source` column**
+  — so per-source freshness tracking needs a schema change to `(day, data_type, source)`. This
+  is rolled into Phase 0.
 
 ### 9.5 Samsung-Style Merge
 
@@ -655,6 +690,29 @@ point, and the fusion logic is auditable (not a black box).
 ---
 
 ## 10. Recommended Approach
+
+### Phase 0: N-Source Resolver (Prerequisite — gate Phase 1 overlap on this)
+
+**Goal:** Stop the analytics pipeline from double-counting the moment a third source exists.
+
+The raw tables will happily store ring + garmin at the same timestamp (the `UNIQUE (ts, source)`
+constraint allows it), but every scorer then sees two measurements per slot and double-counts.
+Generalize the resolution stage **before** overlapping Garmin data lands in `raw_*`:
+
+- Replace the hardcoded `ring > phone` collapse in `collector/analytics/dedupe.py` with an
+  N-source preference resolver driven by a per-metric, per-time-window rule table (e.g.:
+  sleep-window HR → prefer `ring`; activity-window HR → prefer `garmin`; HRV overnight → prefer
+  `ring`; steps → max of sources; training load → `garmin` only).
+- Emit the resolved set the same way dedupe does today (delete non-preferred rows pre-score, or
+  materialize a `preferred_*` view) so existing scorers keep reading `FROM raw_*` with **no
+  source filter** and still see one measurement per slot. Zero scorer changes.
+- Add `source` to `data_quality` → `(day, data_type, source)` so freshness is reported per
+  source instead of collapsed.
+
+**If Phase 0 is deferred:** Phase 1 may still run, but it must ingest **only Garmin-only
+tables** (`activities`, `activity_laps`, `activity_trackpoints`) and Garmin metrics during
+windows the ring provably wasn't worn. Keep overlapping Garmin HR / HRV / steps / stress **out**
+of `raw_*` until the resolver exists, or daily scores silently corrupt.
 
 ### Phase 1: Garmin Connect API Backfill (Now)
 
