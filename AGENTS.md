@@ -143,6 +143,92 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-07-30 — PWA pull-to-refresh + last-sync on mobile + PWA plumbing cleanup
+- **Symptom 1:** once the dashboard was opened as an installed PWA (standalone
+  display mode), pull-to-refresh stopped working. The desktop browser was fine.
+- **Symptom 2:** "Last sync: …" was visible on the desktop browser but not on
+  the phone PWA. No last-sync info at all in the mobile nav.
+- **Root cause 1 (PTR):** the app had no custom pull-to-refresh — it relied on
+  Chrome's *native* pull-to-reload. Once `display: "standalone"` takes over
+  (vite.config.ts:29), the browser chrome and its reload gesture are gone, so
+  the gesture does nothing. Only the existing TanStack auto-refetch on focus +
+  the 3 s sync-progress poll were keeping data live.
+- **Root cause 2 (last-sync):** `Nav.tsx:34` was `hidden sm:inline` — the full
+  timestamp was hidden below Tailwind's 640 px breakpoint. On a phone
+  (PWA *or* mobile browser) it was `display:none`. No PWA-vs-browser branching
+  existed; the difference was pure viewport width (desktop vs phone).
+- **Fix 1 — `web/src/components/ui/PullToRefresh.tsx` (new, 122 lines):** in-app
+  touch gesture that activates only at `window.scrollY <= 0`, ignores
+  horizontal swipes, and on release past 70 px calls
+  `queryClient.invalidateQueries()` (refetch all, matching the post-sync
+  blanket invalidate in `useSyncPolling.ts`). Wrap the app in `App.tsx`.
+  Touch-only — mouse/trackpad keeps native browser refresh.
+- **Fix 2 — `web/src/hooks/useRelativeTime.ts` (new) + `Nav.tsx`:** add a
+  compact "Synced 2m ago" / "Yesterday 3:45 PM" line in the always-visible
+  second nav row, mobile-only (`sm:hidden`), next to `BatteryIndicator`.
+  Desktop row keeps the full timestamp. The hook self-ticks (10s < 1h,
+  30s < 3h, 60s < 24h, 5min beyond) so the relative label never lies.
+- **Fix 3 (plumbing cleanup, secondary):** deleted the stale
+  `web/public/manifest.webmanifest` (overwritten at build by the inline one
+  in `vite.config.ts`; had the old "Stan's Ring" name + root-scope) and the
+  vestigial `/sw.js` + `/manifest.webmanifest` root routes in `api/main.py`
+  (React build self-registers `/static/sw.js` at `/static/` scope; the
+  `Service-Worker-Allowed: /` header no longer matched reality). Verified
+  live: `/sw.js` and `/manifest.webmanifest` → 404, `/static/sw.js` and
+  `/static/manifest.webmanifest` → 200, `/` and `/api/admin/ring-status` → 200.
+- **Verified:** `npm run lint` clean, `npm run build` clean (ttypescript + vite),
+  9/9 vitest, 173/173 pytest in 6.95 s. Uvicorn `--reload` picked up the
+  `api/main.py` change automatically; no container restart needed. Dashboard
+  rebuild landed in `dashboard/dist/` (new `index-BZkLysa5.js`,
+  `index-AKSdjBo_.css`).
+- **PWA update dance:** installed PWA on the phone will pick up the new SW
+  on next launch via `main.tsx`'s `reg.update()`. No user action required
+  beyond a normal reopen.
+- **Follow-up — pull-to-refresh "works once, then never":** user reported the
+  gesture only worked on the first attempt. Root cause: the original
+  `PullToRefresh` used `passive: true` on touchmove, so `e.preventDefault()`
+  was a no-op and the browser's overscroll kept claiming the gesture on
+  subsequent pulls. Secondary issue: `pull`/`refreshing` were React state, so
+  the effect re-attached all four window listeners on every pixel of drag,
+  risking lost events mid-gesture. Fix in `PullToRefresh.tsx`: refactored
+  `pull`/`refreshing`/`startY`/`startX`/`triggered` to refs, single effect
+  attach (deps `[queryClient]`), `tick` counter for re-renders (throttled to
+  >=1px changes), `passive: false` on touchmove + `e.preventDefault()` when
+  engaging. `overscroll-behavior: none` was already on body so the CSS side
+  needed no change.
+- **Follow-up 2 — PTR "scrolls a bit then can't scroll":** the refactor above
+  introduced a regression: my "are we at the top?" check used `window.scrollY`,
+  but the page layout is `html { overflow: hidden }` + `body { overflow-y: auto }`
+  (`index.css`), so `window.scrollY` is *always 0* regardless of the body's
+  actual scroll position. Once the user scrolled down even a few pixels, my
+  touchmove handler thought they were "at the top" and called
+  `e.preventDefault()` on every move, silently killing all subsequent
+  scrolling. Fix: new `isAtScrollTop()` helper reads `body.scrollTop` and
+  `documentElement.scrollTop` (the real scroll container is the body), and
+  only `preventDefault()`s when truly at the top. The check is now strictly
+  conservative — if the body has scrolled even 1px, we never touch the
+  default scroll behavior.
+- **Follow-up 3 — PWA refresh button (PTR gesture still flaky on some
+  Android builds):** the user reported the pull-to-refresh gesture remained
+  inconsistent even after the scroll-check fix. Added a dedicated refresh
+  button to the nav, **visible only when the app is running as an installed
+  PWA** (detected via `matchMedia("(display-mode: standalone)")` and
+  `navigator.standalone` for iOS). Sits to the left of the dark-mode toggle,
+  calls `queryClient.invalidateQueries()` (same blanket invalidate the PTR
+  gesture uses), uses TanStack's `useIsFetching` to spin + disable itself
+  while a refetch is in flight. The gesture is still wired in as a
+  convenience, but the button is the reliable path.
+- **Follow-up 4 — refresh button "doesn't seem to do anything":** user
+  reported tapping the button had no visible effect. Root cause: a local-API
+  refetch often completes in <50ms, and the server data is usually identical
+  (no new sync happened on the server), so the only feedback the user got
+  was a 50ms spinner flash that's not perceptible. Fix in `Nav.tsx`: added
+  a local `refreshing` state that holds the spinner for a minimum of 600ms
+  (same pattern the pull-to-refresh uses) so the action is visibly
+  acknowledged. `showSpinner = refreshing || isFetching > 0` — either an
+  explicit refresh OR any background refetch triggers the spin. Refresh
+  timer cleared on rapid repeat clicks so a second tap doesn't get stuck.
+
 ### 2026-07-26 — Runtime docs truth-up (dual Podman store)
 - Added `docs/RUNTIME.md` as the ops contract. Fixed AGENTS/README/TASKS/RESEARCH so
   commands never imply bare `podman` or quadlets/compose/user units. Deleted
