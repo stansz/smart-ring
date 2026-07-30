@@ -9,6 +9,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useSelectedDate } from "./hooks/useSelectedDate";
 import { useSyncPolling } from "./hooks/useSyncPolling";
 import { useRingSync } from "./hooks/useRingSync";
+import { PullToRefresh } from "./components/ui/PullToRefresh";
 
 type Tab = "dashboard" | "analytics" | "admin";
 
@@ -52,32 +53,34 @@ function App() {
   );
 
   return (
-    <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
-      <ErrorBanner error={syncError} onDismiss={dismissError} />
-      <SyncProgressDialog phase={phase} onDismiss={dismiss} />
-      <SyncToast
-        message={!phase ? (bleResult || bleError || "") : ""}
-        success={!!bleResult && !bleError}
-        onDismiss={dismiss}
-      />
-      <Nav
-        tab={tab} onTabSwitch={onTabSwitch} darkMode={darkMode} onToggleDark={toggleDark}
-        syncButtons={syncButtons}
-      />
-      {tab === "dashboard" && (
-        <DashboardTab
-          selectedKey={selectedKey}
-          isToday={isToday}
-          prevDay={prevDay}
-          nextDay={nextDay}
-          goToday={goToday}
-          formatSelectedDate={formatSelectedDate}
-          darkMode={darkMode}
+    <PullToRefresh>
+      <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
+        <ErrorBanner error={syncError} onDismiss={dismissError} />
+        <SyncProgressDialog phase={phase} onDismiss={dismiss} />
+        <SyncToast
+          message={!phase ? (bleResult || bleError || "") : ""}
+          success={!!bleResult && !bleError}
+          onDismiss={dismiss}
         />
-      )}
-      {tab === "analytics" && <AnalyticsTab />}
-      {tab === "admin" && <AdminTab />}
-    </div>
+        <Nav
+          tab={tab} onTabSwitch={onTabSwitch} darkMode={darkMode} onToggleDark={toggleDark}
+          syncButtons={syncButtons}
+        />
+        {tab === "dashboard" && (
+          <DashboardTab
+            selectedKey={selectedKey}
+            isToday={isToday}
+            prevDay={prevDay}
+            nextDay={nextDay}
+            goToday={goToday}
+            formatSelectedDate={formatSelectedDate}
+            darkMode={darkMode}
+          />
+        )}
+        {tab === "analytics" && <AnalyticsTab />}
+        {tab === "admin" && <AdminTab />}
+      </div>
+    </PullToRefresh>
   );
 }
 
