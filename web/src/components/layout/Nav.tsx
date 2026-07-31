@@ -5,7 +5,7 @@ import { BatteryIndicator } from "./BatteryIndicator";
 import { useRingStatus } from "../../api/hooks";
 import { useRelativeTime } from "../../hooks/useRelativeTime";
 
-type Tab = "dashboard" | "analytics" | "admin";
+type Tab = "dashboard" | "analytics" | "garmin" | "admin";
 
 interface NavProps {
   tab: Tab;
