@@ -30,6 +30,11 @@ import type {
   ClockAlertResponse,
   SyncRequestRow,
   SyncProgressResponse,
+  ActivityRow,
+  ActivityDetail,
+  TrackpointRow,
+  ActivityHrRow,
+  ActivityLapRow,
 } from "./types";
 
 // ─── Health ─────────────────────────────────────────────────────────────────
@@ -261,5 +266,54 @@ export function useSyncProgress() {
   return useQuery({
     queryKey: ["syncProgress"],
     queryFn: () => get<SyncProgressResponse>("/api/admin/sync-progress"),
+  });
+}
+
+// ─── Garmin Activities ─────────────────────────────────────────────────────
+export function useActivities(days = 365, sport?: string, limit = 30) {
+  const params = new URLSearchParams({
+    days: String(days),
+    limit: String(limit),
+  });
+  if (sport) params.set("sport", sport);
+  return useQuery({
+    queryKey: ["activities", days, sport ?? "all", limit],
+    queryFn: () => get<ActivityRow[]>(`/api/activities?${params.toString()}`),
+  });
+}
+
+export function useActivityDetail(id: number | null) {
+  return useQuery({
+    queryKey: ["activity", id],
+    queryFn: () => get<ActivityDetail>(`/api/activities/${id}`),
+    enabled: id !== null,
+  });
+}
+
+export function useActivityTrackpoints(id: number | null, maxPoints = 5000) {
+  return useQuery({
+    queryKey: ["activityTrackpoints", id, maxPoints],
+    queryFn: () =>
+      get<TrackpointRow[]>(
+        `/api/activities/${id}/trackpoints?max_points=${maxPoints}`,
+      ),
+    enabled: id !== null,
+  });
+}
+
+export function useActivityHr(id: number | null, maxPoints = 5000) {
+  return useQuery({
+    queryKey: ["activityHr", id, maxPoints],
+    queryFn: () =>
+      get<ActivityHrRow[]>(`/api/activities/${id}/hr?max_points=${maxPoints}`),
+    enabled: id !== null,
+  });
+}
+
+export function useActivityLaps(id: number | null) {
+  return useQuery({
+    queryKey: ["activityLaps", id],
+    queryFn: () => get<ActivityLapRow[]>(`/api/activities/${id}/laps`),
+    enabled: id !== null,
   });
 }

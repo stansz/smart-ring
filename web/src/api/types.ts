@@ -322,3 +322,71 @@ export interface CancelSyncResponse {
   cancelled: number;
   sync_log_cleared: number;
 }
+
+// ─── Garmin Activities ─────────────────────────────────────────────────────
+export interface ActivityRow {
+  id: number;
+  activity_type: string;
+  sub_sport: string;
+  start_ts: string;
+  end_ts: string | null;
+  duration_s: number;
+  timer_time_s: number | null;
+  distance_m: number | null;
+  calories: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  avg_cadence: number | null;
+  max_cadence: number | null;
+  avg_speed_mps: number | null;
+  max_speed_mps: number | null;
+  elevation_gain_m: number | null;
+  elevation_loss_m: number | null;
+  avg_temperature_c: number | null;
+  training_effect_aerobic: number | null;
+  training_effect_anaerobic: number | null;
+  total_strides: number | null;
+  lap_count: number;
+}
+
+export interface ActivityDetail extends ActivityRow {
+  avg_vertical_oscillation_mm: number | null;
+  avg_ground_contact_time_ms: number | null;
+  avg_stride_length_cm: number | null;
+  fit_file_path: string | null;
+}
+
+export interface TrackpointRow {
+  ts: string;
+  lat: number | null;
+  lon: number | null;
+  altitude_m: number | null;
+  hr: number | null;
+  cadence: number | null;
+  speed_mps: number | null;
+  distance_m: number | null;
+  temperature_c: number | null;
+}
+
+export interface ActivityHrRow {
+  ts: string;
+  hr: number;
+}
+
+export interface ActivityLapRow {
+  lap_index: number;
+  start_ts: string;
+  end_ts: string | null;
+  duration_s: number;
+  timer_time_s: number | null;
+  distance_m: number | null;
+  calories: number | null;
+  avg_hr: number | null;
+  max_hr: number | null;
+  avg_cadence: number | null;
+  max_cadence: number | null;
+  avg_speed_mps: number | null;
+  max_speed_mps: number | null;
+  elevation_gain_m: number | null;
+  elevation_loss_m: number | null;
+}

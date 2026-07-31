@@ -739,6 +739,196 @@ def get_sync_progress():
     return dict(row)
 
 
+# ---------------------------- Garmin activity endpoints --------------------
+# Read-only views over the Garmin-only `activities` table (Phase 1 ingest).
+# These power the dashboard's Garmin tab. No write paths here — activity
+# ingest happens via the `python -m collector.garmin.ingest` CLI on the host.
+
+# FIT semicircles → degrees. 1 semicircle = 180/2^31 degrees.
+_SEMICIRCLES_TO_DEG = 180.0 / (2 ** 31)
+
+
+def _semicircles_to_deg(raw: int | None) -> float | None:
+    if raw is None:
+        return None
+    return round(raw * _SEMICIRCLES_TO_DEG, 7)
+
+
+@app.get("/api/activities")
+def get_activities(days: int = 30, sport: str | None = None, limit: int = 30):
+    """List of recent Garmin activities, newest first.
+
+    Optional ``sport`` filter matches ``activity_type`` (e.g. 'walking',
+    'running', 'cycling'). Limit defaults to 30 (≈ 1 month of daily walks).
+    """
+    cutoff_date = date.today() - timedelta(days=days)
+    params = {"cutoff_date": cutoff_date, "limit": min(limit, 200)}
+    where = "WHERE start_ts >= :cutoff_date"
+    if sport:
+        where += " AND activity_type = :sport"
+        params["sport"] = sport
+    with SessionLocal() as db:
+        rows = db.execute(text(f"""
+            SELECT a.id, a.activity_type, a.sub_sport,
+                   a.start_ts, a.end_ts, a.duration_s, a.timer_time_s,
+                   a.distance_m, a.calories, a.avg_hr, a.max_hr,
+                   a.avg_cadence, a.max_cadence,
+                   a.avg_speed_mps, a.max_speed_mps,
+                   a.elevation_gain_m, a.elevation_loss_m,
+                   a.avg_temperature_c,
+                   a.training_effect_aerobic, a.training_effect_anaerobic,
+                   a.total_strides,
+                   (SELECT count(*) FROM activity_laps l WHERE l.activity_id = a.id) AS lap_count
+            FROM activities a
+            {where}
+            ORDER BY a.start_ts DESC
+            LIMIT :limit
+        """), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/activities/{activity_id}")
+def get_activity_detail(activity_id: int):
+    """Single activity session metadata."""
+    with SessionLocal() as db:
+        row = db.execute(text("""
+            SELECT id, activity_type, sub_sport,
+                   start_ts, end_ts, duration_s, timer_time_s,
+                   distance_m, calories, avg_hr, max_hr,
+                   avg_cadence, max_cadence,
+                   avg_speed_mps, max_speed_mps,
+                   elevation_gain_m, elevation_loss_m,
+                   avg_temperature_c,
+                   training_effect_aerobic, training_effect_anaerobic,
+                   total_strides, avg_vertical_oscillation_mm,
+                   avg_ground_contact_time_ms, avg_stride_length_cm,
+                   fit_file_path
+            FROM activities
+            WHERE id = :id
+        """), {"id": activity_id}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"activity {activity_id} not found")
+    return dict(row)
+
+
+@app.get("/api/activities/{activity_id}/trackpoints")
+def get_activity_trackpoints(activity_id: int, max_points: int = 5000):
+    """1-Hz GPS + HR + cadence + altitude trackpoints.
+
+    Long activities (multi-hour walks = 10,000+ points) are downsampled
+    by striding through the rows. The downsampling preserves the first
+    + last point and the overall shape; HR chart and route map both
+    work fine at 5000 points.
+    """
+    # First check the activity exists (gives a clean 404)
+    with SessionLocal() as db:
+        exists = db.execute(text(
+            "SELECT 1 FROM activities WHERE id = :id"
+        ), {"id": activity_id}).scalar()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"activity {activity_id} not found")
+
+    with SessionLocal() as db:
+        # Pull raw rows. For activities < max_points this is the whole set.
+        rows = db.execute(text("""
+            SELECT ts, lat_semicircles, lon_semicircles,
+                   altitude_m, hr, cadence, speed_mps, distance_m, temperature_c
+            FROM activity_trackpoints
+            WHERE activity_id = :id
+            ORDER BY ts
+        """), {"id": activity_id}).mappings().all()
+
+    if not rows:
+        return []
+
+    # Downsample if over the cap. Stride keeps the first + last + even steps.
+    if len(rows) > max_points:
+        stride = len(rows) // max_points
+        sampled = [rows[0]] + rows[1:-1:stride] + [rows[-1]]
+        # dedupe + sort by ts
+        seen = set()
+        deduped = []
+        for r in sampled:
+            if r["ts"] not in seen:
+                seen.add(r["ts"])
+                deduped.append(r)
+        deduped.sort(key=lambda r: r["ts"])
+        rows = deduped
+
+    # Convert semicircles → degrees at the API boundary (storage stays FIT-native)
+    return [
+        {
+            "ts": r["ts"],
+            "lat": _semicircles_to_deg(r["lat_semicircles"]),
+            "lon": _semicircles_to_deg(r["lon_semicircles"]),
+            "altitude_m": r["altitude_m"],
+            "hr": r["hr"],
+            "cadence": r["cadence"],
+            "speed_mps": r["speed_mps"],
+            "distance_m": r["distance_m"],
+            "temperature_c": r["temperature_c"],
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/activities/{activity_id}/hr")
+def get_activity_hr(activity_id: int, max_points: int = 5000):
+    """1-Hz HR samples for the per-activity HR chart.
+
+    Separate from /trackpoints so the chart can pull just HR (lighter)
+    without the GPS payload. Same downsampling rule.
+    """
+    with SessionLocal() as db:
+        exists = db.execute(text(
+            "SELECT 1 FROM activities WHERE id = :id"
+        ), {"id": activity_id}).scalar()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"activity {activity_id} not found")
+
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, hr FROM activity_hr
+            WHERE activity_id = :id ORDER BY ts
+        """), {"id": activity_id}).mappings().all()
+
+    if not rows:
+        return []
+    if len(rows) > max_points:
+        stride = len(rows) // max_points
+        sampled = [rows[0]] + rows[1:-1:stride] + [rows[-1]]
+        seen = set()
+        deduped = []
+        for r in sampled:
+            if r["ts"] not in seen:
+                seen.add(r["ts"])
+                deduped.append(r)
+        deduped.sort(key=lambda r: r["ts"])
+        rows = deduped
+
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/activities/{activity_id}/laps")
+def get_activity_laps(activity_id: int):
+    """Lap splits for the activity."""
+    with SessionLocal() as db:
+        # Existence check via the laps themselves — no point in a 404 if
+        # the activity exists but has 0 laps.
+        rows = db.execute(text("""
+            SELECT l.lap_index, l.start_ts, l.end_ts,
+                   l.duration_s, l.timer_time_s,
+                   l.distance_m, l.calories, l.avg_hr, l.max_hr,
+                   l.avg_cadence, l.max_cadence,
+                   l.avg_speed_mps, l.max_speed_mps,
+                   l.elevation_gain_m, l.elevation_loss_m
+            FROM activity_laps l
+            WHERE l.activity_id = :id
+            ORDER BY l.lap_index
+        """), {"id": activity_id}).mappings().all()
+    return [dict(r) for r in rows]
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host=settings.api_host, port=settings.api_port)
