@@ -210,3 +210,103 @@ Major refactor work — see `docs/CLEANUP_PLAN.md` for full history.
 - `tests/test_dedupe.py` (13 tests) — source dedup with ephemeral PostgreSQL
 - `tests/test_mobile_sync.py` (16 tests) — full mobile_sync contract
 - **Total: 65 tests pass in ~4s.** Parser tests (item 4) deferred as optional.
+
+---
+
+## Open Backlog (Jul 2026)
+
+Single source of truth for what's open after the Garmin integration arc
+(Phases 0 + 1 + 1.5-framework + dashboard tab). Each item lists its
+unblock condition so a future session knows exactly what's needed.
+
+### Garmin: daily monitoring files (Phase 1.5) — BLOCKED
+
+The 745's `Garmin/Metrics/` + `Garmin/Sleep/` files contain per-day HR,
+HRV, SpO2, body battery, overnight skin temp, and sometimes step totals.
+These would map to the existing `raw_*` tables with `source='garmin'`,
+giving cross-validation against the ring's readings.
+
+**Blocker:** the files use Garmin-manufacturer-specific FIT message
+global_ids (232, 281, 282, 294, 339, 356) that **no public FIT SDK
+profile documents** — not the public 21.60 profile (bundled with
+`fitparse`), not the 21.202 profile (bundled with the Rust `fitparser`
+crate), and not Gadgetbridge's `FitRecordDataFactory` (which only
+handles the new 21.202-standard gids 211, 227, 269, 273, 297, 346, 370,
+371, 398). The binary data is present and readable; the field semantics
+(what each value means, what unit it's in) are the unknown.
+
+**Unblock path (pick one):**
+1. **Garmin Connect export → reference decode (recommended).** Request a
+   CSV export from Garmin Connect (~1 week of data, include sleep). I
+   match the displayed values (HR min/avg/max, HRV, SpO2%, skin temp) to
+   the FIT field values for the same days. Once 2-3 reference days are
+   matched, the field-id → semantic mapping is clear and the extractors
+   in `collector/garmin/monitoring.py` can be filled in. ~1 day of work
+   after the export arrives. The blocker is on the user (requesting the
+   export), not on code.
+2. **Rust port with newer FIT SDK profile.** The Rust `fitparser` crate
+   uses 21.202, but as of the search on 2026-07-30, 21.202 does NOT have
+   definitions for the 745's legacy gids either — they were removed from
+   the public profile. This path would only help if a newer device
+   (FR965, Fenix 7+, etc.) is added later that writes the 21.202-standard
+   gids. Not useful for the 745 specifically.
+3. **Port from Gadgetbridge.** Gadgetbridge's 745 support (added late
+   2025) handles *activity* data over BLE but does NOT decode the 745's
+   USB monitoring files — same gap we hit. Not a viable unblock.
+
+**Status of the framework (already shipped):** `collector/garmin/
+monitoring.py` has the file discovery, the fit_tool-based record reader
+that exposes `(global_id, {field_id: encoded_values})` tuples, the
+`ParsedMonitoring` dataclass, and 15 unit tests. The per-message
+extractors (`_extract_hr`, `_extract_hrv`, etc.) are stubbed — they
+return empty until the field IDs are validated. Filling them in is ~2-3
+hours once the reference data is in hand.
+
+### Garmin: Leaflet map for GPS trackpoints — READY
+
+The `/api/activities/{id}/trackpoints` endpoint already returns lat/lon
+converted from FIT semicircles to degrees. The dashboard just needs a
+Leaflet map component to render them.
+
+**Unblock:** none — just build it. ~1.5 hours. Tile source decision
+pending: use the project's geo-api (`maps.ogsapps.cc`) as primary with
+OpenStreetMap as fallback, or just OpenStreetMap public tiles.
+
+### Garmin: drag-and-drop upload UI — READY
+
+Right now re-ingesting activities requires `ssh + python -m
+collector.garmin.ingest --fit-dir <path>`. A drag-and-drop zone in the
+Admin tab would let you drop the `Garmin/` folder from the browser.
+Accept the whole tree, ingest `Activity/` + `Summary/`, log+skip
+`Metrics/` and `Sleep/` (Phase 1.5 pending).
+
+**Unblock:** none — just build it. ~0.5 day. FastAPI `UploadFile` +
+a React dropzone component.
+
+### Merge `garmin-integration` → `dev` — READY
+
+The branch has 6 commits, 268 tests pass, dashboard builds clean.
+Could be merged to `dev` to close out the Garmin arc at Phase 1 +
+dashboard, leaving Phase 1.5 (daily monitoring files) and the map/upload
+follow-ups as separate future PRs off `dev`.
+
+**Unblock:** user decision (when to merge). No code blockers.
+
+### Activity detection (Colmi ring) — DESIGNED, NOT BUILT
+
+`docs/ACTIVITY_DETECTION_RESEARCH.md` has a build contract for deriving
+activity/strain from the ring's HR-zone minutes (Edwards TRIMP) and
+15-min step+HR segments. Phase 1 = Edwards TRIMP→strain 0–21 + zone
+minutes; Phase 2 = walk/run/general_activity segments. Not started.
+
+**Unblock:** none — independent of Garmin work. ~2-3 days per the
+research doc.
+
+### Packaged-app fork — DESIGNED, NOT BUILT
+
+`docs/PACKAGED_APP.md` describes forking the project into a standalone
+desktop app (SQLite instead of Postgres, single binary, no containers).
+Phase 1 of the packaged-app plan was dialect-neutral SQL (shipped
+2026-07-25, commit `eba7848`). The actual fork hasn't been started.
+
+**Unblock:** none. ~1 week per the research doc.
