@@ -91,7 +91,9 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 | `docs/RUNTIME.md` | **Ops truth:** dual Podman store, units, ports, volumes, commands that work |
 | `collector/ring_client.py` | BLE wrapper (timeout, `set_time_local`, forget/repair helpers, `_encode_time_bcd` pure helper) |
 | `collector/sync_ring.py` + `protocol/` | Thin orchestrator + all BLE protocol, parsers, upserts |
+| `collector/garmin/` | Garmin 745 FIT file parser + ingest (Phase 1). `python -m collector.garmin.ingest --fit-dir <path>` |
 | `collector/analytics/` | Package of per-scorer modules; `python -m collector.analytics` |
+| `collector/analytics/source_priority.py` | N-source priority resolver — `DEFAULT_PRIORITY = (ring, garmin, phone)` per metric. Single source of truth for which source wins |
 | `collector/analytics/readiness.py` | Morning Readiness scorer (frozen at 6 AM) + `should_freeze` pure helper |
 | `collector/analytics/current_status.py` | Live intra-day scorer (Current Status) + pure component helpers |
 | `collector/jobs/` | `SyncJob` / `RingSyncJob` / `AnalyticsJob` for the poller |
@@ -104,9 +106,10 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 | `web/src/components/ble/ringProtocol.ts` | Colmi R09 Web Bluetooth protocol + 9/9 Vitest byte-level tests |
 | `dashboard/dist/` | Built React app (served by FastAPI at `/static/`). `npm run build` in `web/` to rebuild. |
 | `scripts/gen_icons.py` | One-shot Pillow icon generator (192/512/maskable/apple-180) |
-| `tests/` + `pytest.ini` | 132-test regression net (trap_score, BCD, dedupe, mobile_sync, current_status, readiness_freeze) |
+| `tests/` + `pytest.ini` | 239-test regression net (trap_score, BCD, dedupe, source_priority, mobile_sync, current_status, readiness_freeze, data_quality, steps_drain, strain_trend, heart_rate_zones, garmin_parser, garmin_ingest) |
 | `docs/RING_BEHAVIOR.md` | Firmware quirks, data publish cadence, logger stall |
 | `docs/RESEARCH.md` | Scoring formulas & methodology (Morning Readiness + Current Status) |
+| `docs/GARMIN_INTEGRATION_RESEARCH.md` | Garmin 745 integration design (privacy, sync options, schema, Rust ecosystem, phases) |
 | `docs/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
 | `docs/PWA_PLAN.md` | PWA strategies, manifest, service worker design |
 
@@ -116,7 +119,7 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 
 All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard is now a React + TypeScript app (replaced Alpine.js monolith on 2026-07-26) served at `/static/` from `dashboard/dist/`. The legacy `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, and icons are deleted. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
-**Test suite:** 204 tests across 7 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~9s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
+**Test suite:** 239 tests across 9 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~18s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
 
 **Readiness model (split July 2026):**
 - **Morning Readiness** (frozen, WHOOP-style): locks at first analytics pass at/after 6 AM local. `frozen_at` column on `readiness_score`. Subsequent passes skip today's row entirely (preserves original timestamp via COALESCE).
@@ -142,6 +145,53 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-30 — Phase 1: Garmin 745 USB/FIT backfill
+- **Goal:** get all historical Garmin activity data into Postgres via
+  USB dump. Per the user's earlier decision, USB+ FIT first (no
+  cloud dependency, no 2FA, fully aligned with the project's
+  privacy ethos). Rust re-port deferred to Phase 2.
+- **Branch:** `garmin-integration` (renamed from
+  `feature/n-source-resolver`). 8 files, +~900 LOC, 204→239 tests.
+- **Schema (5 new tables in `db/init.sql`):**
+  - `activities` — one row per FIT file (UNIQUE source+start_ts)
+  - `activity_laps` — per-lap splits (FK to activities)
+  - `activity_trackpoints` — 1-Hz GPS/HR/cadence/altitude/temp
+  - `activity_hr` — 1-Hz HR-only projection (lighter for charts)
+  - `garmin_fit_ingest` — idempotency log (file_path + sha256)
+  - All tables `source` default to `'garmin'`; schema future-proofs
+    multi-source activity (colmi-activities, etc.) without migration.
+- **Parser (`collector/garmin/parser.py`):** uses `fitparse` (Python
+  FIT SDK binding). `discover_fit_files()` walks Activity/ + Summary/
+  subdirs, skips Settings/Sports/Workouts/Metrics/Sleep. Sport enum
+  → activity_type translation table (running, walking, cycling,
+  hiking, swimming, etc.). GPS coordinates stored as FIT
+  semicircles (sint32) for fidelity; converted at API boundary.
+- **Ingest (`collector/garmin/ingest.py`):** CLI `python -m
+  collector.garmin.ingest --fit-dir <path>`. ON CONFLICT for both
+  activities (by source+start_ts) and garmin_fit_ingest (by
+  file_path). Laps + trackpoints wiped-and-rewritten on conflict
+  (cheap; <100 rows per activity). Idempotency verified: re-running
+  on a fully-ingested directory is a no-op (`found=40 inserted=0
+  skipped=40`).
+- **Tests:** +35 (26 in `test_garmin_parser` for file discovery,
+  session/lap/trackpoint parsing, sport translation, hashing; 9 in
+  `test_garmin_ingest` for end-to-end ingest, idempotency-by-path,
+  idempotency-by-hash-after-move, conflict resolution, directory
+  walk). All tests skip if `/opt/smart-ring/code/temp/GARMIN/` is
+  not present (CI may not have the data).
+- **Verified live:** ran the full backfill against the production
+  DB. 40 activities, 80 laps, 25,950 trackpoints, 25,943
+  activity_hr rows. Activities include 2023-10-12 (earliest
+  walk) through 2026-07-29. Spotted activity 1 (a 77-min walk on
+  2026-07-29): 1.2 km elevation gain, 1239 trackpoints, HR
+  84→75bpm cooldown, training_effect_aerobic=2.0.
+- **Phase 1 deferred:** Metrics/Sleep files (daily summaries) use
+  newer FIT SDK message types (global_id 229, 232, 281, etc.) that
+  `fitparse` doesn't have profiles for. The pure-file-id-44 ingest
+  path is identical (just the field-id→semantic mapping differs);
+  ~1-2 days of work to ship. Will tackle in Phase 1.5 after the
+  dashboard has a place to display daily Garmin metrics.
 
 ### 2026-07-30 — Phase 0: N-source resolver (Garmin integration prerequisite)
 - **Goal:** unblock Garmin integration by teaching the analytics pipeline to

@@ -6,3 +6,5 @@ venv/
 *.log
 podman_data/
 smart_ring_collector.egg-info/
+# One-time dumps from devices (e.g. Garmin/ USB mount, ROM dumps)
+temp/
