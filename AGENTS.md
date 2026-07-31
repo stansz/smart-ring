@@ -120,7 +120,7 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 
 All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard is now a React + TypeScript app (replaced Alpine.js monolith on 2026-07-26) served at `/static/` from `dashboard/dist/`. The legacy `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, and icons are deleted. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
-**Test suite:** 254 tests across 10 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest,garmin_monitoring}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~19s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest/monitoring tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
+**Test suite:** 268 tests across 11 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest,garmin_monitoring,garmin_api}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~25s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest/monitoring/API tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
 
 **Readiness model (split July 2026):**
 - **Morning Readiness** (frozen, WHOOP-style): locks at first analytics pass at/after 6 AM local. `frozen_at` column on `readiness_score`. Subsequent passes skip today's row entirely (preserves original timestamp via COALESCE).
@@ -146,6 +146,58 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-30 — Garmin activity dashboard tab (list + HR chart + laps)
+- **Goal:** make the 40 activities ingested in Phase 1 visible in the
+  browser. New "Garmin" tab, pure read-side, no scoring logic touched.
+- **Branch:** `garmin-integration`. 16 files, +~1200 LOC, 254→268 tests.
+- **Backend (`api/main.py`):** 5 new read-only endpoints:
+  - `GET /api/activities?days=365&sport=walking&limit=30` — list with
+    sport filter, returns 30 most recent by default. Joins
+    `activity_laps` for `lap_count`.
+  - `GET /api/activities/{id}` — session detail (training effect,
+    running dynamics, `fit_file_path`).
+  - `GET /api/activities/{id}/trackpoints` — 1-Hz GPS+HR+cadence,
+    auto-downsamples to `max_points` (default 5000) for long
+    activities (multi-hour walks = 10,000+ points). GPS coordinates
+    converted from FIT semicircles to degrees at the API boundary.
+  - `GET /api/activities/{id}/hr` — 1-Hz HR-only projection (lighter
+    than trackpoints, separate table for the chart).
+  - `GET /api/activities/{id}/laps` — lap splits.
+- **Frontend (`web/src/`):** new `GarminTab` + 4 components:
+  - `ActivitiesList` — table with sport filter (all/walking/running/
+    cycling/other). Click a row → opens detail. Empty state shows
+    the ingest CLI command (`python -m collector.garmin.ingest
+    --fit-dir <path>`).
+  - `ActivityDetail` — headline stats grid (distance, duration,
+    avg/max HR, elevation, calories, training effect, cadence,
+    strides) + HR chart + lap splits. Dark mode + mobile responsive.
+  - `ActivityHrChart` — Recharts area chart with HR zone reference
+    bands (Z1-Z5 tinted backgrounds, Garmin 5-zone defaults).
+  - `ActivityLaps` — splits table (duration, distance, pace, avg/max
+    HR, calories, elevation).
+  - `types.ts`: 4 new interfaces (`ActivityRow`, `ActivityDetail`,
+    `TrackpointRow`, `ActivityHrRow`, `ActivityLapRow`).
+  - `hooks.ts`: 5 new TanStack Query hooks (`useActivities`,
+    `useActivityDetail`, `useActivityTrackpoints`, `useActivityHr`,
+    `useActivityLaps`).
+  - Tab wiring: new `garmin` option in `App.tsx` + `Nav.tsx` +
+    `Tabs.tsx` (URL hash `#garmin` works for PWA shortcuts).
+- **Tests:** +14 in `tests/test_garmin_api.py`. Real-activity
+  fixture (one walk from 2026-07-29 ingested via the same code path
+  as the CLI). Covers list happy path, sport filter, limit, 404,
+  downsampling, laps empty case, field shapes. Skip if
+  `/opt/smart-ring/code/temp/GARMIN/` absent.
+- **Verified:** 268/268 pytest in 25 s, 9/9 vitest, `npm run lint`
+  + `npm run build` clean. API live against production DB — 40
+  activities queryable from the new Garmin tab.
+- **Deferred to follow-up PRs:**
+  - Leaflet map for GPS trackpoints (with OSM or geo-api tiles).
+  - Upload UI in the Admin tab (drag-and-drop `.fit` files instead
+    of `ssh + python -m collector.garmin.ingest`).
+  - Daily monitoring files (Phase 1.5) — still blocked on
+    undocumented Garmin-specific FIT global_ids. Path forward is
+    Garmin Connect export → match values → write extractors.
 
 ### 2026-07-30 — Phase 1.5: Garmin Monitoring files (DEFERRED)
 - **Goal:** ingest the daily Metrics/ + Sleep/ FIT files (per-day
