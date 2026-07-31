@@ -262,15 +262,25 @@ extractors (`_extract_hr`, `_extract_hrv`, etc.) are stubbed — they
 return empty until the field IDs are validated. Filling them in is ~2-3
 hours once the reference data is in hand.
 
-### Garmin: Leaflet map for GPS trackpoints — READY
+### Garmin: Leaflet map for GPS trackpoints — PARTIALLY READY
 
 The `/api/activities/{id}/trackpoints` endpoint already returns lat/lon
-converted from FIT semicircles to degrees. The dashboard just needs a
-Leaflet map component to render them.
+converted from FIT semicircles to degrees. The dashboard needs a Leaflet
+map component to render the route.
 
-**Unblock:** none — just build it. ~1.5 hours. Tile source decision
-pending: use the project's geo-api (`maps.ogsapps.cc`) as primary with
-OpenStreetMap as fallback, or just OpenStreetMap public tiles.
+Two pieces, different readiness:
+
+1. **Base map + GPS route polyline** — READY. Uses CARTO Voyager tiles
+   (same as bike.ogsapps.cc) or OSM fallback. No geo-api needed. ~1 hour.
+2. **Elevation profile overlay** — BLOCKED on geo-api setup. The geo-api
+   (`maps.ogsapps.cc`) has `/api/elevation/profile` that would produce
+   an SVG elevation chart color-coded by grade (bike-map pattern). Needs
+   CORS/auth opened up for the smart-ring dashboard origin before it
+   can be called from the browser. ~1 hour once the API is accessible.
+
+**Note:** the geo-api does NOT serve map tiles — it's a data API
+(elevation, places, trails, transit). Tile rendering uses CARTO/OSM
+either way. The geo-api value-add is the elevation profile enrichment.
 
 ### Garmin: drag-and-drop upload UI — READY
 
