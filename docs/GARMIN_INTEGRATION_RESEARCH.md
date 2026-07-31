@@ -732,12 +732,65 @@ remapping work once and get immediate value.
 **Privacy justification:** This is a one-time copy of data Garmin already has. After this
 backfill, new data can be captured privately going forward.
 
-### Phase 1.5: Upload UI (Optional, Low Priority)
+### Phase 1.5: Daily Monitoring Files (Metrics/ + Sleep/) — DEFERRED
+
+**Status (as of 2026-07-30): framework shipped, extractors pending.**
+
+The 745 also writes daily summary files to `Garmin/Metrics/` (~100 files
+covering ~24 days of daily summaries) and one `Garmin/Sleep/` file. These
+contain the per-day HR, HRV, SpO2, body battery, overnight skin temp, and
+sometimes step totals that would map to the existing `raw_*` tables with
+`source='garmin'`.
+
+**Blocker: FIT SDK profile mismatch.** The monitoring files use new FIT
+SDK message types (global_id 229, 232, 281, 294, 339, 356, etc.) that
+post-date the public FIT SDK profile bundled with `fitparse` (21.60) and
+`fitparser` Rust crate. The binary format is stable and we can read
+the raw field IDs, but without a profile we don't know what each field
+*means*:
+
+- `global_id 232 (Hr)`: fids 5,6,7,8 are HR values (67, 218, 263...) — the
+  scale is unclear (daily min/avg/max? 5-min samples?)
+- `global_id 281 (Hrv)`: all fids 0-3 are UINT32Z nulls in our sample
+- `global_id 339 (HsaSpo2Data)`: fids 1,2,3,4 are 1785, 3964, 9636, 22995
+  — too large for SpO2% (90-100), may be seconds-in-zone
+- `global_id 356 (SkinTempOvernight)`: fids 2,3 are 1268600, 4380400 —
+  too large for centi-degrees, may be time-weighted temps
+
+**What `collector/garmin/monitoring.py` does ship today:**
+- File discovery (Metrics/ + Sleep/ subdirs)
+- fit_tool-based record reader (extracts global_id + field IDs)
+- `ParsedMonitoring` dataclass with hr/hrv/spo2/temp/steps lists
+- Per-message extractor functions (`_extract_hr`, `_extract_hrv`, etc.)
+  that are *wired up* but currently return empty for the unknown
+  field-ID reason above
+- 15 unit tests pinning the framework's contract
+
+**To unblock (one of these):**
+1. **Drop in a newer FIT SDK profile** (21.202+ has full message
+   definitions for these gids). Would require forking `fitparse` to
+   bundle the new profile, or switching to the Rust `fitparser` crate
+   which already uses 21.202.
+2. **Decode against reference data** — pull a known day's HRV / SpO2
+   / temp from Garmin Connect (or compare against the user's ring's
+   overnight readings for the same night) and hand-decode the field
+   IDs. ~1 day of work but produces a permanent local mapping.
+3. **Bridge to Gadgetbridge's data model** — Gadgetbridge has
+   already reverse-engineered these messages for the 745
+   (`codeberg.org/Freeyourgadget/Gadgetbridge`). Reading their source
+   would give us the field mappings for free.
+
+Recommended: option 1 (the Rust port) since Phase 2 is heading that
+way anyway. Once the Rust `fitparser` crate handles these gids, the
+Python monitoring.py becomes the spec and the Rust version replaces
+it.
+
+### Phase 1.6: Upload UI (Optional, Low Priority)
 
 - Drag-and-drop FIT file upload on the React dashboard
 - New `POST /upload/fit` endpoint on FastAPI
 - Uses existing `sync_requests` queue for async processing
-- Allows manual USB sync without a full collector service
+- Allows manual USB sync without running the CLI on the HTPC
 
 ### Phase 2: Private Sync (Future)
 
