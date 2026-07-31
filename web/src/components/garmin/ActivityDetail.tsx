@@ -2,10 +2,12 @@ import {
   useActivityDetail,
   useActivityHr,
   useActivityLaps,
+  useActivityTrackpoints,
 } from "../../api/hooks";
 import { Card } from "../ui";
 import { ActivityHrChart } from "./ActivityHrChart";
 import { ActivityLaps } from "./ActivityLaps";
+import { ActivityMap } from "./ActivityMap";
 
 const SPORT_ICONS: Record<string, string> = {
   walking: "🚶",
@@ -49,6 +51,7 @@ interface ActivityDetailProps {
 
 export function ActivityDetail({ id }: ActivityDetailProps) {
   const { data: activity, isLoading: detailLoading } = useActivityDetail(id);
+  const { data: trackpoints, isLoading: mapLoading } = useActivityTrackpoints(id, 2000);
   const { data: hr, isLoading: hrLoading } = useActivityHr(id);
   const { data: laps } = useActivityLaps(id);
 
@@ -127,6 +130,20 @@ export function ActivityDetail({ id }: ActivityDetailProps) {
             value={activity.total_strides ? String(activity.total_strides) : "—"}
           />
         </div>
+      </Card>
+
+      {/* Route Map */}
+      <Card className="p-4 sm:p-6">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+          Route
+        </h3>
+        {mapLoading ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+            Loading route…
+          </p>
+        ) : (
+          <ActivityMap trackpoints={trackpoints || []} />
+        )}
       </Card>
 
       {/* HR Chart */}
