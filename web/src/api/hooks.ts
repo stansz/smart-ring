@@ -124,10 +124,14 @@ export function useStrainTrend(days = 14) {
 }
 
 // ─── Data Quality ───────────────────────────────────────────────────────────
-export function useDataQuality(days = 7) {
+export function useDataQuality(days = 7, source?: string) {
   return useQuery({
-    queryKey: ["dataQuality", days],
-    queryFn: () => get<DataQualityRow[]>(`/api/data-quality?days=${days}`),
+    queryKey: ["dataQuality", days, source ?? "all"],
+    queryFn: () => {
+      const params = new URLSearchParams({ days: String(days) });
+      if (source) params.set("source", source);
+      return get<DataQualityRow[]>(`/api/data-quality?${params.toString()}`);
+    },
   });
 }
 

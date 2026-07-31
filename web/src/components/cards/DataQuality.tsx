@@ -10,12 +10,19 @@ const TYPE_LABELS: Record<string, string> = {
   stress: "Stress",
 };
 
+// Default to the ring source only — that's the canonical collector and
+// matches the pre-Phase-0 single-source banner UX. When Garmin is
+// added in Phase 1, this can be extended to surface garmin-specific
+// staleness (e.g. `useDataQuality(3, "garmin")`) alongside the ring
+// banner, or rendered as a second banner.
+const PRIMARY_SOURCE = "ring";
+
 export function DataQualityBanner() {
-  const { data } = useDataQuality(3);
+  const { data } = useDataQuality(3, PRIMARY_SOURCE);
   if (!data) return null;
 
   const today = todayKey();
-  const todayRows = data.filter((r) => r.day === today);
+  const todayRows = data.filter((r) => r.day === today && r.source === PRIMARY_SOURCE);
   const staleRows = todayRows.filter((r) => r.status === "stale");
   const staleTypes = [...new Set(staleRows.map((r) => r.data_type))];
 

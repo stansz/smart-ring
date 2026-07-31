@@ -299,15 +299,39 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_requests_one_active ON sync_requests(
 -- Stale detection: if ANY type has data for a day (ring worn + synced)
 -- but a specific type does NOT, flag it as stale. Days with no data from
 -- any type are marked 'missing' (ring not worn / no sync that day).
+-- `source` is part of the PK so multi-source freshness is tracked
+-- per-source (e.g. ring HR + garmin HR on the same day = 2 rows).
 CREATE TABLE IF NOT EXISTS data_quality (
     day DATE NOT NULL,
     data_type VARCHAR(32) NOT NULL,
+    source TEXT NOT NULL DEFAULT 'ring',
     last_ts TIMESTAMPTZ,
     sample_count INT DEFAULT 0,
     status VARCHAR(16) NOT NULL DEFAULT 'ok',  -- ok | stale | missing
     checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (day, data_type)
+    PRIMARY KEY (day, data_type, source)
 );
+
+-- Migration for existing DBs: pre-Phase-0 the table was keyed on
+-- (day, data_type) without source. The source column was added in
+-- Phase 0 (n-source resolver) so per-source freshness is trackable.
+-- Safe to run on a fresh DB — IF EXISTS / IF NOT EXISTS are no-ops
+-- when the table already matches the new shape.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'data_quality' AND column_name = 'source'
+    ) THEN
+        -- column already exists; nothing to do
+        NULL;
+    ELSE
+        ALTER TABLE data_quality ADD COLUMN source TEXT NOT NULL DEFAULT 'ring';
+        -- Drop the old PK and recreate with source included
+        ALTER TABLE data_quality DROP CONSTRAINT IF EXISTS data_quality_pkey;
+        ALTER TABLE data_quality ADD PRIMARY KEY (day, data_type, source);
+    END IF;
+END $$;
 
 -- User-set goals (NOT the firmware-stored ring_goals — those are the ring's
 -- defaults, which we still sync to ring_goals for compatibility but don't
