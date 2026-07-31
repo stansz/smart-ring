@@ -116,7 +116,7 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 
 All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard is now a React + TypeScript app (replaced Alpine.js monolith on 2026-07-26) served at `/static/` from `dashboard/dist/`. The legacy `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, and icons are deleted. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
-**Test suite:** 132 tests across 6 files (`tests/test_{trap_score,time_sync_bcd,dedupe,mobile_sync,current_status,readiness_freeze}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~5s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
+**Test suite:** 204 tests across 7 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~9s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
 
 **Readiness model (split July 2026):**
 - **Morning Readiness** (frozen, WHOOP-style): locks at first analytics pass at/after 6 AM local. `frozen_at` column on `readiness_score`. Subsequent passes skip today's row entirely (preserves original timestamp via COALESCE).
@@ -135,13 +135,51 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 **High-signal recent facts (verify via DB + source):**
 - Clock sync uses the sacred local BCD `set_time_local()` + ack path (clock_drift_ms=1 means success). `_encode_time_bcd` is the pure helper, pinned byte-for-byte by `tests/test_time_sync_bcd.py`.
 - Poller auto-reaps stuck `sync_log` rows.
-- Source dedup runs in analytics (`collector/analytics/dedupe.py:dedupe_sources()`) — single source of truth, runs before scorers every analytics pass. API-side `_dedupe_sources` removed (was redundant).
+- Source dedup runs in analytics (`collector/analytics/dedupe.py:dedupe_sources()`) — single source of truth, runs before scorers every analytics pass. API-side `_dedupe_sources` removed (was redundant). Priority driven by `collector/analytics/source_priority.py:DEFAULT_PRIORITY` (N-source resolver).
 
 ---
 
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-30 — Phase 0: N-source resolver (Garmin integration prerequisite)
+- **Goal:** unblock Garmin integration by teaching the analytics pipeline to
+  handle N overlapping sources, not just ring + phone. Per
+  `docs/GARMIN_INTEGRATION_RESEARCH.md` §10, this is the prerequisite before
+  any overlapping Garmin data lands in `raw_*` (today's hardcoded `ring > phone`
+  dedupe would silently double-count a third source).
+- **Branch:** `feature/n-source-resolver` (off dev). 15 files, +988/-137, 132→204 tests.
+- **New module — `collector/analytics/source_priority.py`:** single source of
+  truth for "which source wins" per metric. `DEFAULT_PRIORITY` = `(ring, garmin,
+  phone)` for every metric; `select_preferred_source()` and `sources_to_drop()`
+  are pure functions, fully testable without a DB. Adding a fourth source (e.g.
+  `oura`) is a one-line change.
+- **`dedupe.py`:** replaced the hardcoded `ring > phone` SQL with a generic
+  resolver driven by `source_priority`. The point-table and sleep dedupe were
+  unified into a single `_drop_non_preferred` helper (table + slot keys + priority
+  chain are the inputs). Backwards compatible: with only ring+phone data, the
+  result is byte-identical to the old behaviour.
+- **`sleep.py`:** replaced the hardcoded `ring`-first `CASE` with the same
+  priority chain, so day-level sleep source selection is now consistent with
+  point-table dedupe.
+- **`data_quality`:** `source` is now part of the PK `(day, data_type, source)`.
+  Each source gets its own freshness row — "ring HR ok / garmin HR stale" is now
+  a first-class signal. Migration block in `db/init.sql` adds the source column
+  + rebuilds the PK safely on a live DB (verified via psql on the production
+  container). Intra-day freshness gap now fires for any source, not just ring.
+- **API + React:** `/api/data-quality` gains an optional `?source=` filter.
+  `DataQualityRow` type gets the new field. `DataQualityBanner` filters to
+  `source='ring'` client-side to preserve the pre-Phase-0 single-source banner
+  UX (once garmin is added, garmin staleness can surface as a second banner).
+- **Tests:** +72 (8 in `test_source_priority` for pure helpers, 8 in `test_dedupe`
+  for 3-source overlap + custom priority + unknown-source preservation, 4 in
+  `test_data_quality` for per-source semantics). 204/204 pytest in 8.6 s, 9/9
+  vitest, `npm run lint` + `npm run build` clean.
+- **Verified live:** ran `python -m collector.analytics` against the production
+  DB after the migration; ring rows = ok, phone rows = stale (no phone data but
+  ring has data → stale for that source). Dashboard banner correctly silent
+  (filters to ring, all ok).
 
 ### 2026-07-30 — PWA pull-to-refresh + last-sync on mobile + PWA plumbing cleanup
 - **Symptom 1:** once the dashboard was opened as an installed PWA (standalone
