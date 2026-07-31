@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from .helpers import trap_score
+from .source_priority import DEFAULT_PRIORITY
 
 log = logging.getLogger(__name__)
 
@@ -19,19 +20,52 @@ SESSION_GAP_MINUTES = 240  # 4 hours → new sleep session
 
 
 def compute_sleep_quality(conn) -> None:
-    """Compute sleep quality score from per-session stage data."""
+    """Compute sleep quality score from per-session stage data.
+
+    Source preference is delegated to ``dedupe_sources`` (runs first
+    in the analytics pipeline). This scorer therefore just reads
+    whatever the dedupe stage left behind and filters to the
+    preferred source for each day using the priority chain from
+    ``source_priority.DEFAULT_PRIORITY``.
+
+    The day-level preference logic: for each day with multiple
+    sources, only the preferred source's rows are read. (If the
+    preferred source didn't report for a given day, the next-highest
+    source's data is used — same semantics as the old hardcoded
+    ring-first CASE expression, just generalized to N sources.)
+    """
     log.info("Computing sleep quality metrics...")
+    priority = list(DEFAULT_PRIORITY["sleep"])
+    priority_select = ", ".join(f"'{s}'" for s in priority)
     with conn.cursor() as cur:
-        cur.execute("""
-            SELECT day, stage, start_ts, end_ts, duration_minutes
+        cur.execute(f"""
+            WITH priority_chain AS (
+                SELECT ARRAY[{priority_select}]::text[] AS chain
+            ),
+            day_sources AS (
+                SELECT day,
+                       array_agg(DISTINCT s.source) AS sources
+                FROM raw_sleep s, priority_chain pc
+                WHERE s.source = ANY(pc.chain)
+                GROUP BY day
+            ),
+            preferred AS (
+                SELECT day,
+                       (SELECT src
+                        FROM unnest(sources) AS src
+                        ORDER BY array_position(
+                            (SELECT chain FROM priority_chain), src
+                        ) NULLS LAST
+                        LIMIT 1) AS keep_source
+                FROM day_sources
+            )
+            SELECT s.day, s.stage, s.start_ts, s.end_ts, s.duration_minutes
             FROM raw_sleep s
-            WHERE duration_minutes IS NOT NULL
-              AND start_ts IS NOT NULL
-              AND source = CASE WHEN EXISTS (
-                    SELECT 1 FROM raw_sleep r
-                    WHERE r.day = s.day AND r.source = 'ring'
-                  ) THEN 'ring' ELSE 'phone' END
-            ORDER BY day, start_ts
+            JOIN preferred p USING (day)
+            WHERE s.source = p.keep_source
+              AND s.duration_minutes IS NOT NULL
+              AND s.start_ts IS NOT NULL
+            ORDER BY s.day, s.start_ts
         """)
         all_stages = cur.fetchall()
 

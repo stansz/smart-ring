@@ -150,6 +150,7 @@ export interface StrainTrendRow {
 export interface DataQualityRow {
   day: string;
   data_type: string;
+  source: string;
   last_ts: string | null;
   sample_count: number;
   status: "ok" | "stale" | "missing";
