@@ -91,7 +91,8 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 | `docs/RUNTIME.md` | **Ops truth:** dual Podman store, units, ports, volumes, commands that work |
 | `collector/ring_client.py` | BLE wrapper (timeout, `set_time_local`, forget/repair helpers, `_encode_time_bcd` pure helper) |
 | `collector/sync_ring.py` + `protocol/` | Thin orchestrator + all BLE protocol, parsers, upserts |
-| `collector/garmin/` | Garmin 745 FIT file parser + ingest (Phase 1). `python -m collector.garmin.ingest --fit-dir <path>` |
+| `collector/garmin/` | Garmin 745 FIT file parser + ingest. `parser.py` handles Activity/ + Summary/ files (Phase 1, 40 activities ingested). `monitoring.py` handles Metrics/ + Sleep/ files (Phase 1.5, DEFERRED — needs FIT SDK profile upgrade; framework + 15 tests ship, extractors stubbed) |
+| `collector/garmin/ingest.py` | CLI: `python -m collector.garmin.ingest --fit-dir <path>`. Idempotent by file path + SHA-256 hash. Maps parsed activity → `activities` + `activity_laps` + `activity_trackpoints` + `activity_hr` tables. Phase 0 dedupe unaffected (Garmin-only tables). |
 | `collector/analytics/` | Package of per-scorer modules; `python -m collector.analytics` |
 | `collector/analytics/source_priority.py` | N-source priority resolver — `DEFAULT_PRIORITY = (ring, garmin, phone)` per metric. Single source of truth for which source wins |
 | `collector/analytics/readiness.py` | Morning Readiness scorer (frozen at 6 AM) + `should_freeze` pure helper |
@@ -119,7 +120,7 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 
 All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard is now a React + TypeScript app (replaced Alpine.js monolith on 2026-07-26) served at `/static/` from `dashboard/dist/`. The legacy `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, and icons are deleted. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
-**Test suite:** 239 tests across 9 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~18s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
+**Test suite:** 254 tests across 10 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest,garmin_monitoring}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~19s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest/monitoring tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
 
 **Readiness model (split July 2026):**
 - **Morning Readiness** (frozen, WHOOP-style): locks at first analytics pass at/after 6 AM local. `frozen_at` column on `readiness_score`. Subsequent passes skip today's row entirely (preserves original timestamp via COALESCE).
@@ -145,6 +146,67 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-07-30 — Phase 1.5: Garmin Monitoring files (DEFERRED)
+- **Goal:** ingest the daily Metrics/ + Sleep/ FIT files (per-day
+  HR, HRV, SpO2, body battery, overnight skin temp, sometimes
+  step totals) into `raw_*` with `source='garmin'`. These are
+  the files the 745 writes between activity syncs — the most
+  valuable non-activity data the watch captures.
+- **Branch:** `garmin-integration`. 3 files, +~700 LOC, 239→254 tests.
+- **Blocker discovered:** the monitoring files use FIT SDK
+  message types (global_id 229, 232, 281, 294, 339, 356) that
+  post-date the public FIT SDK profile bundled with `fitparse`
+  (21.60). The binary format is stable and we can read raw
+  field IDs (via `fit_tool`), but the *semantics* of each field
+  aren't documented anywhere we have access to:
+  - 232 (Hr): fids 5,6,7,8 are HR values (67, 218, 263 — could be
+    daily min/avg/max, or 5-min samples, unclear)
+  - 281 (Hrv): all UINT32Z nulls in our sample (no HRV captured?)
+  - 339 (HsaSpo2Data): fids 1,2,3,4 are 1785, 3964, 9636, 22995 —
+    too large for SpO2% (90-100), may be seconds-in-zone
+  - 356 (SkinTempOvernight): fids 2,3 are 1268600, 4380400 —
+    too large for centi-degrees, may be time-weighted temps
+  Writing these to `raw_*` without understanding the scale would
+  silently corrupt the analytics pipeline (Phase 0 dedupe would
+  not catch a wrong-unit value).
+- **What ships in this commit:** the framework + 15 tests, not
+  the extractors.
+  - `collector/garmin/monitoring.py` (~280 lines): file
+    discovery, fit_tool-based record reader that exposes
+    `(global_id, {field_id: encoded_values})` tuples, and the
+    `ParsedMonitoring` dataclass with per-metric lists.
+  - Per-message extractors (`_extract_hr`, `_extract_hrv`, etc.)
+    are wired up but currently return empty lists — the
+    comment in each one notes which field IDs are unverified.
+  - `EXTRACTED_GIDS` + `PENDING_DECODE_GIDS` constants
+    document the status so a future contributor can pick
+    up where this leaves off.
+- **Tests (15 in `test_garmin_monitoring.py`):** file
+  discovery, file_hash determinism, parse_monitoring_file
+  returns a valid `ParsedMonitoring` with correct metadata,
+  the framework tracks unknown global_ids for future
+  expansion, the step file and sleep file parse without
+  error. Skip if `/opt/smart-ring/code/temp/GARMIN/` absent.
+- **Verified:** 254/254 pytest in 18.8s, 9/9 vitest, `npm
+  run lint` + `npm run build` clean. No production DB
+  changes (nothing was ingested — the extractors are
+  stubs).
+- **Path to unblock** (in `docs/GARMIN_INTEGRATION_RESEARCH.md`
+  §Phase 1.5):
+  - **Option 1 (recommended):** drop in a newer FIT SDK
+    profile (21.202+ has full definitions). Phase 2 is
+    heading to Rust anyway, and the Rust `fitparser`
+    crate already uses 21.202. The Python monitoring.py
+    becomes the spec.
+  - **Option 2:** decode against reference data — pull a
+    known day's values from Garmin Connect (or compare
+    against the user's ring's overnight readings for the
+    same night) and hand-decode the field IDs. ~1 day of
+    work but produces a permanent local mapping.
+  - **Option 3:** port Gadgetbridge's reverse-engineered
+    field mappings for the 745 (free, but requires
+    reading their Java source).
 
 ### 2026-07-30 — Phase 1: Garmin 745 USB/FIT backfill
 - **Goal:** get all historical Garmin activity data into Postgres via
