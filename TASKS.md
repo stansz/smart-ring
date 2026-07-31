@@ -262,7 +262,7 @@ extractors (`_extract_hr`, `_extract_hrv`, etc.) are stubbed — they
 return empty until the field IDs are validated. Filling them in is ~2-3
 hours once the reference data is in hand.
 
-### Garmin: Leaflet map for GPS trackpoints — PARTIALLY READY
+### Garmin: Leaflet map for GPS trackpoints — PARTIALLY READY (base route done, elevation blocked)
 
 The `/api/activities/{id}/trackpoints` endpoint already returns lat/lon
 converted from FIT semicircles to degrees. The dashboard needs a Leaflet
@@ -270,8 +270,12 @@ map component to render the route.
 
 Two pieces, different readiness:
 
-1. **Base map + GPS route polyline** — READY. Uses CARTO Voyager tiles
-   (same as bike.ogsapps.cc) or OSM fallback. No geo-api needed. ~1 hour.
+1. **Base map + GPS route polyline** — ✅ DONE (commit `6cc5bc1`).
+   Uses CARTO Voyager tiles (light) / Dark Matter (dark). No geo-api
+   needed. `web/src/components/garmin/ActivityMap.tsx` renders the route
+   with start/finish markers, auto-fits bounds, handles dark mode +
+   GPS-dropout filtering. ~130 lines of vanilla Leaflet (no
+   react-leaflet wrapper).
 2. **Elevation profile overlay** — BLOCKED on geo-api setup. The geo-api
    (`maps.ogsapps.cc`) has `/api/elevation/profile` that would produce
    an SVG elevation chart color-coded by grade (bike-map pattern). Needs
