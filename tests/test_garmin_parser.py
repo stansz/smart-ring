@@ -1,7 +1,7 @@
 """Tests for the Garmin FIT parser.
 
 Uses a real .fit file from the user's Forerunner 745 dump at
-/opt/smart-ring/code/temp/GARMIN/Activity/. If the file is missing
+/opt/smart-ring/data/garmin/raw/manual/GARMIN/Activity/. If the file is missing
 the tests skip (CI environments may not have the data).
 
 Covers:
@@ -24,9 +24,9 @@ from collector.garmin.parser import (
 )
 
 
-# The real test data lives at /opt/smart-ring/code/temp/GARMIN/.
+# The real test data lives at /opt/smart-ring/data/garmin/raw/manual/GARMIN/.
 # Skip the whole module if it doesn't exist (CI may not have the dump).
-REAL_GARMIN_DIR = Path("/opt/smart-ring/code/temp/GARMIN")
+REAL_GARMIN_DIR = Path("/opt/smart-ring/data/garmin/raw/manual/GARMIN")
 pytestmark = pytest.mark.skipif(
     not REAL_GARMIN_DIR.exists(),
     reason=f"real Garmin dump not present at {REAL_GARMIN_DIR}",

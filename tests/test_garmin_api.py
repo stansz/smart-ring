@@ -1,6 +1,6 @@
 """Tests for the Garmin activity API endpoints.
 
-Uses the real FIT files from /opt/smart-ring/code/temp/GARMIN/Activity/
+Uses the real FIT files from /opt/smart-ring/data/garmin/raw/manual/GARMIN/Activity/
 (ingested into the ephemeral test DB at setup). If the dump is missing,
 the whole module skips — the tests have no fixture to run against.
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-REAL_GARMIN_DIR = Path("/opt/smart-ring/code/temp/GARMIN")
+REAL_GARMIN_DIR = Path("/opt/smart-ring/data/garmin/raw/manual/GARMIN")
 SAMPLE_ACTIVITY = REAL_GARMIN_DIR / "Activity" / "2026-07-29-17-35-53.fit"
 
 

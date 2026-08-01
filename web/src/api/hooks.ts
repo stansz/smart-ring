@@ -35,6 +35,7 @@ import type {
   TrackpointRow,
   ActivityHrRow,
   ActivityLapRow,
+  GarminUploadResponse,
 } from "./types";
 
 // ─── Health ─────────────────────────────────────────────────────────────────
@@ -315,5 +316,31 @@ export function useActivityLaps(id: number | null) {
     queryKey: ["activityLaps", id],
     queryFn: () => get<ActivityLapRow[]>(`/api/activities/${id}/laps`),
     enabled: id !== null,
+  });
+}
+
+export function useGarminUpload() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { files: File[]; paths: string[] }) => {
+      const formData = new FormData();
+      for (const file of data.files) {
+        formData.append("files", file);
+      }
+      formData.append("paths", JSON.stringify(data.paths));
+      const res = await fetch("/api/admin/garmin-upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status} ${res.statusText}: ${text}`);
+      }
+      return res.json() as Promise<GarminUploadResponse>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["activities"] });
+      queryClient.invalidateQueries({ queryKey: ["adminHealth"] });
+    },
   });
 }
