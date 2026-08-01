@@ -89,11 +89,9 @@ export function ActivitiesList({ selectedId, onSelect }: ActivitiesListProps) {
 
       {!isLoading && activities && activities.length === 0 && (
         <div className="py-12 text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-            No activities ingested yet.
-          </p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">
-            python -m collector.garmin.ingest --fit-dir /path/to/GARMIN
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            No activities ingested yet. Use the upload button above to import
+            FIT files from your watch&apos;s USB drive.
           </p>
         </div>
       )}

@@ -34,7 +34,7 @@ from collector.garmin.monitoring import (
 )
 
 
-REAL_GARMIN_DIR = Path("/opt/smart-ring/code/temp/GARMIN")
+REAL_GARMIN_DIR = Path("/opt/smart-ring/data/garmin/raw/manual/GARMIN")
 pytestmark = pytest.mark.skipif(
     not REAL_GARMIN_DIR.exists(),
     reason=f"real Garmin dump not present at {REAL_GARMIN_DIR}",

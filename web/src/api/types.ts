@@ -390,3 +390,14 @@ export interface ActivityLapRow {
   elevation_gain_m: number | null;
   elevation_loss_m: number | null;
 }
+
+// ─── Garmin Upload ──────────────────────────────────────────────────────
+export interface GarminUploadResponse {
+  found: number;
+  inserted: number;
+  skipped: number;
+  error: number;
+  upload_dir: string;
+  timestamp: string;
+  total_files_received: number;
+}

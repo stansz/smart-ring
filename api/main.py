@@ -1,8 +1,10 @@
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -927,6 +929,76 @@ def get_activity_laps(activity_id: int):
             ORDER BY l.lap_index
         """), {"id": activity_id}).mappings().all()
     return [dict(r) for r in rows]
+
+
+# ─── Garmin Upload ──────────────────────────────────────────────────────
+
+# Raw FIT files from the 745 live under /garmin-raw (mounted from
+# /opt/smart-ring/data/garmin/raw on the host).  Web uploads land in
+# /garmin-raw/uploads/<timestamp>/; manual USB dumps go in
+# /garmin-raw/manual/.  The ingest code scans both trees.
+GARMIN_RAW_DIR = Path(os.environ.get("GARMIN_RAW_DIR", "/garmin-raw"))
+
+
+@app.post("/api/admin/garmin-upload")
+async def garmin_upload(
+    files: List[UploadFile] = File(...),
+    paths: str = Form(...),
+):
+    """Accept a Garmin folder (selected via webkitdirectory), write the
+    files to persistent storage, and run FIT ingest on them.
+
+    ``paths`` is a JSON array of relative paths (one per file), in the
+    same order as ``files``.  The server reconstructs the folder tree
+    under ``GARMIN_RAW_DIR/uploads/<timestamp>/`` so that
+    ``discover_fit_files()`` can find Activity/ and Summary/ subdirs.
+    """
+    import json
+
+    try:
+        relative_paths: list[str] = json.loads(paths)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "paths must be a JSON array of strings")
+
+    if len(relative_paths) != len(files):
+        raise HTTPException(
+            400,
+            f"paths/file count mismatch: {len(relative_paths)} vs {len(files)}",
+        )
+    if not files:
+        return {"found": 0, "inserted": 0, "skipped": 0, "error": 0}
+
+    # Create a timestamped upload directory
+    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+    upload_dir = GARMIN_RAW_DIR / "uploads" / ts
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write each file preserving its relative path structure
+    for upload_file, rel_path_str in zip(files, relative_paths):
+        rel_path = Path(rel_path_str)
+        # Security: reject any path that escapes the upload directory
+        target = (upload_dir / rel_path).resolve()
+        if not str(target).startswith(str(upload_dir.resolve())):
+            raise HTTPException(400, f"Invalid path: {rel_path_str}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = await upload_file.read()
+        target.write_bytes(content)
+
+    # Run ingest
+    from collector.garmin.ingest import _connect, ingest_directory
+
+    conn = _connect()
+    try:
+        summary = ingest_directory(upload_dir, conn)
+    finally:
+        conn.close()
+
+    return {
+        **summary,
+        "upload_dir": str(upload_dir),
+        "timestamp": ts,
+        "total_files_received": len(files),
+    }
 
 
 if __name__ == "__main__":
