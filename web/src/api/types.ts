@@ -154,6 +154,7 @@ export interface DataQualityRow {
   last_ts: string | null;
   sample_count: number;
   status: "ok" | "stale" | "missing";
+  reason?: string | null;
   checked_at: string;
 }
 

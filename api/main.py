@@ -247,27 +247,25 @@ def get_stress(days: int = 30):
 
 @app.get("/api/data-quality")
 def get_data_quality(days: int = 7, source: str | None = None):
-    """Per-type data freshness status (ok | stale | missing).
+    """Per-type data freshness status (ok | stale) with optional reason.
 
     Optional ``source`` filter — when set, only rows for that source
-    are returned. Defaults to all sources (so a multi-source dashboard
-    can see per-source freshness at once). The dashboard banner
-    filters client-side to 'ring' to preserve the single-source
-    banner UX; once garmin is added the banner can opt-in to other
-    sources.
+    are returned. The dashboard sensor strip uses ``?source=ring``.
     """
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         if source:
             rows = db.execute(text("""
-                SELECT day, data_type, source, last_ts, sample_count, status, checked_at
+                SELECT day, data_type, source, last_ts, sample_count,
+                       status, reason, checked_at
                 FROM data_quality
                 WHERE day >= :cutoff_date AND source = :source
                 ORDER BY day DESC, data_type
             """), {"cutoff_date": cutoff_date, "source": source}).mappings().all()
         else:
             rows = db.execute(text("""
-                SELECT day, data_type, source, last_ts, sample_count, status, checked_at
+                SELECT day, data_type, source, last_ts, sample_count,
+                       status, reason, checked_at
                 FROM data_quality
                 WHERE day >= :cutoff_date
                 ORDER BY day DESC, data_type

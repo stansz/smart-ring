@@ -1,193 +1,239 @@
-"""Tests for the data_quality freshness check.
+"""Tests for data_quality freshness (empirically calibrated rules).
 
-Covers both the original "total absence" stale rule and the new
-peer-relative intra-day freshness rule. The intra-day rule catches the
-"steps stalled at 4 PM while HR is current" case that the cnt==0 check
-alone misses (the actual production bug that motivated this test file).
-
-Phase 0 (N-source resolver): data_quality now emits one row per
-(day, data_type, source). Tests below cover the per-source semantics:
-  - ring HR + no phone HR → ring ok, phone stale
-  - ring HR + phone HR → both ok
-  - days with no data at all → no rows (the 'missing' label is gone
-    in the per-source model — entire-day silence is implied by the
-    absence of rows)
-  - type-missing for a day where other types have data → stale for
-    every known source of that type
+Pins real false-alarm cases from production (Jul–Aug 2026):
+  - evening steps stop 1–2h before last HR → ok
+  - stress ends hours before last HR → ok
+  - HRV 2h gap (p99) → ok
+  - HR logger stall (peers fresh, HR frozen) → stale
+  - steps multi-hour stall while worn daytime → stale
+  - no phantom phone rows when phone never synced
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from collector.analytics import data_quality as dq
 
-
-# ----------------------------------------------------------------------------
-# DB helpers
-# ----------------------------------------------------------------------------
-
-
-def _insert_hr_rows(conn, ts_list):
-    with conn.cursor() as cur:
-        for ts in ts_list:
-            cur.execute(
-                "INSERT INTO raw_heart_rate (ts, bpm, source) VALUES (%s, %s, 'ring')",
-                (ts, 70),
-            )
-    conn.commit()
-
-
-def _insert_steps_rows(conn, ts_list):
-    with conn.cursor() as cur:
-        for ts in ts_list:
-            cur.execute(
-                "INSERT INTO raw_steps (ts, steps, calories, distance, source) VALUES (%s, %s, 0, 0, 'ring')",
-                (ts, 100),
-            )
-    conn.commit()
-
-
-def _status_for(conn, data_type, day="today", source="ring"):
-    """Return the status column for a given (type, source) on a given day.
-
-    The ``source`` default is ``'ring'`` to preserve the pre-Phase-0
-    test assertions, which implicitly referred to the ring rows
-    (the only source that produced a real row before the data_quality
-    table was keyed on source). Multi-source checks can pass
-    ``source='phone'`` etc.
-    """
-    day_expr = "CURRENT_DATE" if day == "today" else "CURRENT_DATE - 1"
-    with conn.cursor() as cur:
-        cur.execute(
-            f"SELECT status FROM data_quality "
-            f"WHERE data_type = %s AND day = {day_expr} AND source = %s",
-            (data_type, source),
-        )
-        row = cur.fetchone()
-    return row["status"] if row else None
+TZ = ZoneInfo("America/Vancouver")
 
 
 # ----------------------------------------------------------------------------
-# Pure helpers (threshold lookup)
+# Pure classify_status
 # ----------------------------------------------------------------------------
 
 
-def test_freshness_thresholds_table_is_complete():
-    """Every non-temp type has a threshold. Temp is intentionally exempt."""
-    assert set(dq.FRESHNESS_GAP_MINUTES.keys()) == {
-        "heart_rate", "hrv", "steps", "spo2", "stress"
-    }
-    assert "temperature" not in dq.FRESHNESS_GAP_MINUTES
+def _pt(year, month, day, hour, minute=0):
+    """Wall-clock America/Vancouver → aware datetime."""
+    return datetime(year, month, day, hour, minute, tzinfo=TZ)
 
 
-# ----------------------------------------------------------------------------
-# DB-backed: total-absence rule (existing behavior, must still pass)
-# ----------------------------------------------------------------------------
+def _now_local(hour=15, minute=0):
+    """Fixed afternoon 'now' in PT for deterministic hour-window tests."""
+    return _pt(2026, 8, 1, hour, minute)
 
 
-def test_zero_records_today_marks_stale(db_dict):
-    """Steps with zero rows today while HR has data → stale (original rule)."""
-    now = datetime.now(timezone.utc)
-    _insert_hr_rows(db_dict, [now - timedelta(minutes=5)])
-
-    dq.compute_data_quality(db_dict)
-
-    assert _status_for(db_dict, "steps", "today") == "stale"
-    assert _status_for(db_dict, "heart_rate", "today") == "ok"
+def test_thresholds_constants():
+    assert dq.HR_STALL_LAG_MIN == 90
+    assert dq.HRV_SPO2_AGE_MIN == 150
+    assert dq.STEPS_STALL_MIN == 300
+    assert dq.WORN_WINDOW_MIN == 180
 
 
-def test_temperature_today_zero_records_is_ok(db_dict):
-    """Temp publishes completed-days-only; today's gap is normal, not stale."""
-    now = datetime.now(timezone.utc)
-    _insert_hr_rows(db_dict, [now - timedelta(minutes=5)])
-
-    dq.compute_data_quality(db_dict)
-
-    assert _status_for(db_dict, "temperature", "today") == "ok"
-
-
-# ----------------------------------------------------------------------------
-# DB-backed: peer-relative intra-day freshness (new rule)
-# ----------------------------------------------------------------------------
-
-
-def test_intraday_freshness_flags_stale_steps(db_dict):
-    """Steps has samples today but lags HR by > 90 min while HR is fresh → stale.
-
-    This is the exact production bug: steps stalled at 16:00 while HR kept
-    updating through 19:15. The cnt>0 path used to mark it 'ok'; now the
-    peer-relative check flips it to 'stale'.
-    """
-    now = datetime.now(timezone.utc)
-    # HR fresh (5 min ago) → peer_fresh = True
-    _insert_hr_rows(db_dict, [now - timedelta(minutes=5)])
-    # Steps stale (3 hours ago, well past 90-min threshold)
-    _insert_steps_rows(db_dict, [now - timedelta(hours=3)])
-
-    dq.compute_data_quality(db_dict)
-
-    assert _status_for(db_dict, "steps", "today") == "stale", (
-        "Steps lagging HR by 3h while HR is fresh must be flagged stale"
+def _cls(**kwargs):
+    """classify_status with day_freshest defaulting to hr_last or now."""
+    defaults = dict(
+        peer_last_ts=None,
+        day_freshest_ts=kwargs.get("hr_last_ts") or kwargs.get("now"),
     )
+    defaults.update(kwargs)
+    if "day_freshest_ts" not in kwargs and kwargs.get("last_ts"):
+        # Freshest is max of last_ts and hr if both present
+        hr = kwargs.get("hr_last_ts")
+        last = kwargs.get("last_ts")
+        peer = kwargs.get("peer_last_ts")
+        cands = [t for t in (hr, last, peer) if t is not None]
+        if cands:
+            defaults["day_freshest_ts"] = max(cands)
+    return dq.classify_status(**defaults)
 
 
-def test_intraday_freshness_ok_when_within_threshold(db_dict):
-    """Steps lagging by < 90 min while peer is fresh → ok (not yet stale)."""
-    now = datetime.now(timezone.utc)
-    _insert_hr_rows(db_dict, [now - timedelta(minutes=5)])
-    # Steps 60 min ago — under the 90-min threshold
-    _insert_steps_rows(db_dict, [now - timedelta(minutes=60)])
-
-    dq.compute_data_quality(db_dict)
-
-    assert _status_for(db_dict, "steps", "today") == "ok"
+def test_temp_today_pending_ok():
+    status, reason = _cls(
+        data_type="temperature", cnt=0, last_ts=None, is_today=True,
+        worn=True, now=_now_local(), tz=TZ, hr_last_ts=_now_local(),
+        hr_cnt=50,
+    )
+    assert status == "ok"
+    assert reason == "temp_pending"
 
 
-def test_intraday_freshness_no_false_alarm_when_ring_off(db_dict):
-    """If no peer is fresh (ring off), don't flag a stale type.
-
-    Without this gate, the check would fire every night after the user
-    takes the ring off: HR/Steps both stall, but steps threshold (90 min)
-    fires first while HR (30 min) hasn't been checked yet. The peer-fresh
-    gate requires at least one type updating within PEER_FRESH_WINDOW_MIN.
-    """
-    now = datetime.now(timezone.utc)
-    # Both HR and steps last seen 5 hours ago — ring was taken off
-    five_h_ago = now - timedelta(hours=5)
-    _insert_hr_rows(db_dict, [five_h_ago])
-    _insert_steps_rows(db_dict, [five_h_ago])
-
-    dq.compute_data_quality(db_dict)
-
-    # max_last_ts is 5h old → peer_fresh=False → no intra-day flag
-    assert _status_for(db_dict, "steps", "today") == "ok"
-    assert _status_for(db_dict, "heart_rate", "today") == "ok"
+def test_steps_evening_stop_before_hr_is_ok():
+    """Steps last 22:00, evaluate at 23:45 local — old rule false-alarmed."""
+    now = _pt(2026, 8, 1, 23, 45)
+    steps_last = _pt(2026, 8, 1, 22, 0)
+    status, reason = _cls(
+        data_type="steps", cnt=15, last_ts=steps_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=now, hr_cnt=90,
+        day_freshest_ts=now,
+    )
+    assert status == "ok", f"evening steps stop must not alarm, got {status}/{reason}"
 
 
-def test_intraday_freshness_skips_historical_days(db_dict):
-    """Freshness check is today-only; historical days are immutable."""
-    now = datetime.now(timezone.utc)
-    yesterday = now - timedelta(days=1)
+def test_steps_3h_afternoon_gap_is_ok():
+    """Max observed same-day gap 4h; 3h under 5h threshold → ok."""
+    now = _now_local(15)
+    steps_last = now - timedelta(hours=3)
+    status, _ = _cls(
+        data_type="steps", cnt=10, last_ts=steps_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=now - timedelta(minutes=10),
+        hr_cnt=40, day_freshest_ts=now - timedelta(minutes=10),
+    )
+    assert status == "ok"
 
-    # Yesterday: HR fresh, steps ancient — but it's historical, so no flag
-    _insert_hr_rows(db_dict, [yesterday - timedelta(minutes=5)])
-    _insert_steps_rows(db_dict, [yesterday - timedelta(hours=3)])
-    # Today: tiny bit of HR so today_str resolves correctly
-    _insert_hr_rows(db_dict, [now - timedelta(minutes=5)])
 
-    dq.compute_data_quality(db_dict)
+def test_steps_6h_daytime_stall_is_stale():
+    now = _now_local(16)
+    steps_last = now - timedelta(hours=6)
+    freshest = now - timedelta(minutes=10)
+    status, reason = _cls(
+        data_type="steps", cnt=5, last_ts=steps_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=freshest,
+        hr_cnt=40, day_freshest_ts=freshest,
+    )
+    assert status == "stale"
+    assert reason == "lag"
 
-    assert _status_for(db_dict, "steps", "yesterday") == "ok"
+
+def test_stress_ends_hours_before_hr_is_ok():
+    """Production 07-31: stress 13:00, HR 23:45 — must not flag."""
+    now = _pt(2026, 7, 31, 23, 45)
+    stress_last = _pt(2026, 7, 31, 13, 0)
+    status, _ = _cls(
+        data_type="stress", cnt=20, last_ts=stress_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=now, hr_cnt=90,
+        day_freshest_ts=now,
+    )
+    assert status == "ok"
+
+
+def test_hrv_120min_gap_is_ok():
+    """HRV lags freshest by 120 min (p99) → still ok under 150 threshold."""
+    now = _now_local(15)
+    freshest = now - timedelta(minutes=10)
+    hrv_last = freshest - timedelta(minutes=120)
+    status, _ = _cls(
+        data_type="hrv", cnt=10, last_ts=hrv_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=freshest, hr_cnt=40,
+        day_freshest_ts=freshest,
+    )
+    assert status == "ok"
+
+
+def test_hrv_180min_lag_while_worn_is_stale():
+    now = _now_local(15)
+    freshest = now - timedelta(minutes=10)
+    hrv_last = freshest - timedelta(minutes=180)
+    status, reason = _cls(
+        data_type="hrv", cnt=5, last_ts=hrv_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=freshest, hr_cnt=40,
+        day_freshest_ts=freshest,
+    )
+    assert status == "stale"
+    assert reason == "lag"
+
+
+def test_hrv_absolute_age_without_lag_is_ok():
+    """Hours after last sync: all types equally old → no false lag alarm."""
+    now = _now_local(21)
+    # Last sync left everything ending ~3h ago; freshest == hrv last
+    last = now - timedelta(hours=3)
+    status, _ = _cls(
+        data_type="hrv", cnt=10, last_ts=last, is_today=True,
+        worn=False, now=now, tz=TZ, hr_last_ts=last, hr_cnt=40,
+        day_freshest_ts=last,
+    )
+    assert status == "ok"
+
+
+def test_hr_logger_stall():
+    """HR frozen 3h, HRV peer 10 min ago → stale."""
+    now = _now_local(15)
+    hr_last = now - timedelta(hours=3)
+    peer = now - timedelta(minutes=10)
+    status, reason = _cls(
+        data_type="heart_rate", cnt=20, last_ts=hr_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=hr_last, hr_cnt=20,
+        peer_last_ts=peer, day_freshest_ts=peer,
+    )
+    assert status == "stale"
+    assert reason == "hr_logger_stall"
+
+
+def test_hr_75min_natural_gap_ok():
+    now = _now_local(15)
+    hr_last = now - timedelta(minutes=75)
+    status, _ = _cls(
+        data_type="heart_rate", cnt=50, last_ts=hr_last, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=hr_last, hr_cnt=50,
+        peer_last_ts=hr_last, day_freshest_ts=hr_last,
+    )
+    assert status == "ok"
+
+
+def test_absent_steps_while_worn_stale():
+    now = _now_local(15)
+    status, reason = _cls(
+        data_type="steps", cnt=0, last_ts=None, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=now - timedelta(minutes=5),
+        hr_cnt=40,
+    )
+    assert status == "stale"
+    assert reason == "absent"
+
+
+def test_not_worn_absent_is_ok():
+    now = _now_local(15)
+    old = now - timedelta(hours=6)
+    status, reason = _cls(
+        data_type="steps", cnt=0, last_ts=None, is_today=True,
+        worn=False, now=now, tz=TZ, hr_last_ts=old, hr_cnt=5,
+    )
+    assert status == "ok"
+    assert reason == "not_worn"
+
+
+def test_stress_absent_early_day_ok():
+    """Few HR samples + no stress yet → not full-day absence."""
+    now = _now_local(9)
+    status, reason = _cls(
+        data_type="stress", cnt=0, last_ts=None, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=now - timedelta(minutes=5),
+        hr_cnt=8,
+    )
+    assert status == "ok"
+    assert reason == "stress_sparse_ok"
+
+
+def test_stress_absent_full_day_stale():
+    now = _now_local(18)
+    status, reason = _cls(
+        data_type="stress", cnt=0, last_ts=None, is_today=True,
+        worn=True, now=now, tz=TZ, hr_last_ts=now - timedelta(minutes=5),
+        hr_cnt=50,
+    )
+    assert status == "stale"
+    assert reason == "absent"
 
 
 # ----------------------------------------------------------------------------
-# Phase 0: per-source data_quality rows
+# DB-backed
 # ----------------------------------------------------------------------------
 
 
-def _insert_hr_rows_for_source(conn, ts_list, source):
+def _insert_hr(conn, ts_list, source="ring"):
     with conn.cursor() as cur:
         for ts in ts_list:
             cur.execute(
@@ -197,78 +243,120 @@ def _insert_hr_rows_for_source(conn, ts_list, source):
     conn.commit()
 
 
-def _row_count_for(conn, data_type, source, day="today"):
-    """Count data_quality rows for a (type, source, day) — used to
-    verify emission rather than querying status by hand."""
+def _insert_steps(conn, ts_list, source="ring"):
+    with conn.cursor() as cur:
+        for ts in ts_list:
+            cur.execute(
+                "INSERT INTO raw_steps (ts, steps, calories, distance, source) "
+                "VALUES (%s, %s, 0, 0, %s)",
+                (ts, 100, source),
+            )
+    conn.commit()
+
+
+def _insert_hrv(conn, ts_list, source="ring"):
+    with conn.cursor() as cur:
+        for ts in ts_list:
+            cur.execute(
+                "INSERT INTO raw_hrv (ts, hrv_value, hrv_type, source) "
+                "VALUES (%s, %s, %s, %s)",
+                (ts, 40, "sdnn", source),
+            )
+    conn.commit()
+
+
+def _status(conn, data_type, source="ring", day="today"):
     day_expr = "CURRENT_DATE" if day == "today" else "CURRENT_DATE - 1"
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT COUNT(*) AS cnt FROM data_quality "
+            f"SELECT status, reason FROM data_quality "
+            f"WHERE data_type = %s AND day = {day_expr} AND source = %s",
+            (data_type, source),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None, None
+    return row["status"], row["reason"]
+
+
+def _row_exists(conn, data_type, source, day="today"):
+    day_expr = "CURRENT_DATE" if day == "today" else "CURRENT_DATE - 1"
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT 1 FROM data_quality "
             f"WHERE data_type = %s AND source = %s AND day = {day_expr}",
             (data_type, source),
         )
-        return cur.fetchone()["cnt"]
+        return cur.fetchone() is not None
 
 
-def test_ring_only_data_emits_ring_ok_and_phone_stale(db_dict):
-    """Ring has data, phone has no data → ring row ok, phone row stale.
-
-    The phone row appears (rather than being absent) because other
-    sources for that type have data — the cross-source staleness is
-    now a first-class data_quality signal.
-    """
+def test_db_zero_steps_while_hr_marks_stale(db_dict):
     now = datetime.now(timezone.utc)
-    _insert_hr_rows_for_source(db_dict, [now - timedelta(minutes=5)], "ring")
-
+    _insert_hr(db_dict, [now - timedelta(minutes=5)])
     dq.compute_data_quality(db_dict)
+    status, reason = _status(db_dict, "steps")
+    assert status == "stale"
+    assert reason == "absent"
+    assert _status(db_dict, "heart_rate")[0] == "ok"
 
-    assert _status_for(db_dict, "heart_rate", "today", "ring") == "ok"
-    assert _status_for(db_dict, "heart_rate", "today", "phone") == "stale"
 
-
-def test_both_sources_present_both_ok(db_dict):
-    """Both ring and phone have HR data today → both rows ok."""
+def test_db_temp_today_ok(db_dict):
     now = datetime.now(timezone.utc)
-    _insert_hr_rows_for_source(db_dict, [now - timedelta(minutes=5)], "ring")
-    _insert_hr_rows_for_source(db_dict, [now - timedelta(minutes=10)], "phone")
-
+    _insert_hr(db_dict, [now - timedelta(minutes=5)])
     dq.compute_data_quality(db_dict)
+    status, reason = _status(db_dict, "temperature")
+    assert status == "ok"
+    assert reason == "temp_pending"
 
-    assert _status_for(db_dict, "heart_rate", "today", "ring") == "ok"
-    assert _status_for(db_dict, "heart_rate", "today", "phone") == "ok"
+
+def test_db_no_phone_phantom_when_phone_never_synced(db_dict):
+    now = datetime.now(timezone.utc)
+    _insert_hr(db_dict, [now - timedelta(minutes=5)])
+    dq.compute_data_quality(db_dict)
+    assert _status(db_dict, "heart_rate", "ring")[0] == "ok"
+    assert not _row_exists(db_dict, "heart_rate", "phone")
 
 
-def test_no_data_today_emits_no_rows(db_dict):
-    """A day with no data at all → no data_quality rows.
+def test_db_phone_emitted_when_phone_has_data(db_dict):
+    now = datetime.now(timezone.utc)
+    _insert_hr(db_dict, [now - timedelta(minutes=5)], "ring")
+    _insert_hr(db_dict, [now - timedelta(minutes=10)], "phone")
+    dq.compute_data_quality(db_dict)
+    assert _status(db_dict, "heart_rate", "ring")[0] == "ok"
+    assert _status(db_dict, "heart_rate", "phone")[0] == "ok"
 
-    Pre-Phase-0 this used to emit a 'missing' row. With the per-source
-    model, 'missing' is reserved for type-on-day-without-data and the
-    day-of-silence case is just "no rows for that day at all" — the
-    absence is the signal.
-    """
+
+def test_db_hr_logger_stall(db_dict):
+    now = datetime.now(timezone.utc)
+    _insert_hr(db_dict, [now - timedelta(hours=3)])
+    _insert_hrv(db_dict, [now - timedelta(minutes=10)])
+    dq.compute_data_quality(db_dict)
+    status, reason = _status(db_dict, "heart_rate")
+    assert status == "stale"
+    assert reason == "hr_logger_stall"
+
+
+def test_db_historical_day_no_lag_flag(db_dict):
     now = datetime.now(timezone.utc)
     yesterday = now - timedelta(days=1)
-    # Yesterday has data (so today_str resolves correctly)
-    _insert_hr_rows_for_source(db_dict, [yesterday - timedelta(minutes=5)], "ring")
-    # Today has nothing
-
+    _insert_hr(db_dict, [yesterday.replace(hour=12, minute=0, second=0, microsecond=0)
+                          if yesterday.tzinfo else yesterday])
+    # Simpler: just insert relative
+    y_hr = now - timedelta(days=1, hours=1)
+    y_steps = now - timedelta(days=1, hours=5)
+    with db_dict.cursor() as cur:
+        cur.execute("DELETE FROM raw_heart_rate")
+        cur.execute("DELETE FROM raw_steps")
+    db_dict.commit()
+    _insert_hr(db_dict, [y_hr, now - timedelta(minutes=5)])
+    _insert_steps(db_dict, [y_steps])
     dq.compute_data_quality(db_dict)
+    # Yesterday steps present → ok (no lag on historical)
+    assert _status(db_dict, "steps", day="yesterday")[0] == "ok"
 
-    assert _row_count_for(db_dict, "heart_rate", "ring", "today") == 0
-    assert _row_count_for(db_dict, "heart_rate", "phone", "today") == 0
 
-
-def test_type_missing_today_emits_stale_for_every_known_source(db_dict):
-    """HR has data, but steps has none → both ring+phone steps rows are stale.
-
-    This preserves the pre-Phase-0 'type has no data' rule, just
-    generalized: every known source for the missing type gets its own
-    stale row.
-    """
+def test_db_empty_day_no_rows(db_dict):
     now = datetime.now(timezone.utc)
-    _insert_hr_rows_for_source(db_dict, [now - timedelta(minutes=5)], "ring")
-
+    _insert_hr(db_dict, [now - timedelta(days=1, minutes=5)])
     dq.compute_data_quality(db_dict)
-
-    assert _status_for(db_dict, "steps", "today", "ring") == "stale"
-    assert _status_for(db_dict, "steps", "today", "phone") == "stale"
+    assert not _row_exists(db_dict, "heart_rate", "ring", "today")
