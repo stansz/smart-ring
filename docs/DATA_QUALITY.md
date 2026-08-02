@@ -5,9 +5,9 @@ Not a plausibility checker (stuck values / ranges) — that is deferred.
 
 ## What you see
 
-Dashboard **Sensors** strip (today, `source=ring` only): always-on chips  
-HR · HRV · Steps · SpO₂ · Stress · Temp. Green = ok, amber = stale.  
-Hover for last sample age + reason.
+Top nav row (every tab, ring only): compact chips next to the battery
+indicator — `HR · HRV · Stp · SpO₂ · Str · T`. Green = ok, amber = stale,
+gray = no row. Hover/long-press for last sample age + reason.
 
 ## Observed R09 cadences (prod Jul–Aug 2026)
 
@@ -48,5 +48,5 @@ HRV_SPO2_AGE_MIN    = 150
 STEPS_STALL_MIN     = 300   # waking hours only
 ```
 
-Code: `collector/analytics/data_quality.py`  
+Code: `collector/analytics/data_quality.py`, `web/src/components/layout/SensorFreshnessNav.tsx`  
 Tests: `tests/test_data_quality.py`

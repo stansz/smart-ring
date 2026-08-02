@@ -2,6 +2,7 @@ import { useCallback, useRef, useState, type ReactNode } from "react";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { Tabs } from "./Tabs";
 import { BatteryIndicator } from "./BatteryIndicator";
+import { SensorFreshnessNav } from "./SensorFreshnessNav";
 import { useRingStatus } from "../../api/hooks";
 import { useRelativeTime } from "../../hooks/useRelativeTime";
 
@@ -82,8 +83,9 @@ export function Nav({ tab, onTabSwitch, darkMode, onToggleDark, syncButtons }: N
           </div>
         </div>
         <div className="flex items-center justify-between h-11 sm:h-7 text-sm sm:text-xs">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <BatteryIndicator />
+            <SensorFreshnessNav />
             <span className="sm:hidden text-gray-500 dark:text-gray-400 truncate">
               {lastSyncIso ? `Synced ${lastSyncMobile}` : "No sync yet"}
             </span>
