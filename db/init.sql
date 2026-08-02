@@ -295,10 +295,9 @@ CREATE INDEX IF NOT EXISTS idx_sync_requests_status ON sync_requests(status, req
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_requests_one_active ON sync_requests(status)
     WHERE status IN ('pending', 'running');
 
--- Data quality: per-type freshness checked after each sync.
--- Stale detection: if ANY type has data for a day (ring worn + synced)
--- but a specific type does NOT, flag it as stale. Days with no data from
--- any type are marked 'missing' (ring not worn / no sync that day).
+-- Data quality: per-type freshness checked after each analytics pass.
+-- Rules are empirically calibrated to R09 publish quirks (see
+-- docs/DATA_QUALITY.md). status: ok | stale. reason explains why.
 -- `source` is part of the PK so multi-source freshness is tracked
 -- per-source (e.g. ring HR + garmin HR on the same day = 2 rows).
 CREATE TABLE IF NOT EXISTS data_quality (
@@ -307,7 +306,8 @@ CREATE TABLE IF NOT EXISTS data_quality (
     source TEXT NOT NULL DEFAULT 'ring',
     last_ts TIMESTAMPTZ,
     sample_count INT DEFAULT 0,
-    status VARCHAR(16) NOT NULL DEFAULT 'ok',  -- ok | stale | missing
+    status VARCHAR(16) NOT NULL DEFAULT 'ok',  -- ok | stale
+    reason TEXT,  -- ok | absent | lag | hr_logger_stall | temp_pending | not_worn | ...
     checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (day, data_type, source)
 );
@@ -323,15 +323,15 @@ BEGIN
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'data_quality' AND column_name = 'source'
     ) THEN
-        -- column already exists; nothing to do
         NULL;
     ELSE
         ALTER TABLE data_quality ADD COLUMN source TEXT NOT NULL DEFAULT 'ring';
-        -- Drop the old PK and recreate with source included
         ALTER TABLE data_quality DROP CONSTRAINT IF EXISTS data_quality_pkey;
         ALTER TABLE data_quality ADD PRIMARY KEY (day, data_type, source);
     END IF;
 END $$;
+
+ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS reason TEXT;
 
 -- User-set goals (NOT the firmware-stored ring_goals — those are the ring's
 -- defaults, which we still sync to ring_goals for compatibility but don't

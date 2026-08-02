@@ -147,6 +147,21 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-08-01 — Data quality freshness rethink (kill false alarms)
+- **Problem:** banner felt random — phone phantoms, peer-fresh 30m decay,
+  steps/stress peer-lag vs HR (evening stops are normal), wrong cadence
+  assumptions (docs said HR 5m / HRV 30m; prod is HR 15m / HRV 60m).
+- **Audit:** 5 days prod gaps → calibrated thresholds in `docs/DATA_QUALITY.md`.
+- **Backend:** rewrite `collector/analytics/data_quality.py` — pure
+  `classify_status()`, peer-lag (not wall-clock age), steps waking-only
+  5h stall, stress no peer-lag, HR logger stall vs HRV/SpO₂/stress,
+  no phone rows unless phone has data, `reason` column, calendar today.
+- **UI:** always-visible `SensorFreshnessStrip` (ring only) replaces
+  surprise amber banner. Chips HR/HRV/Steps/SpO₂/Stress/Temp.
+- **Tests:** 22 in `test_data_quality.py` pin real false-alarm cases.
+- **Verified:** 279 pytest, lint+build clean; today all ring ok +
+  temp_pending after live analytics pass.
+
 ### 2026-07-30 — Garmin activity dashboard tab (list + HR chart + laps)
 - **Goal:** make the 40 activities ingested in Phase 1 visible in the
   browser. New "Garmin" tab, pure read-side, no scoring logic touched.
@@ -332,10 +347,9 @@ For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
   a first-class signal. Migration block in `db/init.sql` adds the source column
   + rebuilds the PK safely on a live DB (verified via psql on the production
   container). Intra-day freshness gap now fires for any source, not just ring.
-- **API + React:** `/api/data-quality` gains an optional `?source=` filter.
-  `DataQualityRow` type gets the new field. `DataQualityBanner` filters to
-  `source='ring'` client-side to preserve the pre-Phase-0 single-source banner
-  UX (once garmin is added, garmin staleness can surface as a second banner).
+- **API + React:** `/api/data-quality` optional `?source=` filter.
+  Dashboard `SensorFreshnessStrip` uses `?source=ring` (always-visible chips).
+  Freshness rules recalibrated 2026-08 against prod cadences — see `docs/DATA_QUALITY.md`.
 - **Tests:** +72 (8 in `test_source_priority` for pure helpers, 8 in `test_dedupe`
   for 3-source overlap + custom priority + unknown-source preservation, 4 in
   `test_data_quality` for per-source semantics). 204/204 pytest in 8.6 s, 9/9
