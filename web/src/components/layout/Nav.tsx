@@ -86,11 +86,12 @@ export function Nav({ tab, onTabSwitch, darkMode, onToggleDark, syncButtons }: N
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <BatteryIndicator />
             <SensorFreshnessNav />
-            <span className="sm:hidden text-gray-500 dark:text-gray-400 truncate">
-              {lastSyncIso ? `Synced ${lastSyncMobile}` : "No sync yet"}
-            </span>
           </div>
           {syncButtons && <div className="flex items-center gap-1">{syncButtons}</div>}
+        </div>
+        {/* Mobile-only: synced time on its own line so sensor chips don't crowd it out */}
+        <div className="sm:hidden flex items-center justify-end h-5 text-xs text-gray-500 dark:text-gray-400">
+          {lastSyncIso ? `Synced ${lastSyncMobile}` : "No sync yet"}
         </div>
       </div>
     </nav>
