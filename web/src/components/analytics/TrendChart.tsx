@@ -25,12 +25,38 @@ export function TrendChart({ data, title, description, color, onPointClick }: Tr
     );
   }
 
+  const handleChartClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onPointClick) return;
+    
+    // Get chart dimensions and calculate clicked x-position
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const chartWidth = rect.width;
+    
+    // Estimate data point positions (accounting for Y-axis width ~40px, margins)
+    const plotLeft = 40; // Y-axis width
+    const plotRight = chartWidth - 20; // right margin
+    const plotWidth = plotRight - plotLeft;
+    
+    // Map click position to data index
+    const relativeX = (clickX - plotLeft) / plotWidth;
+    if (relativeX < 0 || relativeX > 1) return;
+    
+    const index = Math.round(relativeX * (chartData.length - 1));
+    const clickedPoint = chartData[index];
+    
+    if (clickedPoint?.fullDay) {
+      onPointClick(clickedPoint.fullDay);
+    }
+  };
+
   return (
     <div>
       <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{title}</h3>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{description}</p>
       <div
         style={{ minHeight: 140, cursor: onPointClick ? "zoom-in" : undefined }}
+        onClick={handleChartClick}
       >
         <ResponsiveContainer width="100%" height={140}>
           <LineChart data={chartData}>
@@ -51,15 +77,6 @@ export function TrendChart({ data, title, description, color, onPointClick }: Tr
               dot={{ r: 2, fill: color, strokeWidth: 0 }}
               activeDot={{ r: 5, fill: color, stroke: "#fff", strokeWidth: 2 }}
               strokeWidth={2}
-              onClick={
-                onPointClick
-                  ? (data: any) => {
-                      // Recharts may pass the data point directly, or nested under `payload` (for dot onClick).
-                      const fullDay = (data?.fullDay ?? data?.payload?.fullDay) as string | undefined;
-                      if (fullDay) onPointClick(fullDay);
-                    }
-                  : undefined
-              }
             />
           </LineChart>
         </ResponsiveContainer>
