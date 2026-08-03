@@ -5,9 +5,11 @@ interface TrendChartProps {
   title: string;
   description: string;
   color: string;
+  /** Called with the full YYYY-MM-DD day string when a point is clicked. Enables zoom-in. */
+  onPointClick?: (fullDay: string) => void;
 }
 
-export function TrendChart({ data, title, description, color }: TrendChartProps) {
+export function TrendChart({ data, title, description, color, onPointClick }: TrendChartProps) {
   const chartData = data
     .filter((d) => d.value != null)
     .map((d) => ({ day: d.day.slice(5), value: d.value as number, fullDay: d.day }))
@@ -27,9 +29,21 @@ export function TrendChart({ data, title, description, color }: TrendChartProps)
     <div>
       <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">{title}</h3>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{description}</p>
-      <div style={{ minHeight: 140 }}>
+      <div
+        style={{ minHeight: 140, cursor: onPointClick ? "zoom-in" : undefined }}
+      >
         <ResponsiveContainer width="100%" height={140}>
-          <LineChart data={chartData}>
+          <LineChart
+            data={chartData}
+            onClick={
+              onPointClick
+                ? (state: any) => {
+                    const fullDay = state?.activePayload?.[0]?.payload?.fullDay as string | undefined;
+                    if (fullDay) onPointClick(fullDay);
+                  }
+                : undefined
+            }
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
             <XAxis dataKey="day" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 10 }} domain={["auto", "auto"]} />
