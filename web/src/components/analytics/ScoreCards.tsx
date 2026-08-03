@@ -6,7 +6,7 @@ export function ScoreCards() {
   const { data: stress } = useStress(7);
   const { data: restingHr } = useRestingHr(7);
 
-  const latestRecovery = recovery?.[0];
+  const latestRecovery = recovery ? [...recovery].sort((a, b) => b.day.localeCompare(a.day))[0] : undefined;
   const latestSleep = sleep?.[0];
   // Stress classification uses the latest day's values as summary
   const latestStress = stress?.[0];

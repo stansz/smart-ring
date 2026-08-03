@@ -35,9 +35,10 @@ export function AnalyticsTab() {
     entry.n += 1;
     tempMap.set(day, entry);
   }
-  const tempData = [...tempMap.entries()]
-    .map(([day, { sum, n }]) => ({ day, value: sum / n }))
-    .sort((a, b) => a.day.localeCompare(b.day));
+  const tempData = [...tempMap.entries()].map(([day, { sum, n }]) => ({
+    day,
+    value: sum / n,
+  }));
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
