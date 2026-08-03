@@ -33,17 +33,7 @@ export function TrendChart({ data, title, description, color, onPointClick }: Tr
         style={{ minHeight: 140, cursor: onPointClick ? "zoom-in" : undefined }}
       >
         <ResponsiveContainer width="100%" height={140}>
-          <LineChart
-            data={chartData}
-            onClick={
-              onPointClick
-                ? (state: any) => {
-                    const fullDay = state?.activePayload?.[0]?.payload?.fullDay as string | undefined;
-                    if (fullDay) onPointClick(fullDay);
-                  }
-                : undefined
-            }
-          >
+          <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
             <XAxis dataKey="day" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
             <YAxis tick={{ fontSize: 10 }} domain={["auto", "auto"]} />
@@ -54,7 +44,23 @@ export function TrendChart({ data, title, description, color, onPointClick }: Tr
               }}
               contentStyle={{ background: "#1f2937", border: "none", borderRadius: 6, fontSize: 12 }}
             />
-            <Line type="monotone" dataKey="value" stroke={color} dot={false} strokeWidth={2} />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke={color}
+              dot={{ r: 2, fill: color, strokeWidth: 0 }}
+              activeDot={{ r: 5, fill: color, stroke: "#fff", strokeWidth: 2 }}
+              strokeWidth={2}
+              onClick={
+                onPointClick
+                  ? (data: any) => {
+                      // Recharts may pass the data point directly, or nested under `payload` (for dot onClick).
+                      const fullDay = (data?.fullDay ?? data?.payload?.fullDay) as string | undefined;
+                      if (fullDay) onPointClick(fullDay);
+                    }
+                  : undefined
+              }
+            />
           </LineChart>
         </ResponsiveContainer>
       </div>
