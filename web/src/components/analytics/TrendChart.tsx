@@ -11,7 +11,7 @@ export function TrendChart({ data, title, description, color }: TrendChartProps)
   const chartData = data
     .filter((d) => d.value != null)
     .map((d) => ({ day: d.day.slice(5), value: d.value as number, fullDay: d.day }))
-    .reverse();
+    .sort((a, b) => a.fullDay.localeCompare(b.fullDay));
 
   if (chartData.length < 2) {
     return (
