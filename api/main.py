@@ -302,38 +302,77 @@ def get_resting_hr(days: int = 30):
 
 
 @app.get("/api/raw/heart-rate")
-def get_raw_hr(hours: int = 48, limit: int = 1000):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_hr(hours: int = 48, limit: int = 1000, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, bpm FROM raw_heart_rate
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/steps")
-def get_raw_steps(hours: int = 168, limit: int = 1000):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_steps(hours: int = 168, limit: int = 1000, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, steps, calories, distance FROM raw_steps
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/stress")
-def get_raw_stress(hours: int = 168, limit: int = 500):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_stress(hours: int = 168, limit: int = 500, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, stress_value FROM raw_stress
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -403,38 +442,77 @@ def get_raw_sleep(hours: int = 168, limit: int = 200):
 
 
 @app.get("/api/raw/spo2")
-def get_raw_spo2(hours: int = 168, limit: int = 200):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_spo2(hours: int = 168, limit: int = 200, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, spo2_pct FROM raw_spo2
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/hrv")
-def get_raw_hrv(hours: int = 168, limit: int = 500):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_hrv(hours: int = 168, limit: int = 500, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, hrv_value FROM raw_hrv
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/temperature")
-def get_raw_temp(hours: int = 48, limit: int = 1000):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_temp(hours: int = 48, limit: int = 1000, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, temp_c FROM raw_temperature
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
