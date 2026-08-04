@@ -97,7 +97,8 @@ export function AnalyticsTab() {
       (new Date(window.end + "T00:00:00").getTime() - new Date(window.start + "T00:00:00").getTime()) / 86400000,
     );
     if (currentDays <= ZOOM_FLOOR_DAYS) return;
-    const newHalf = Math.max(1, Math.round(currentDays / 6));
+    // Allow zooming to single day (newHalf=0) when at 2-day window
+    const newHalf = currentDays <= 2 ? 0 : Math.max(1, Math.round(currentDays / 6));
     const clicked = new Date(day + "T00:00:00");
     const newStart = new Date(clicked);
     newStart.setDate(newStart.getDate() - newHalf);
