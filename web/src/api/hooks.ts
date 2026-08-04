@@ -142,52 +142,129 @@ export function useDataQuality(days = 7, source?: string) {
 }
 
 // ─── Raw data ───────────────────────────────────────────────────────────────
-export function useRawHeartRate(hours = 48, limit = 1000) {
+export function useRawHeartRate(hours = 48, limit = 1000, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["rawHeartRate", hours, limit],
-    queryFn: () => get<RawHeartRateRow[]>(`/api/raw/heart-rate?hours=${hours}&limit=${limit}`),
+    queryKey: ["rawHeartRate", hours, limit, start, end],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (start && end) {
+        params.set("start", start);
+        params.set("end", end);
+        params.set("limit", String(limit));
+      } else {
+        params.set("hours", String(hours));
+        params.set("limit", String(limit));
+      }
+      return get<RawHeartRateRow[]>(`/api/raw/heart-rate?${params.toString()}`);
+    },
   });
 }
 
-export function useRawSteps(hours = 168, limit = 1000) {
+export function useRawSteps(hours = 168, limit = 1000, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["rawSteps", hours, limit],
-    queryFn: () => get<RawStepsRow[]>(`/api/raw/steps?hours=${hours}&limit=${limit}`),
+    queryKey: ["rawSteps", hours, limit, start, end],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (start && end) {
+        params.set("start", start);
+        params.set("end", end);
+        params.set("limit", String(limit));
+      } else {
+        params.set("hours", String(hours));
+        params.set("limit", String(limit));
+      }
+      return get<RawStepsRow[]>(`/api/raw/steps?${params.toString()}`);
+    },
   });
 }
 
-export function useRawStress(hours = 168, limit = 500) {
+export function useRawStress(hours = 168, limit = 500, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["rawStress", hours, limit],
-    queryFn: () => get<RawStressRow[]>(`/api/raw/stress?hours=${hours}&limit=${limit}`),
+    queryKey: ["rawStress", hours, limit, start, end],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (start && end) {
+        params.set("start", start);
+        params.set("end", end);
+        params.set("limit", String(limit));
+      } else {
+        params.set("hours", String(hours));
+        params.set("limit", String(limit));
+      }
+      return get<RawStressRow[]>(`/api/raw/stress?${params.toString()}`);
+    },
   });
 }
 
-export function useRawSleep(hours = 168, limit = 200) {
+export function useRawSleep(hours = 168, limit = 200, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["rawSleep", hours, limit],
-    queryFn: () => get<RawSleepRow[]>(`/api/raw/sleep?hours=${hours}&limit=${limit}`),
+    queryKey: ["rawSleep", hours, limit, start, end],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (start && end) {
+        params.set("start", start);
+        params.set("end", end);
+        params.set("limit", String(limit));
+      } else {
+        params.set("hours", String(hours));
+        params.set("limit", String(limit));
+      }
+      return get<RawSleepRow[]>(`/api/raw/sleep?${params.toString()}`);
+    },
   });
 }
 
-export function useRawSpo2(hours = 168, limit = 200) {
+export function useRawSpo2(hours = 168, limit = 200, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["rawSpo2", hours, limit],
-    queryFn: () => get<RawSpo2Row[]>(`/api/raw/spo2?hours=${hours}&limit=${limit}`),
+    queryKey: ["rawSpo2", hours, limit, start, end],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (start && end) {
+        params.set("start", start);
+        params.set("end", end);
+        params.set("limit", String(limit));
+      } else {
+        params.set("hours", String(hours));
+        params.set("limit", String(limit));
+      }
+      return get<RawSpo2Row[]>(`/api/raw/spo2?${params.toString()}`);
+    },
   });
 }
 
-export function useRawHrv(hours = 168, limit = 500) {
+export function useRawHrv(hours = 168, limit = 500, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["rawHrv", hours, limit],
-    queryFn: () => get<RawHrvRow[]>(`/api/raw/hrv?hours=${hours}&limit=${limit}`),
+    queryKey: ["rawHrv", hours, limit, start, end],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (start && end) {
+        params.set("start", start);
+        params.set("end", end);
+        params.set("limit", String(limit));
+      } else {
+        params.set("hours", String(hours));
+        params.set("limit", String(limit));
+      }
+      return get<RawHrvRow[]>(`/api/raw/hrv?${params.toString()}`);
+    },
   });
 }
 
-export function useRawTemperature(hours = 48, limit = 1000) {
+export function useRawTemperature(hours = 48, limit = 1000, start?: string, end?: string) {
   return useQuery({
-    queryKey: ["rawTemperature", hours, limit],
-    queryFn: () => get<RawTemperatureRow[]>(`/api/raw/temperature?hours=${hours}&limit=${limit}`),
+    queryKey: ["rawTemperature", hours, limit, start, end],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (start && end) {
+        params.set("start", start);
+        params.set("end", end);
+        params.set("limit", String(limit));
+      } else {
+        params.set("hours", String(hours));
+        params.set("limit", String(limit));
+      }
+      return get<RawTemperatureRow[]>(`/api/raw/temperature?${params.toString()}`);
+    },
   });
 }
 

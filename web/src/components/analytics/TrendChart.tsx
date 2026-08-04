@@ -5,14 +5,26 @@ interface TrendChartProps {
   title: string;
   description: string;
   color: string;
+  resolution?: "day" | "hour";
   /** Called with the full YYYY-MM-DD day string when a point is clicked. Enables zoom-in. */
   onPointClick?: (fullDay: string) => void;
 }
 
-export function TrendChart({ data, title, description, color, onPointClick }: TrendChartProps) {
+export function TrendChart({ data, title, description, color, resolution = "day", onPointClick }: TrendChartProps) {
   const chartData = data
     .filter((d) => d.value != null)
-    .map((d) => ({ day: d.day.slice(5), value: d.value as number, fullDay: d.day }))
+    .map((d) => {
+      // For daily resolution, day is "YYYY-MM-DD", extract "MM-DD" for display
+      // For hourly resolution, day is "YYYY-MM-DDTHH:00:00", extract "HH:00" for display
+      const shortDay = resolution === "hour" 
+        ? d.day.slice(11, 16) // "HH:MM"
+        : d.day.slice(5);     // "MM-DD"
+      return { 
+        day: shortDay, 
+        value: d.value as number, 
+        fullDay: d.day 
+      };
+    })
     .sort((a, b) => a.fullDay.localeCompare(b.fullDay));
 
   if (chartData.length < 2) {
@@ -66,7 +78,26 @@ export function TrendChart({ data, title, description, color, onPointClick }: Tr
             <Tooltip
               labelFormatter={(t: unknown, payload: any) => {
                 const item = (payload as { payload?: { fullDay?: string } }[])?.[0]?.payload;
-                return item?.fullDay ? new Date(item.fullDay + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : String(t);
+                const fullDay = item?.fullDay;
+                if (!fullDay) return String(t);
+                
+                if (resolution === "hour") {
+                  // Hourly: show "Jan 15, 2:00 PM"
+                  const date = new Date(fullDay);
+                  return date.toLocaleString("en-US", { 
+                    month: "short", 
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                    hour12: true
+                  });
+                } else {
+                  // Daily: show "Jan 15"
+                  return new Date(fullDay + "T00:00").toLocaleDateString("en-US", { 
+                    month: "short", 
+                    day: "numeric" 
+                  });
+                }
               }}
               contentStyle={{ background: "#1f2937", border: "none", borderRadius: 6, fontSize: 12 }}
             />
