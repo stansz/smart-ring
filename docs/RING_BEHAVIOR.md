@@ -38,13 +38,13 @@ the ring commits them (see Temperature).
 
 | Type | Command | Interval | Buffer | Publish cadence | Format / gotchas |
 |------|---------|----------|--------|-----------------|------------------|
-| Heart Rate | `0x15` | 5-min | ~7 days (288 slots/day) | current day readable | processed BPM, multi-packet per day |
-| Steps / Activity | `0x43` | 15-min slots (0–95/day) | ~7 days | current day readable | steps + calories + distance per slot. **Hourly zero-suppressed in practice** — the ring emits a sample only for hours with steps, so Gadgetbridge's gap-fill renders zero-step hours as "not worn" (it has no wear sensor). **Multi-packet response**: header + one packet per non-empty slot, terminated when `packet[5] == packet[6] - 1`. The collector must drain `queues[67]` and reset `SportDetailParser` before each per-day request (`collector/protocol/parsers/steps.py`), or stale items silently no-op the fetch (same class of bug as V2 big-data). |
-| HRV | `0x39` | 30-min | ~3 days | current day readable | composite single-byte ms value (0–255), NOT RR intervals — see [HRV limitations](#hrv-limitations-no-rr-intervals) |
+| Heart Rate | `0x15` | **~15-min observed** (was documented 5-min; prod p50=15, ~4 samples/hour on `:00/:15/:30/:45`) | ~7 days | current day readable | processed BPM, multi-packet per day. Occasional 45–75 min gaps are normal. |
+| Steps / Activity | `0x43` | 15-min slots (0–95/day) | ~7 days | current day readable | steps + calories + distance per slot. **Hourly zero-suppressed in practice** — the ring emits a sample only for hours with steps (zero hours omitted from DB). Daytime cadence ~60 min when moving; same-day gaps up to ~4h observed. Often stops 1–2h before last HR at night. **Multi-packet response**: header + one packet per non-empty slot, terminated when `packet[5] == packet[6] - 1`. The collector must drain `queues[67]` and reset `SportDetailParser` before each per-day request (`collector/protocol/parsers/steps.py`), or stale items silently no-op the fetch (same class of bug as V2 big-data). |
+| HRV | `0x39` | **~60-min observed** (was documented 30-min; prod p50=60, p99 gap 120) | ~3 days | current day readable | composite single-byte ms value (0–255), NOT RR intervals — see [HRV limitations](#hrv-limitations-no-rr-intervals) |
 | Sleep | `0xBC` + type `0x27` | per-session | ~7 days | current day readable | V2 big-data: per-session stages with timestamps |
 | SpO₂ | `0xBC` + type `0x2A` | hourly | ~7 days | current day readable | V2 big-data: hourly min/max averaged to single % |
 | Temperature | `0xBC` + types `0x23`–`0x2B` (skip `0x2A`) | 30-min | **7 completed days** | ⚠️ **completed days only — see below** | V2 big-data, R09 exclusive. `temp_c = (raw/10)+20`. Slots rotate daily; query `0x22`–`0x2C` with `dataId == 0x25` check. |
-| Stress | `0x37` | 30-min | ~7 days | current day readable | 0–99 scale |
+| Stress | `0x37` | 30-min when publishing | ~7 days | current day readable | 0–99 scale. **Often stops 3–11h before last HR** each evening (prod pattern) — not a stall; do not peer-lag stress against HR in data_quality. |
 | Battery | `0x03` | — | — | live | single percentage byte, **noisy** — see [Battery readings are noisy](#battery-readings-are-noisy-no-history-stored) |
 | Goals | `0x21` | — | — | live | steps/calorie/distance targets |
 | Device Info | GATT `0x180A` | — | — | live | hardware + firmware version |

@@ -8,7 +8,6 @@ import { RecoveryCard } from "../components/cards/RecoveryCard";
 import { CardioLoadCard } from "../components/cards/CardioLoadCard";
 import { GoalsCard } from "../components/cards/GoalsCard";
 import { SleepSection } from "../components/cards/SleepSection";
-import { DataQualityBanner } from "../components/cards/DataQuality";
 import { Skeleton, Card, FreshDot } from "../components/ui";
 import { useDailyActivity, useRawSleep } from "../api/hooks";
 
@@ -44,7 +43,6 @@ export function DashboardTab({
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <DateNav isToday={isToday} prevDay={prevDay} nextDay={nextDay} goToday={goToday} formatSelectedDate={formatSelectedDate} />
-      {isToday && <DataQualityBanner />}
 
       {/* 1. Hero: DayRing + Readiness */}
       <Card className="mb-8">
