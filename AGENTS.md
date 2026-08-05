@@ -102,17 +102,21 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 | `api/main.py` | FastAPI app + all endpoints (mobile_sync uses dispatch loop) |
 | `api/upsert.py` | `upsert_many` generic dispatcher for simple point tables |
 | `dashboard/index.html` | ~~Pure client-side UI (Alpine.js + Tailwind, no build)~~ **retired 2026-07-26** — replaced by React app |
-| `web/` | React + TypeScript dashboard (Vite build → `dashboard/dist/`). TanStack Query, Recharts, Tailwind 3, vite-plugin-pwa. See `docs/DASHBOARD_REWRITE_PLAN.md`. |
-| `web/src/api/` | Typed API client: `types.ts` (25 interfaces), `hooks.ts` (25 TanStack Query hooks per endpoint), `client.ts` (fetch wrapper) |
+| `web/` | React + TypeScript dashboard (Vite build → `dashboard/dist/`). TanStack Query, Recharts, Tailwind 3, vite-plugin-pwa. See `docs/done/DASHBOARD_REWRITE_PLAN.md`. |
+| `web/src/api/` | Typed API client: `types.ts` (25+ interfaces), `hooks.ts` (25+ TanStack Query hooks per endpoint), `client.ts` (fetch wrapper) |
 | `web/src/components/ble/ringProtocol.ts` | Colmi R09 Web Bluetooth protocol + 9/9 Vitest byte-level tests |
+| `web/src/components/garmin/` | Garmin dashboard components: `ActivitiesList` (sport filter), `ActivityDetail` (stats + HR chart + laps), `ActivityHrChart` (zone bands), `ActivityLaps` (splits), `ActivityMap` (Leaflet GPS route), `GarminUpload` (drag-and-drop FIT zip) |
+| `web/src/components/analytics/` | Analytics rework: `TrendChart` (click-to-zoom), `TimeScaleControls` (presets + custom range), `HelpPopover` (methodology per chart) |
+| `web/src/components/layout/SensorFreshnessNav.tsx` | Always-visible sensor freshness chips in nav (HR/HRV/Steps/SpO₂/Stress/Temp) |
+| `web/src/tabs/AnalyticsTab.tsx` | Shared time window state, click-to-zoom orchestration, hourly resolution switch |
 | `dashboard/dist/` | Built React app (served by FastAPI at `/static/`). `npm run build` in `web/` to rebuild. |
 | `scripts/gen_icons.py` | One-shot Pillow icon generator (192/512/maskable/apple-180) |
-| `tests/` + `pytest.ini` | 239-test regression net (trap_score, BCD, dedupe, source_priority, mobile_sync, current_status, readiness_freeze, data_quality, steps_drain, strain_trend, heart_rate_zones, garmin_parser, garmin_ingest) |
+| `tests/` + `pytest.ini` | 279-test regression net (trap_score, BCD, dedupe, source_priority, mobile_sync, current_status, readiness_freeze, data_quality, steps_drain, strain_trend, heart_rate_zones, garmin_parser, garmin_ingest, garmin_monitoring, garmin_api) |
 | `docs/RING_BEHAVIOR.md` | Firmware quirks, data publish cadence, logger stall |
 | `docs/RESEARCH.md` | Scoring formulas & methodology (Morning Readiness + Current Status) |
 | `docs/GARMIN_INTEGRATION_RESEARCH.md` | Garmin 745 integration design (privacy, sync options, schema, Rust ecosystem, phases) |
-| `docs/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
-| `docs/PWA_PLAN.md` | PWA strategies, manifest, service worker design |
+| `docs/done/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
+| `docs/done/PWA_PLAN.md` | PWA strategies, manifest, service worker design |
 
 ---
 
@@ -120,7 +124,7 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 
 All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard is now a React + TypeScript app (replaced Alpine.js monolith on 2026-07-26) served at `/static/` from `dashboard/dist/`. The legacy `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, and icons are deleted. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
-**Test suite:** 268 tests across 11 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest,garmin_monitoring,garmin_api}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~25s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest/monitoring/API tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
+**Test suite:** 279 tests across 15 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest,garmin_monitoring,garmin_api}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~25s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest/monitoring/API tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
 
 **Readiness model (split July 2026):**
 - **Morning Readiness** (frozen, WHOOP-style): locks at first analytics pass at/after 6 AM local. `frozen_at` column on `readiness_score`. Subsequent passes skip today's row entirely (preserves original timestamp via COALESCE).
@@ -146,6 +150,92 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-08-01 — Analytics tab rework (Phases 1-3: click-to-zoom + hourly resolution)
+- **Goal:** make trends explorable without switching tabs or losing alignment
+  across metrics.
+- **Phase 1 (trends-only page):** replaced the old Analytics tab (data pipeline
+  table + score cards + 5 charts) with 8 trend charts (Recovery, Sleep, Stress,
+  RHR, Strain, Steps, Temp, SpO2) driven by a shared `{start, end}` window.
+  Time-scale presets (3/7/14/30/90/180d). Score cards removed — they duplicated
+  the Dashboard + the rightmost point of each trend. Methodology content moved
+  into `HelpPopover` (expandable, per-chart).
+- **Phase 2 (click-to-zoom + breadcrumb):** click any point on any chart →
+  narrows the shared window to 1/3 its current width, centered on the clicked
+  day. All 8 charts re-render together. Breadcrumb + Reset button appear
+  whenever the window isn't a recognized preset.
+- **Phase 3 (hourly resolution):** when the window narrows to a single day,
+  7 of 8 trends automatically switch from daily aggregates to hourly raw
+  sensor data (Recovery → raw_hrv, RHR → raw_heart_rate, Stress → raw_stress,
+  Strain → raw_heart_rate, Steps → raw_steps, Temp → raw_temperature,
+  SpO2 → raw_spo2). Sleep stays daily-only (no hourly version — composite).
+- **Backend (`api/main.py`):** raw data endpoints (`/api/raw/heart-rate`,
+  `/api/raw/hrv`, etc.) gained optional `start`/`end` date params so the
+  frontend can fetch the exact window it needs. Daily-aggregate endpoints
+  still fetch max span (180d) once; client-side filtering keeps TanStack
+  Query cache stable.
+- **Frontend (`web/src/`):** new `TimeScaleControls` (presets + custom range
+  picker), `TrendChart` (click handler + x-position mapping), `HelpPopover`
+  (methodology per chart). `AnalyticsTab` owns the shared window state.
+  New `web/src/utils/date.ts` helpers (`aggregateByDay`, `aggregateByHour`,
+  `todayKey`, `dateKey`) handle local-time bucketing so rows near midnight
+  land on the correct day/hour.
+- **Verified:** 279 pytest, 9/9 vitest, `npm run lint` + `npm run build`
+  clean. Live against production DB — zoom works end-to-end.
+
+### 2026-08-01 — Sensor freshness moved to nav bar
+- **Problem:** the old `DataQualityBanner` was a surprise amber bar that
+  appeared/disappeared based on stale data. Felt random, broke flow.
+- **Fix:** replaced with `SensorFreshnessNav` — always-visible chips in the
+  top nav (HR/HRV/Steps/SpO₂/Stress/Temp). Each chip shows current status
+  (ok/stale/pending) for the ring source. No more surprise banners.
+- **Data quality logic rewrite:** `collector/analytics/data_quality.py`
+  rewritten to use peer-lag (not wall-clock age). Steps/stress peer-lag
+  vs HR (evening stops are normal). HR logger stall vs HRV/SpO2/stress.
+  No phone rows unless phone has data. `reason` column added. Calendar
+  today check. Thresholds calibrated in `docs/DATA_QUALITY.md`.
+- **Backend:** `DataQualityBanner` component deleted. `SensorFreshnessNav`
+  component added. API `/api/data-quality` unchanged (already returned
+  per-type status).
+- **Verified:** 279 pytest, lint+build clean.
+
+### 2026-07-30 — Garmin FIT upload via web UI
+- **Goal:** replace `ssh + python -m collector.garmin.ingest --fit-dir <path>`
+  with a drag-and-drop zone in the browser.
+- **Backend (`api/main.py`):** new `POST /api/admin/garmin/upload` endpoint
+  accepts a zip file containing the `Garmin/` folder tree. Extracts to
+  temp dir, runs the same ingest pipeline as the CLI. Returns summary
+  (found/inserted/skipped counts).
+- **Frontend (`web/src/components/garmin/GarminUpload.tsx`):** drag-and-drop
+  zone in the Admin tab. Accepts `.zip` files. Shows progress + result
+  summary. Empty state in GarminTab still shows the CLI command for users
+  who prefer it.
+- **Verified:** 279 pytest, lint+build clean. Live against production DB —
+  uploaded a zip of the `Garmin/` folder, 40 activities ingested.
+
+### 2026-07-30 — Leaflet map for Garmin GPS routes
+- **Goal:** visualize the GPS track from Garmin activities on a map.
+- **Frontend (`web/src/components/garmin/ActivityMap.tsx`):** ~130 lines of
+  vanilla Leaflet (no react-leaflet wrapper). Renders the route polyline
+  with start/finish markers. Auto-fits bounds. Handles dark mode (CARTO
+  Voyager tiles for light, Dark Matter for dark). Filters GPS dropouts
+  (null lat/lon). Integrated into `ActivityDetail` component.
+- **Tiles:** CARTO Voyager (light) / Dark Matter (dark). No geo-api needed
+  for the base map. Elevation profile overlay blocked on geo-api CORS/auth
+  (separate follow-up).
+- **Verified:** 279 pytest, lint+build clean. Live against production DB —
+  40 activities have GPS tracks, all render correctly.
+
+### 2026-07-30 — Data quality banner source-agnostic
+- **Problem:** the old `DataQualityBanner` hardcoded `ring > phone` logic.
+  With N-source resolver (Phase 0), we can have garmin data too. Banner
+  should flag stale only when *no* source is fresh.
+- **Fix:** `collector/analytics/data_quality.py` rewritten. `classify_status()`
+  is now pure. Checks all sources for a given data type. If any source is
+  fresh within the peer-lag threshold, status is "ok". Only flags "stale"
+  when all sources are stale. `reason` column explains which sources are
+  stale and why.
+- **Verified:** 279 pytest, lint+build clean.
 
 ### 2026-08-01 — Data quality freshness rethink (kill false alarms)
 - **Problem:** banner felt random — phone phantoms, peer-fresh 30m decay,
