@@ -1,5 +1,7 @@
 bleak
 psycopg2-binary
 python-dotenv
+# Garmin FIT file parser (Phase 1 — USB / FIT sync)
+fitparse
 # colmi-r02-client installed from git in setup.sh (not on PyPI)
 # pip install git+https://github.com/tahnok/colmi_r02_client.git

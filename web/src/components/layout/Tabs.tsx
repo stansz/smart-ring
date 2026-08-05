@@ -1,4 +1,4 @@
-type Tab = "dashboard" | "analytics" | "admin";
+type Tab = "dashboard" | "analytics" | "garmin" | "admin";
 
 interface TabsProps {
   tab: Tab;
@@ -9,6 +9,7 @@ export function Tabs({ tab, onSwitch }: TabsProps) {
   const tabs: { key: Tab; label: string }[] = [
     { key: "dashboard", label: "Dashboard" },
     { key: "analytics", label: "Analytics" },
+    { key: "garmin", label: "Garmin" },
     { key: "admin", label: "Admin" },
   ];
 

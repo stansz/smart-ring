@@ -91,7 +91,10 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 | `docs/RUNTIME.md` | **Ops truth:** dual Podman store, units, ports, volumes, commands that work |
 | `collector/ring_client.py` | BLE wrapper (timeout, `set_time_local`, forget/repair helpers, `_encode_time_bcd` pure helper) |
 | `collector/sync_ring.py` + `protocol/` | Thin orchestrator + all BLE protocol, parsers, upserts |
+| `collector/garmin/` | Garmin 745 FIT file parser + ingest. `parser.py` handles Activity/ + Summary/ files (Phase 1, 40 activities ingested). `monitoring.py` handles Metrics/ + Sleep/ files (Phase 1.5, DEFERRED — needs FIT SDK profile upgrade; framework + 15 tests ship, extractors stubbed) |
+| `collector/garmin/ingest.py` | CLI: `python -m collector.garmin.ingest --fit-dir <path>`. Idempotent by file path + SHA-256 hash. Maps parsed activity → `activities` + `activity_laps` + `activity_trackpoints` + `activity_hr` tables. Phase 0 dedupe unaffected (Garmin-only tables). |
 | `collector/analytics/` | Package of per-scorer modules; `python -m collector.analytics` |
+| `collector/analytics/source_priority.py` | N-source priority resolver — `DEFAULT_PRIORITY = (ring, garmin, phone)` per metric. Single source of truth for which source wins |
 | `collector/analytics/readiness.py` | Morning Readiness scorer (frozen at 6 AM) + `should_freeze` pure helper |
 | `collector/analytics/current_status.py` | Live intra-day scorer (Current Status) + pure component helpers |
 | `collector/jobs/` | `SyncJob` / `RingSyncJob` / `AnalyticsJob` for the poller |
@@ -99,16 +102,21 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 | `api/main.py` | FastAPI app + all endpoints (mobile_sync uses dispatch loop) |
 | `api/upsert.py` | `upsert_many` generic dispatcher for simple point tables |
 | `dashboard/index.html` | ~~Pure client-side UI (Alpine.js + Tailwind, no build)~~ **retired 2026-07-26** — replaced by React app |
-| `web/` | React + TypeScript dashboard (Vite build → `dashboard/dist/`). TanStack Query, Recharts, Tailwind 3, vite-plugin-pwa. See `docs/DASHBOARD_REWRITE_PLAN.md`. |
-| `web/src/api/` | Typed API client: `types.ts` (25 interfaces), `hooks.ts` (25 TanStack Query hooks per endpoint), `client.ts` (fetch wrapper) |
+| `web/` | React + TypeScript dashboard (Vite build → `dashboard/dist/`). TanStack Query, Recharts, Tailwind 3, vite-plugin-pwa. See `docs/done/DASHBOARD_REWRITE_PLAN.md`. |
+| `web/src/api/` | Typed API client: `types.ts` (25+ interfaces), `hooks.ts` (25+ TanStack Query hooks per endpoint), `client.ts` (fetch wrapper) |
 | `web/src/components/ble/ringProtocol.ts` | Colmi R09 Web Bluetooth protocol + 9/9 Vitest byte-level tests |
+| `web/src/components/garmin/` | Garmin dashboard components: `ActivitiesList` (sport filter), `ActivityDetail` (stats + HR chart + laps), `ActivityHrChart` (zone bands), `ActivityLaps` (splits), `ActivityMap` (Leaflet GPS route), `GarminUpload` (drag-and-drop FIT zip) |
+| `web/src/components/analytics/` | Analytics rework: `TrendChart` (click-to-zoom), `TimeScaleControls` (presets + custom range), `HelpPopover` (methodology per chart) |
+| `web/src/components/layout/SensorFreshnessNav.tsx` | Always-visible sensor freshness chips in nav (HR/HRV/Steps/SpO₂/Stress/Temp) |
+| `web/src/tabs/AnalyticsTab.tsx` | Shared time window state, click-to-zoom orchestration, hourly resolution switch |
 | `dashboard/dist/` | Built React app (served by FastAPI at `/static/`). `npm run build` in `web/` to rebuild. |
 | `scripts/gen_icons.py` | One-shot Pillow icon generator (192/512/maskable/apple-180) |
-| `tests/` + `pytest.ini` | 132-test regression net (trap_score, BCD, dedupe, mobile_sync, current_status, readiness_freeze) |
+| `tests/` + `pytest.ini` | 279-test regression net (trap_score, BCD, dedupe, source_priority, mobile_sync, current_status, readiness_freeze, data_quality, steps_drain, strain_trend, heart_rate_zones, garmin_parser, garmin_ingest, garmin_monitoring, garmin_api) |
 | `docs/RING_BEHAVIOR.md` | Firmware quirks, data publish cadence, logger stall |
 | `docs/RESEARCH.md` | Scoring formulas & methodology (Morning Readiness + Current Status) |
-| `docs/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
-| `docs/PWA_PLAN.md` | PWA strategies, manifest, service worker design |
+| `docs/GARMIN_INTEGRATION_RESEARCH.md` | Garmin 745 integration design (privacy, sync options, schema, Rust ecosystem, phases) |
+| `docs/done/CLEANUP_PLAN.md` | Cleanup arc history + Step 4 details |
+| `docs/done/PWA_PLAN.md` | PWA strategies, manifest, service worker design |
 
 ---
 
@@ -116,7 +124,7 @@ After editing a unit: `sudo systemctl daemon-reload && sudo systemctl restart sm
 
 All 8 raw data types and the 5 health scores (including Morning Readiness frozen + Current Status live) are collecting and computing successfully. Phone sync + dashboard + poller are stable. Dashboard is now a React + TypeScript app (replaced Alpine.js monolith on 2026-07-26) served at `/static/` from `dashboard/dist/`. The legacy `dashboard/index.html`, `sw.js`, `manifest.webmanifest`, and icons are deleted. Dashboard ships as an installable PWA (offline shell + manifest + icons).
 
-**Test suite:** 132 tests across 6 files (`tests/test_{trap_score,time_sync_bcd,dedupe,mobile_sync,current_status,readiness_freeze}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~5s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures.
+**Test suite:** 279 tests across 15 files (`tests/test_{trap_score,time_sync_bcd,dedupe,source_priority,mobile_sync,current_status,readiness_freeze,data_quality,steps_drain,strain_trend,heart_rate_zones,garmin_parser,garmin_ingest,garmin_monitoring,garmin_api}.py`). Run with `venv/bin/python3 -m pytest tests/` — ~25s total. DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql`; pure-function tests need no fixtures. Garmin parser/ingest/monitoring/API tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).
 
 **Readiness model (split July 2026):**
 - **Morning Readiness** (frozen, WHOOP-style): locks at first analytics pass at/after 6 AM local. `frozen_at` column on `readiness_score`. Subsequent passes skip today's row entirely (preserves original timestamp via COALESCE).
@@ -135,13 +143,311 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 **High-signal recent facts (verify via DB + source):**
 - Clock sync uses the sacred local BCD `set_time_local()` + ack path (clock_drift_ms=1 means success). `_encode_time_bcd` is the pure helper, pinned byte-for-byte by `tests/test_time_sync_bcd.py`.
 - Poller auto-reaps stuck `sync_log` rows.
-- Source dedup runs in analytics (`collector/analytics/dedupe.py:dedupe_sources()`) — single source of truth, runs before scorers every analytics pass. API-side `_dedupe_sources` removed (was redundant).
+- Source dedup runs in analytics (`collector/analytics/dedupe.py:dedupe_sources()`) — single source of truth, runs before scorers every analytics pass. API-side `_dedupe_sources` removed (was redundant). Priority driven by `collector/analytics/source_priority.py:DEFAULT_PRIORITY` (N-source resolver).
 
 ---
 
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-08-01 — Analytics tab rework (Phases 1-3: click-to-zoom + hourly resolution)
+- **Goal:** make trends explorable without switching tabs or losing alignment
+  across metrics.
+- **Phase 1 (trends-only page):** replaced the old Analytics tab (data pipeline
+  table + score cards + 5 charts) with 8 trend charts (Recovery, Sleep, Stress,
+  RHR, Strain, Steps, Temp, SpO2) driven by a shared `{start, end}` window.
+  Time-scale presets (3/7/14/30/90/180d). Score cards removed — they duplicated
+  the Dashboard + the rightmost point of each trend. Methodology content moved
+  into `HelpPopover` (expandable, per-chart).
+- **Phase 2 (click-to-zoom + breadcrumb):** click any point on any chart →
+  narrows the shared window to 1/3 its current width, centered on the clicked
+  day. All 8 charts re-render together. Breadcrumb + Reset button appear
+  whenever the window isn't a recognized preset.
+- **Phase 3 (hourly resolution):** when the window narrows to a single day,
+  7 of 8 trends automatically switch from daily aggregates to hourly raw
+  sensor data (Recovery → raw_hrv, RHR → raw_heart_rate, Stress → raw_stress,
+  Strain → raw_heart_rate, Steps → raw_steps, Temp → raw_temperature,
+  SpO2 → raw_spo2). Sleep stays daily-only (no hourly version — composite).
+- **Backend (`api/main.py`):** raw data endpoints (`/api/raw/heart-rate`,
+  `/api/raw/hrv`, etc.) gained optional `start`/`end` date params so the
+  frontend can fetch the exact window it needs. Daily-aggregate endpoints
+  still fetch max span (180d) once; client-side filtering keeps TanStack
+  Query cache stable.
+- **Frontend (`web/src/`):** new `TimeScaleControls` (presets + custom range
+  picker), `TrendChart` (click handler + x-position mapping), `HelpPopover`
+  (methodology per chart). `AnalyticsTab` owns the shared window state.
+  New `web/src/utils/date.ts` helpers (`aggregateByDay`, `aggregateByHour`,
+  `todayKey`, `dateKey`) handle local-time bucketing so rows near midnight
+  land on the correct day/hour.
+- **Verified:** 279 pytest, 9/9 vitest, `npm run lint` + `npm run build`
+  clean. Live against production DB — zoom works end-to-end.
+
+### 2026-08-01 — Sensor freshness moved to nav bar
+- **Problem:** the old `DataQualityBanner` was a surprise amber bar that
+  appeared/disappeared based on stale data. Felt random, broke flow.
+- **Fix:** replaced with `SensorFreshnessNav` — always-visible chips in the
+  top nav (HR/HRV/Steps/SpO₂/Stress/Temp). Each chip shows current status
+  (ok/stale/pending) for the ring source. No more surprise banners.
+- **Data quality logic rewrite:** `collector/analytics/data_quality.py`
+  rewritten to use peer-lag (not wall-clock age). Steps/stress peer-lag
+  vs HR (evening stops are normal). HR logger stall vs HRV/SpO2/stress.
+  No phone rows unless phone has data. `reason` column added. Calendar
+  today check. Thresholds calibrated in `docs/DATA_QUALITY.md`.
+- **Backend:** `DataQualityBanner` component deleted. `SensorFreshnessNav`
+  component added. API `/api/data-quality` unchanged (already returned
+  per-type status).
+- **Verified:** 279 pytest, lint+build clean.
+
+### 2026-07-30 — Garmin FIT upload via web UI
+- **Goal:** replace `ssh + python -m collector.garmin.ingest --fit-dir <path>`
+  with a drag-and-drop zone in the browser.
+- **Backend (`api/main.py`):** new `POST /api/admin/garmin/upload` endpoint
+  accepts a zip file containing the `Garmin/` folder tree. Extracts to
+  temp dir, runs the same ingest pipeline as the CLI. Returns summary
+  (found/inserted/skipped counts).
+- **Frontend (`web/src/components/garmin/GarminUpload.tsx`):** drag-and-drop
+  zone in the Admin tab. Accepts `.zip` files. Shows progress + result
+  summary. Empty state in GarminTab still shows the CLI command for users
+  who prefer it.
+- **Verified:** 279 pytest, lint+build clean. Live against production DB —
+  uploaded a zip of the `Garmin/` folder, 40 activities ingested.
+
+### 2026-07-30 — Leaflet map for Garmin GPS routes
+- **Goal:** visualize the GPS track from Garmin activities on a map.
+- **Frontend (`web/src/components/garmin/ActivityMap.tsx`):** ~130 lines of
+  vanilla Leaflet (no react-leaflet wrapper). Renders the route polyline
+  with start/finish markers. Auto-fits bounds. Handles dark mode (CARTO
+  Voyager tiles for light, Dark Matter for dark). Filters GPS dropouts
+  (null lat/lon). Integrated into `ActivityDetail` component.
+- **Tiles:** CARTO Voyager (light) / Dark Matter (dark). No geo-api needed
+  for the base map. Elevation profile overlay blocked on geo-api CORS/auth
+  (separate follow-up).
+- **Verified:** 279 pytest, lint+build clean. Live against production DB —
+  40 activities have GPS tracks, all render correctly.
+
+### 2026-07-30 — Data quality banner source-agnostic
+- **Problem:** the old `DataQualityBanner` hardcoded `ring > phone` logic.
+  With N-source resolver (Phase 0), we can have garmin data too. Banner
+  should flag stale only when *no* source is fresh.
+- **Fix:** `collector/analytics/data_quality.py` rewritten. `classify_status()`
+  is now pure. Checks all sources for a given data type. If any source is
+  fresh within the peer-lag threshold, status is "ok". Only flags "stale"
+  when all sources are stale. `reason` column explains which sources are
+  stale and why.
+- **Verified:** 279 pytest, lint+build clean.
+
+### 2026-08-01 — Data quality freshness rethink (kill false alarms)
+- **Problem:** banner felt random — phone phantoms, peer-fresh 30m decay,
+  steps/stress peer-lag vs HR (evening stops are normal), wrong cadence
+  assumptions (docs said HR 5m / HRV 30m; prod is HR 15m / HRV 60m).
+- **Audit:** 5 days prod gaps → calibrated thresholds in `docs/DATA_QUALITY.md`.
+- **Backend:** rewrite `collector/analytics/data_quality.py` — pure
+  `classify_status()`, peer-lag (not wall-clock age), steps waking-only
+  5h stall, stress no peer-lag, HR logger stall vs HRV/SpO₂/stress,
+  no phone rows unless phone has data, `reason` column, calendar today.
+- **UI:** always-visible `SensorFreshnessStrip` (ring only) replaces
+  surprise amber banner. Chips HR/HRV/Steps/SpO₂/Stress/Temp.
+- **Tests:** 22 in `test_data_quality.py` pin real false-alarm cases.
+- **Verified:** 279 pytest, lint+build clean; today all ring ok +
+  temp_pending after live analytics pass.
+
+### 2026-07-30 — Garmin activity dashboard tab (list + HR chart + laps)
+- **Goal:** make the 40 activities ingested in Phase 1 visible in the
+  browser. New "Garmin" tab, pure read-side, no scoring logic touched.
+- **Branch:** `garmin-integration`. 16 files, +~1200 LOC, 254→268 tests.
+- **Backend (`api/main.py`):** 5 new read-only endpoints:
+  - `GET /api/activities?days=365&sport=walking&limit=30` — list with
+    sport filter, returns 30 most recent by default. Joins
+    `activity_laps` for `lap_count`.
+  - `GET /api/activities/{id}` — session detail (training effect,
+    running dynamics, `fit_file_path`).
+  - `GET /api/activities/{id}/trackpoints` — 1-Hz GPS+HR+cadence,
+    auto-downsamples to `max_points` (default 5000) for long
+    activities (multi-hour walks = 10,000+ points). GPS coordinates
+    converted from FIT semicircles to degrees at the API boundary.
+  - `GET /api/activities/{id}/hr` — 1-Hz HR-only projection (lighter
+    than trackpoints, separate table for the chart).
+  - `GET /api/activities/{id}/laps` — lap splits.
+- **Frontend (`web/src/`):** new `GarminTab` + 4 components:
+  - `ActivitiesList` — table with sport filter (all/walking/running/
+    cycling/other). Click a row → opens detail. Empty state shows
+    the ingest CLI command (`python -m collector.garmin.ingest
+    --fit-dir <path>`).
+  - `ActivityDetail` — headline stats grid (distance, duration,
+    avg/max HR, elevation, calories, training effect, cadence,
+    strides) + HR chart + lap splits. Dark mode + mobile responsive.
+  - `ActivityHrChart` — Recharts area chart with HR zone reference
+    bands (Z1-Z5 tinted backgrounds, Garmin 5-zone defaults).
+  - `ActivityLaps` — splits table (duration, distance, pace, avg/max
+    HR, calories, elevation).
+  - `types.ts`: 4 new interfaces (`ActivityRow`, `ActivityDetail`,
+    `TrackpointRow`, `ActivityHrRow`, `ActivityLapRow`).
+  - `hooks.ts`: 5 new TanStack Query hooks (`useActivities`,
+    `useActivityDetail`, `useActivityTrackpoints`, `useActivityHr`,
+    `useActivityLaps`).
+  - Tab wiring: new `garmin` option in `App.tsx` + `Nav.tsx` +
+    `Tabs.tsx` (URL hash `#garmin` works for PWA shortcuts).
+- **Tests:** +14 in `tests/test_garmin_api.py`. Real-activity
+  fixture (one walk from 2026-07-29 ingested via the same code path
+  as the CLI). Covers list happy path, sport filter, limit, 404,
+  downsampling, laps empty case, field shapes. Skip if
+  `/opt/smart-ring/code/temp/GARMIN/` absent.
+- **Verified:** 268/268 pytest in 25 s, 9/9 vitest, `npm run lint`
+  + `npm run build` clean. API live against production DB — 40
+  activities queryable from the new Garmin tab.
+- **Deferred to follow-up PRs:**
+  - Leaflet map for GPS trackpoints (with OSM or geo-api tiles).
+  - Upload UI in the Admin tab (drag-and-drop `.fit` files instead
+    of `ssh + python -m collector.garmin.ingest`).
+  - Daily monitoring files (Phase 1.5) — still blocked on
+    undocumented Garmin-specific FIT global_ids. Path forward is
+    Garmin Connect export → match values → write extractors.
+
+### 2026-07-30 — Phase 1.5: Garmin Monitoring files (DEFERRED)
+- **Goal:** ingest the daily Metrics/ + Sleep/ FIT files (per-day
+  HR, HRV, SpO2, body battery, overnight skin temp, sometimes
+  step totals) into `raw_*` with `source='garmin'`. These are
+  the files the 745 writes between activity syncs — the most
+  valuable non-activity data the watch captures.
+- **Branch:** `garmin-integration`. 3 files, +~700 LOC, 239→254 tests.
+- **Blocker discovered:** the monitoring files use FIT SDK
+  message types (global_id 229, 232, 281, 294, 339, 356) that
+  post-date the public FIT SDK profile bundled with `fitparse`
+  (21.60). The binary format is stable and we can read raw
+  field IDs (via `fit_tool`), but the *semantics* of each field
+  aren't documented anywhere we have access to:
+  - 232 (Hr): fids 5,6,7,8 are HR values (67, 218, 263 — could be
+    daily min/avg/max, or 5-min samples, unclear)
+  - 281 (Hrv): all UINT32Z nulls in our sample (no HRV captured?)
+  - 339 (HsaSpo2Data): fids 1,2,3,4 are 1785, 3964, 9636, 22995 —
+    too large for SpO2% (90-100), may be seconds-in-zone
+  - 356 (SkinTempOvernight): fids 2,3 are 1268600, 4380400 —
+    too large for centi-degrees, may be time-weighted temps
+  Writing these to `raw_*` without understanding the scale would
+  silently corrupt the analytics pipeline (Phase 0 dedupe would
+  not catch a wrong-unit value).
+- **What ships in this commit:** the framework + 15 tests, not
+  the extractors.
+  - `collector/garmin/monitoring.py` (~280 lines): file
+    discovery, fit_tool-based record reader that exposes
+    `(global_id, {field_id: encoded_values})` tuples, and the
+    `ParsedMonitoring` dataclass with per-metric lists.
+  - Per-message extractors (`_extract_hr`, `_extract_hrv`, etc.)
+    are wired up but currently return empty lists — the
+    comment in each one notes which field IDs are unverified.
+  - `EXTRACTED_GIDS` + `PENDING_DECODE_GIDS` constants
+    document the status so a future contributor can pick
+    up where this leaves off.
+- **Tests (15 in `test_garmin_monitoring.py`):** file
+  discovery, file_hash determinism, parse_monitoring_file
+  returns a valid `ParsedMonitoring` with correct metadata,
+  the framework tracks unknown global_ids for future
+  expansion, the step file and sleep file parse without
+  error. Skip if `/opt/smart-ring/code/temp/GARMIN/` absent.
+- **Verified:** 254/254 pytest in 18.8s, 9/9 vitest, `npm
+  run lint` + `npm run build` clean. No production DB
+  changes (nothing was ingested — the extractors are
+  stubs).
+- **Path to unblock** (in `docs/GARMIN_INTEGRATION_RESEARCH.md`
+  §Phase 1.5):
+  - **Option 1 (recommended):** drop in a newer FIT SDK
+    profile (21.202+ has full definitions). Phase 2 is
+    heading to Rust anyway, and the Rust `fitparser`
+    crate already uses 21.202. The Python monitoring.py
+    becomes the spec.
+  - **Option 2:** decode against reference data — pull a
+    known day's values from Garmin Connect (or compare
+    against the user's ring's overnight readings for the
+    same night) and hand-decode the field IDs. ~1 day of
+    work but produces a permanent local mapping.
+  - **Option 3:** port Gadgetbridge's reverse-engineered
+    field mappings for the 745 (free, but requires
+    reading their Java source).
+
+### 2026-07-30 — Phase 1: Garmin 745 USB/FIT backfill
+- **Goal:** get all historical Garmin activity data into Postgres via
+  USB dump. Per the user's earlier decision, USB+ FIT first (no
+  cloud dependency, no 2FA, fully aligned with the project's
+  privacy ethos). Rust re-port deferred to Phase 2.
+- **Branch:** `garmin-integration` (renamed from
+  `feature/n-source-resolver`). 8 files, +~900 LOC, 204→239 tests.
+- **Schema (5 new tables in `db/init.sql`):**
+  - `activities` — one row per FIT file (UNIQUE source+start_ts)
+  - `activity_laps` — per-lap splits (FK to activities)
+  - `activity_trackpoints` — 1-Hz GPS/HR/cadence/altitude/temp
+  - `activity_hr` — 1-Hz HR-only projection (lighter for charts)
+  - `garmin_fit_ingest` — idempotency log (file_path + sha256)
+  - All tables `source` default to `'garmin'`; schema future-proofs
+    multi-source activity (colmi-activities, etc.) without migration.
+- **Parser (`collector/garmin/parser.py`):** uses `fitparse` (Python
+  FIT SDK binding). `discover_fit_files()` walks Activity/ + Summary/
+  subdirs, skips Settings/Sports/Workouts/Metrics/Sleep. Sport enum
+  → activity_type translation table (running, walking, cycling,
+  hiking, swimming, etc.). GPS coordinates stored as FIT
+  semicircles (sint32) for fidelity; converted at API boundary.
+- **Ingest (`collector/garmin/ingest.py`):** CLI `python -m
+  collector.garmin.ingest --fit-dir <path>`. ON CONFLICT for both
+  activities (by source+start_ts) and garmin_fit_ingest (by
+  file_path). Laps + trackpoints wiped-and-rewritten on conflict
+  (cheap; <100 rows per activity). Idempotency verified: re-running
+  on a fully-ingested directory is a no-op (`found=40 inserted=0
+  skipped=40`).
+- **Tests:** +35 (26 in `test_garmin_parser` for file discovery,
+  session/lap/trackpoint parsing, sport translation, hashing; 9 in
+  `test_garmin_ingest` for end-to-end ingest, idempotency-by-path,
+  idempotency-by-hash-after-move, conflict resolution, directory
+  walk). All tests skip if `/opt/smart-ring/code/temp/GARMIN/` is
+  not present (CI may not have the data).
+- **Verified live:** ran the full backfill against the production
+  DB. 40 activities, 80 laps, 25,950 trackpoints, 25,943
+  activity_hr rows. Activities include 2023-10-12 (earliest
+  walk) through 2026-07-29. Spotted activity 1 (a 77-min walk on
+  2026-07-29): 1.2 km elevation gain, 1239 trackpoints, HR
+  84→75bpm cooldown, training_effect_aerobic=2.0.
+- **Phase 1 deferred:** Metrics/Sleep files (daily summaries) use
+  newer FIT SDK message types (global_id 229, 232, 281, etc.) that
+  `fitparse` doesn't have profiles for. The pure-file-id-44 ingest
+  path is identical (just the field-id→semantic mapping differs);
+  ~1-2 days of work to ship. Will tackle in Phase 1.5 after the
+  dashboard has a place to display daily Garmin metrics.
+
+### 2026-07-30 — Phase 0: N-source resolver (Garmin integration prerequisite)
+- **Goal:** unblock Garmin integration by teaching the analytics pipeline to
+  handle N overlapping sources, not just ring + phone. Per
+  `docs/GARMIN_INTEGRATION_RESEARCH.md` §10, this is the prerequisite before
+  any overlapping Garmin data lands in `raw_*` (today's hardcoded `ring > phone`
+  dedupe would silently double-count a third source).
+- **Branch:** `feature/n-source-resolver` (off dev). 15 files, +988/-137, 132→204 tests.
+- **New module — `collector/analytics/source_priority.py`:** single source of
+  truth for "which source wins" per metric. `DEFAULT_PRIORITY` = `(ring, garmin,
+  phone)` for every metric; `select_preferred_source()` and `sources_to_drop()`
+  are pure functions, fully testable without a DB. Adding a fourth source (e.g.
+  `oura`) is a one-line change.
+- **`dedupe.py`:** replaced the hardcoded `ring > phone` SQL with a generic
+  resolver driven by `source_priority`. The point-table and sleep dedupe were
+  unified into a single `_drop_non_preferred` helper (table + slot keys + priority
+  chain are the inputs). Backwards compatible: with only ring+phone data, the
+  result is byte-identical to the old behaviour.
+- **`sleep.py`:** replaced the hardcoded `ring`-first `CASE` with the same
+  priority chain, so day-level sleep source selection is now consistent with
+  point-table dedupe.
+- **`data_quality`:** `source` is now part of the PK `(day, data_type, source)`.
+  Each source gets its own freshness row — "ring HR ok / garmin HR stale" is now
+  a first-class signal. Migration block in `db/init.sql` adds the source column
+  + rebuilds the PK safely on a live DB (verified via psql on the production
+  container). Intra-day freshness gap now fires for any source, not just ring.
+- **API + React:** `/api/data-quality` optional `?source=` filter.
+  Dashboard `SensorFreshnessStrip` uses `?source=ring` (always-visible chips).
+  Freshness rules recalibrated 2026-08 against prod cadences — see `docs/DATA_QUALITY.md`.
+- **Tests:** +72 (8 in `test_source_priority` for pure helpers, 8 in `test_dedupe`
+  for 3-source overlap + custom priority + unknown-source preservation, 4 in
+  `test_data_quality` for per-source semantics). 204/204 pytest in 8.6 s, 9/9
+  vitest, `npm run lint` + `npm run build` clean.
+- **Verified live:** ran `python -m collector.analytics` against the production
+  DB after the migration; ring rows = ok, phone rows = stale (no phone data but
+  ring has data → stale for that source). Dashboard banner correctly silent
+  (filters to ring, all ok).
 
 ### 2026-07-30 — PWA pull-to-refresh + last-sync on mobile + PWA plumbing cleanup
 - **Symptom 1:** once the dashboard was opened as an installed PWA (standalone

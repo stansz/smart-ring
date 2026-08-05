@@ -1,8 +1,10 @@
 import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -244,16 +246,30 @@ def get_stress(days: int = 30):
 
 
 @app.get("/api/data-quality")
-def get_data_quality(days: int = 7):
-    """Per-type data freshness status (ok | stale | missing)."""
+def get_data_quality(days: int = 7, source: str | None = None):
+    """Per-type data freshness status (ok | stale) with optional reason.
+
+    Optional ``source`` filter — when set, only rows for that source
+    are returned. The dashboard sensor strip uses ``?source=ring``.
+    """
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
-        rows = db.execute(text("""
-            SELECT day, data_type, last_ts, sample_count, status, checked_at
-            FROM data_quality
-            WHERE day >= :cutoff_date
-            ORDER BY day DESC, data_type
-        """), {"cutoff_date": cutoff_date}).mappings().all()
+        if source:
+            rows = db.execute(text("""
+                SELECT day, data_type, source, last_ts, sample_count,
+                       status, reason, checked_at
+                FROM data_quality
+                WHERE day >= :cutoff_date AND source = :source
+                ORDER BY day DESC, data_type
+            """), {"cutoff_date": cutoff_date, "source": source}).mappings().all()
+        else:
+            rows = db.execute(text("""
+                SELECT day, data_type, source, last_ts, sample_count,
+                       status, reason, checked_at
+                FROM data_quality
+                WHERE day >= :cutoff_date
+                ORDER BY day DESC, data_type
+            """), {"cutoff_date": cutoff_date}).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -286,38 +302,77 @@ def get_resting_hr(days: int = 30):
 
 
 @app.get("/api/raw/heart-rate")
-def get_raw_hr(hours: int = 48, limit: int = 1000):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_hr(hours: int = 48, limit: int = 1000, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, bpm FROM raw_heart_rate
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/steps")
-def get_raw_steps(hours: int = 168, limit: int = 1000):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_steps(hours: int = 168, limit: int = 1000, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, steps, calories, distance FROM raw_steps
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/stress")
-def get_raw_stress(hours: int = 168, limit: int = 500):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_stress(hours: int = 168, limit: int = 500, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, stress_value FROM raw_stress
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -387,38 +442,77 @@ def get_raw_sleep(hours: int = 168, limit: int = 200):
 
 
 @app.get("/api/raw/spo2")
-def get_raw_spo2(hours: int = 168, limit: int = 200):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_spo2(hours: int = 168, limit: int = 200, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, spo2_pct FROM raw_spo2
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/hrv")
-def get_raw_hrv(hours: int = 168, limit: int = 500):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_hrv(hours: int = 168, limit: int = 500, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, hrv_value FROM raw_hrv
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
 @app.get("/api/raw/temperature")
-def get_raw_temp(hours: int = 48, limit: int = 1000):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+def get_raw_temp(hours: int = 48, limit: int = 1000, start: str | None = None, end: str | None = None):
+    if start and end:
+        # Parse dates in local timezone (America/Vancouver) and convert to UTC
+        from zoneinfo import ZoneInfo
+        local_tz = ZoneInfo("America/Vancouver")
+        start_local = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=local_tz)
+        end_local = datetime.strptime(end, "%Y-%m-%d").replace(hour=23, minute=59, second=59, tzinfo=local_tz)
+        start_utc = start_local.astimezone(timezone.utc)
+        end_utc = end_local.astimezone(timezone.utc)
+        where_clause = "ts BETWEEN :start AND :end"
+        params = {"start": start_utc, "end": end_utc, "limit": limit}
+    else:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        where_clause = "ts >= :cutoff"
+        params = {"cutoff": cutoff, "limit": limit}
     with SessionLocal() as db:
-        rows = db.execute(text("""
+        rows = db.execute(text(f"""
             SELECT ts, temp_c FROM raw_temperature
-            WHERE ts >= :cutoff
+            WHERE {where_clause}
             ORDER BY ts DESC LIMIT :limit
-        """), {"cutoff": cutoff, "limit": limit}).mappings().all()
+        """), params).mappings().all()
     return [dict(r) for r in rows]
 
 
@@ -721,6 +815,266 @@ def get_sync_progress():
     if not row:
         return {"current_step": None, "started_at": None}
     return dict(row)
+
+
+# ---------------------------- Garmin activity endpoints --------------------
+# Read-only views over the Garmin-only `activities` table (Phase 1 ingest).
+# These power the dashboard's Garmin tab. No write paths here — activity
+# ingest happens via the `python -m collector.garmin.ingest` CLI on the host.
+
+# FIT semicircles → degrees. 1 semicircle = 180/2^31 degrees.
+_SEMICIRCLES_TO_DEG = 180.0 / (2 ** 31)
+
+
+def _semicircles_to_deg(raw: int | None) -> float | None:
+    if raw is None:
+        return None
+    return round(raw * _SEMICIRCLES_TO_DEG, 7)
+
+
+@app.get("/api/activities")
+def get_activities(days: int = 30, sport: str | None = None, limit: int = 30):
+    """List of recent Garmin activities, newest first.
+
+    Optional ``sport`` filter matches ``activity_type`` (e.g. 'walking',
+    'running', 'cycling'). Limit defaults to 30 (≈ 1 month of daily walks).
+    """
+    cutoff_date = date.today() - timedelta(days=days)
+    params = {"cutoff_date": cutoff_date, "limit": min(limit, 200)}
+    where = "WHERE start_ts >= :cutoff_date"
+    if sport:
+        where += " AND activity_type = :sport"
+        params["sport"] = sport
+    with SessionLocal() as db:
+        rows = db.execute(text(f"""
+            SELECT a.id, a.activity_type, a.sub_sport,
+                   a.start_ts, a.end_ts, a.duration_s, a.timer_time_s,
+                   a.distance_m, a.calories, a.avg_hr, a.max_hr,
+                   a.avg_cadence, a.max_cadence,
+                   a.avg_speed_mps, a.max_speed_mps,
+                   a.elevation_gain_m, a.elevation_loss_m,
+                   a.avg_temperature_c,
+                   a.training_effect_aerobic, a.training_effect_anaerobic,
+                   a.total_strides,
+                   (SELECT count(*) FROM activity_laps l WHERE l.activity_id = a.id) AS lap_count
+            FROM activities a
+            {where}
+            ORDER BY a.start_ts DESC
+            LIMIT :limit
+        """), params).mappings().all()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/activities/{activity_id}")
+def get_activity_detail(activity_id: int):
+    """Single activity session metadata."""
+    with SessionLocal() as db:
+        row = db.execute(text("""
+            SELECT id, activity_type, sub_sport,
+                   start_ts, end_ts, duration_s, timer_time_s,
+                   distance_m, calories, avg_hr, max_hr,
+                   avg_cadence, max_cadence,
+                   avg_speed_mps, max_speed_mps,
+                   elevation_gain_m, elevation_loss_m,
+                   avg_temperature_c,
+                   training_effect_aerobic, training_effect_anaerobic,
+                   total_strides, avg_vertical_oscillation_mm,
+                   avg_ground_contact_time_ms, avg_stride_length_cm,
+                   fit_file_path
+            FROM activities
+            WHERE id = :id
+        """), {"id": activity_id}).mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"activity {activity_id} not found")
+    return dict(row)
+
+
+@app.get("/api/activities/{activity_id}/trackpoints")
+def get_activity_trackpoints(activity_id: int, max_points: int = 5000):
+    """1-Hz GPS + HR + cadence + altitude trackpoints.
+
+    Long activities (multi-hour walks = 10,000+ points) are downsampled
+    by striding through the rows. The downsampling preserves the first
+    + last point and the overall shape; HR chart and route map both
+    work fine at 5000 points.
+    """
+    # First check the activity exists (gives a clean 404)
+    with SessionLocal() as db:
+        exists = db.execute(text(
+            "SELECT 1 FROM activities WHERE id = :id"
+        ), {"id": activity_id}).scalar()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"activity {activity_id} not found")
+
+    with SessionLocal() as db:
+        # Pull raw rows. For activities < max_points this is the whole set.
+        rows = db.execute(text("""
+            SELECT ts, lat_semicircles, lon_semicircles,
+                   altitude_m, hr, cadence, speed_mps, distance_m, temperature_c
+            FROM activity_trackpoints
+            WHERE activity_id = :id
+            ORDER BY ts
+        """), {"id": activity_id}).mappings().all()
+
+    if not rows:
+        return []
+
+    # Downsample if over the cap. Stride keeps the first + last + even steps.
+    if len(rows) > max_points:
+        stride = len(rows) // max_points
+        sampled = [rows[0]] + rows[1:-1:stride] + [rows[-1]]
+        # dedupe + sort by ts
+        seen = set()
+        deduped = []
+        for r in sampled:
+            if r["ts"] not in seen:
+                seen.add(r["ts"])
+                deduped.append(r)
+        deduped.sort(key=lambda r: r["ts"])
+        rows = deduped
+
+    # Convert semicircles → degrees at the API boundary (storage stays FIT-native)
+    return [
+        {
+            "ts": r["ts"],
+            "lat": _semicircles_to_deg(r["lat_semicircles"]),
+            "lon": _semicircles_to_deg(r["lon_semicircles"]),
+            "altitude_m": r["altitude_m"],
+            "hr": r["hr"],
+            "cadence": r["cadence"],
+            "speed_mps": r["speed_mps"],
+            "distance_m": r["distance_m"],
+            "temperature_c": r["temperature_c"],
+        }
+        for r in rows
+    ]
+
+
+@app.get("/api/activities/{activity_id}/hr")
+def get_activity_hr(activity_id: int, max_points: int = 5000):
+    """1-Hz HR samples for the per-activity HR chart.
+
+    Separate from /trackpoints so the chart can pull just HR (lighter)
+    without the GPS payload. Same downsampling rule.
+    """
+    with SessionLocal() as db:
+        exists = db.execute(text(
+            "SELECT 1 FROM activities WHERE id = :id"
+        ), {"id": activity_id}).scalar()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"activity {activity_id} not found")
+
+    with SessionLocal() as db:
+        rows = db.execute(text("""
+            SELECT ts, hr FROM activity_hr
+            WHERE activity_id = :id ORDER BY ts
+        """), {"id": activity_id}).mappings().all()
+
+    if not rows:
+        return []
+    if len(rows) > max_points:
+        stride = len(rows) // max_points
+        sampled = [rows[0]] + rows[1:-1:stride] + [rows[-1]]
+        seen = set()
+        deduped = []
+        for r in sampled:
+            if r["ts"] not in seen:
+                seen.add(r["ts"])
+                deduped.append(r)
+        deduped.sort(key=lambda r: r["ts"])
+        rows = deduped
+
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/activities/{activity_id}/laps")
+def get_activity_laps(activity_id: int):
+    """Lap splits for the activity."""
+    with SessionLocal() as db:
+        # Existence check via the laps themselves — no point in a 404 if
+        # the activity exists but has 0 laps.
+        rows = db.execute(text("""
+            SELECT l.lap_index, l.start_ts, l.end_ts,
+                   l.duration_s, l.timer_time_s,
+                   l.distance_m, l.calories, l.avg_hr, l.max_hr,
+                   l.avg_cadence, l.max_cadence,
+                   l.avg_speed_mps, l.max_speed_mps,
+                   l.elevation_gain_m, l.elevation_loss_m
+            FROM activity_laps l
+            WHERE l.activity_id = :id
+            ORDER BY l.lap_index
+        """), {"id": activity_id}).mappings().all()
+    return [dict(r) for r in rows]
+
+
+# ─── Garmin Upload ──────────────────────────────────────────────────────
+
+# Raw FIT files from the 745 live under /garmin-raw (mounted from
+# /opt/smart-ring/data/garmin/raw on the host).  Web uploads land in
+# /garmin-raw/uploads/<timestamp>/; manual USB dumps go in
+# /garmin-raw/manual/.  The ingest code scans both trees.
+GARMIN_RAW_DIR = Path(os.environ.get("GARMIN_RAW_DIR", "/garmin-raw"))
+
+
+@app.post("/api/admin/garmin-upload")
+async def garmin_upload(
+    files: List[UploadFile] = File(...),
+    paths: str = Form(...),
+):
+    """Accept a Garmin folder (selected via webkitdirectory), write the
+    files to persistent storage, and run FIT ingest on them.
+
+    ``paths`` is a JSON array of relative paths (one per file), in the
+    same order as ``files``.  The server reconstructs the folder tree
+    under ``GARMIN_RAW_DIR/uploads/<timestamp>/`` so that
+    ``discover_fit_files()`` can find Activity/ and Summary/ subdirs.
+    """
+    import json
+
+    try:
+        relative_paths: list[str] = json.loads(paths)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "paths must be a JSON array of strings")
+
+    if len(relative_paths) != len(files):
+        raise HTTPException(
+            400,
+            f"paths/file count mismatch: {len(relative_paths)} vs {len(files)}",
+        )
+    if not files:
+        return {"found": 0, "inserted": 0, "skipped": 0, "error": 0}
+
+    # Create a timestamped upload directory
+    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+    upload_dir = GARMIN_RAW_DIR / "uploads" / ts
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write each file preserving its relative path structure
+    for upload_file, rel_path_str in zip(files, relative_paths):
+        rel_path = Path(rel_path_str)
+        # Security: reject any path that escapes the upload directory
+        target = (upload_dir / rel_path).resolve()
+        if not str(target).startswith(str(upload_dir.resolve())):
+            raise HTTPException(400, f"Invalid path: {rel_path_str}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = await upload_file.read()
+        target.write_bytes(content)
+
+    # Run ingest
+    from collector.garmin.ingest import _connect, ingest_directory
+
+    conn = _connect()
+    try:
+        summary = ingest_directory(upload_dir, conn)
+    finally:
+        conn.close()
+
+    return {
+        **summary,
+        "upload_dir": str(upload_dir),
+        "timestamp": ts,
+        "total_files_received": len(files),
+    }
 
 
 if __name__ == "__main__":

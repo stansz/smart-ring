@@ -49,7 +49,7 @@ Home Network
 before any `podman` command. Bare `podman ps` looks at `~` and is often empty while the
 stack is running — that is not “services down.”
 
-Dashboard: React + TypeScript app with three tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; current status 3-box panel with vibe ladder + stress sparkline + trend gradient; recovery card; sleep donut; vitals hourly chart; circadian HR pattern), **Analytics** (data pipeline reference table, score breakdown cards with formula explanations, 5 trend charts with 7d/14d/30d/90d range selector, research references), and **Admin** (ring status, system health, full sync log with pagination, raw HR/steps tables). Built with Vite → `dashboard/dist/`. **Installable PWA** — manifest + offline-shell service worker + icons; install to home screen on Android Chrome (or any Chromium browser), works offline once cached.
+Dashboard: React + TypeScript app with four tabs — **Dashboard** (unified hero panel: 24h activity ring with wear/sleep/step radial bars + Readiness Score 0–100 with sub-scores + contributors; current status 3-box panel with vibe ladder + stress sparkline + trend gradient; recovery card; sleep donut; vitals hourly chart; circadian HR pattern), **Analytics** (trend charts with click-to-zoom + breadcrumb navigation, time-scale presets 3/7/14/30/90/180d, hourly resolution when zoomed to single day, methodology help popovers), **Garmin** (activity list with sport filter, session detail with HR chart + lap splits, GPS route map, FIT file upload), and **Admin** (ring status, system health, sensor freshness chips, full sync log with pagination, raw HR/steps tables). Built with Vite → `dashboard/dist/`. **Installable PWA** — manifest + offline-shell service worker + icons; install to home screen on Android Chrome (or any Chromium browser), works offline once cached. Always-visible sensor freshness chips in nav (HR/HRV/Steps/SpO₂/Stress/Temp) replace the old surprise amber banner.
 
 ## Usage
 
@@ -81,11 +81,14 @@ Detailed docs live in **[`docs/`](docs/)**:
 - **[`docs/RUNTIME.md`](docs/RUNTIME.md)** — how the stack actually runs: dual Podman store, system units, ports, volumes, commands that work.
 - **[`docs/RING_BEHAVIOR.md`](docs/RING_BEHAVIOR.md)** — empirical Colmi R09 behavior: connection quirks, per-data-type reference (interval / buffer / publish cadence / format), V2 big-data protocol, background-logger stall, time-sync.
 - **[`docs/RESEARCH.md`](docs/RESEARCH.md)** — hardware specs, validated score formulas (with peer-reviewed citations), readiness score gap analysis (Oura vs WHOOP vs Garmin), value-add analysis, Oura comparison.
+- **[`docs/DATA_QUALITY.md`](docs/DATA_QUALITY.md)** — freshness thresholds per data type, peer-lag logic, false-alarm prevention.
+- **[`docs/GARMIN_INTEGRATION_RESEARCH.md`](docs/GARMIN_INTEGRATION_RESEARCH.md)** — Garmin 745 integration design (privacy, sync options, schema, phases, Phase 1.5 blocker).
+- **[`docs/ACTIVITY_DETECTION_RESEARCH.md`](docs/ACTIVITY_DETECTION_RESEARCH.md)** — activity/strain detection design (Edwards TRIMP, zone minutes, segments). Not built yet.
+- **[`docs/PACKAGED_APP.md`](docs/PACKAGED_APP.md)** — design review for a standalone, container-free, SQLite-backed packaged app (Gadgetbridge model). Not built yet.
 - **[`docs/done/ROADMAP.md`](docs/done/ROADMAP.md)** — mobile sync design (WebBluetooth PWA + Gadgetbridge fork options). Historical.
 - **[`docs/done/PWA_PLAN.md`](docs/done/PWA_PLAN.md)** — installable PWA: manifest, offline-shell service worker strategies, icon generation, verification. Shipped.
 - **[`docs/done/CLEANUP_PLAN.md`](docs/done/CLEANUP_PLAN.md)** — refactor history (collector/analytics Phases 0–4 + API cleanup Steps 1, 2, 4 + Tier 1 test suite). All complete.
-- **[`docs/PACKAGED_APP.md`](docs/PACKAGED_APP.md)** — design review for a standalone, container-free, SQLite-backed packaged app (Gadgetbridge model).
-- **[`docs/DASHBOARD_REWRITE_PLAN.md`](docs/DASHBOARD_REWRITE_PLAN.md)** — React + TypeScript dashboard rewrite: phased plan, stack choices, PWA/cutover strategy. **Complete — shipped 2026-07-26.**
+- **[`docs/done/DASHBOARD_REWRITE_PLAN.md`](docs/done/DASHBOARD_REWRITE_PLAN.md)** — React + TypeScript dashboard rewrite: phased plan, stack choices, PWA/cutover strategy. **Complete — shipped 2026-07-26.**
 - **[`AGENTS.md`](AGENTS.md)** — operational/deployment context (architecture, service commands, current state, work log).
 - **[`TASKS.md`](TASKS.md)** — phase history, open backlog, CFW ideas, readiness improvements.
 
@@ -95,7 +98,7 @@ This project was built with use of AI/Vibe coding tools, primarily OpenCode as h
 
 ### Test suite
 
-132 tests across 6 files, ~5s total runtime:
+279 tests across 15 files, ~25s total runtime:
 
 ```bash
 venv/bin/python3 -m pytest tests/                # full suite
@@ -110,8 +113,17 @@ venv/bin/python3 -m pytest tests/test_current_status.py -v  # one file
 | `tests/test_mobile_sync.py` | 16 | `/api/mobile/sync` end-to-end via FastAPI TestClient |
 | `tests/test_current_status.py` | 36 | Pure-function boundaries for Current Status formula components + weighted aggregate |
 | `tests/test_readiness_freeze.py` | 9 | Pure `should_freeze` helper + DB-backed freeze gate (skip-if-already-frozen) |
+| `tests/test_source_priority.py` | 8 | N-source priority resolver — which source wins per metric |
+| `tests/test_data_quality.py` | 22 | Freshness classification — peer-lag, logger stall, false-alarm prevention |
+| `tests/test_steps_drain.py` | 6 | Steps queue pollution fix — drain before each per-day request |
+| `tests/test_strain_trend.py` | 7 | Edwards TRIMP strain + cardio load calculation |
+| `tests/test_heart_rate_zones.py` | 9 | HR zone minutes + zone distribution |
+| `tests/test_garmin_parser.py` | 26 | FIT file discovery, session/lap/trackpoint parsing, sport translation |
+| `tests/test_garmin_ingest.py` | 9 | End-to-end Garmin ingest, idempotency by path + hash |
+| `tests/test_garmin_monitoring.py` | 15 | Monitoring file framework (extractors stubbed, pending FIT SDK decode) |
+| `tests/test_garmin_api.py` | 14 | Garmin activity endpoints — list, detail, trackpoints, HR, laps |
 
-DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql` — never touches production data. See `docs/done/CLEANUP_PLAN.md` "Tier 1 follow-up" for the design.    
+DB-backed tests use an ephemeral `smart_ring_test_<pid>` database created from `db/init.sql` — never touches production data. Garmin tests use real FIT files from `/opt/smart-ring/code/temp/GARMIN/` (skipped if not present).    
 
 ## Status
 
@@ -141,10 +153,11 @@ R09 ring paired and validated (FW `RT09_3.10.21_251107`, HW `RT09_V3.1`). Sync p
 
 ### Dashboard
 - **Dashboard tab**: Unified hero panel (24h activity ring with radial step bars + sleep overlay + hover tooltip alongside Readiness Score 0-100 with concentric rings + sub-scores + contributors), Current Status 3-box panel (vibe ladder + stress sparkline + trend gradient track), Recovery card, Sleep donut (conic CSS gradient with bed/wake times + stage breakdown), Vitals hourly chart, Circadian HR pattern (24h avg with dots + min/max/avg stats)
-- **Analytics tab**: Data pipeline reference (ring-measured vs ring-computed vs our-validated-score), 4 score breakdown cards with expandable formula explanations, 5 trend charts with 7d/14d/30d/90d range selector, research references
-- **Admin tab**: Ring status, system health, clock alert, full sync log with pagination, HR + Steps raw data tables
+- **Analytics tab**: 8 trend charts (Recovery, Sleep, Stress, RHR, Strain, Steps, Temp, SpO2) with shared time window. Click-to-zoom narrows to 1/3 width centered on clicked day; floors at 1d. When zoomed to single day, 7 of 8 trends switch from daily aggregates to hourly raw sensor data. Time-scale presets (3/7/14/30/90/180d) + breadcrumb navigation + reset. Methodology help popovers.
+- **Garmin tab**: Activity list with sport filter (walking/running/cycling/other), session detail (headline stats + HR chart with zone bands + GPS route map via Leaflet with CARTO tiles), lap splits, drag-and-drop FIT file upload in Admin area. 40+ activities ingested from Garmin 745.
+- **Admin tab**: Ring status, system health, sensor freshness chips (always-visible in nav: HR/HRV/Steps/SpO₂/Stress/Temp), full sync log with pagination, HR + Steps raw data tables
 - **Phone sync**: Web Bluetooth ("📱 BLE" button) — syncs ring from Android Chrome, posts to `/api/mobile/sync`, screen wake-lock, 12-phase progress dialog
-- **PWA**: Installable to home screen (manifest + offline-shell service worker via vite-plugin-pwa); UI loads without network, data goes stale but never white. `/api/mobile/sync` POST stays network-only.
+- **PWA**: Installable to home screen (manifest + offline-shell service worker via vite-plugin-pwa); UI loads without network, data goes stale but never white. `/api/mobile/sync` POST stays network-only. Pull-to-refresh gesture + dedicated refresh button (visible only in standalone mode).
 
 ### How it works
 ```
@@ -180,6 +193,12 @@ Replaced all Postgres-only query constructs (`INTERVAL`, `REGR_SLOPE`, `PERCENTI
 
 ### 2026-07-26 — React + TypeScript Dashboard
 Replaced the 3,230-line Alpine.js monolith with a componentized React 19 + TypeScript 5 app (Vite, TanStack Query, Recharts, Tailwind, vite-plugin-pwa). Full feature parity — 3 tabs, custom DayRing SVG, Web Bluetooth phone sync, 9/9 protocol tests.
+
+### 2026-07-30 — Garmin Integration (Phases 0 + 1)
+N-source priority resolver (generalizes dedupe beyond ring+phone to support Garmin), FIT file parser + ingest for Garmin 745 activities (40 activities backfilled), Garmin dashboard tab (activity list, detail view, HR chart, lap splits, GPS route map via Leaflet, drag-and-drop FIT upload), Phase 1.5 monitoring file framework (extractors stubbed pending FIT SDK decode). 268 tests.
+
+### 2026-08-01 — Analytics Tab Rework + Sensor Freshness Nav
+Analytics tab rebuilt with click-to-zoom (click any point to narrow window), breadcrumb navigation, hourly resolution when zoomed to single day (7 of 8 trends switch from daily aggregates to hourly raw sensor data), time-scale presets (3/7/14/30/90/180d). Sensor freshness chips moved from surprise amber banner to always-visible nav bar. Data quality logic rewritten to use peer-lag (not wall-clock age), eliminating false alarms. 279 tests.
 
 ## Attributions & Licensing
 
