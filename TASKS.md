@@ -27,14 +27,6 @@ The base GPS route map is done (`web/src/components/garmin/ActivityMap.tsx`, com
 
 ---
 
-## Merge `garmin-integration` → `dev` — READY
-
-The branch has 24 commits, 279 tests pass, dashboard builds clean. Garmin integration arc complete at Phase 1 + dashboard (activities, map, upload) + analytics rework (zoom, hourly resolution, sensor freshness nav). Phase 1.5 (daily monitoring files) remains blocked on FIT SDK decode.
-
-**Unblock:** user decision (when to merge). No code blockers.
-
----
-
 ## Activity detection (Colmi ring) — DESIGNED, NOT BUILT
 
 `docs/ACTIVITY_DETECTION_RESEARCH.md` has a build contract for deriving activity/strain from the ring's HR-zone minutes (Edwards TRIMP) and 15-min step+HR segments. Phase 1 = Edwards TRIMP→strain 0–21 + zone minutes; Phase 2 = walk/run/general_activity segments. Not started.
