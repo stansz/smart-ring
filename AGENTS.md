@@ -151,6 +151,25 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-08-06 — PWA refresh button now does a real page reload
+- **Problem:** the PWA refresh button (and the pull-to-refresh gesture) only
+  called `queryClient.invalidateQueries()` — refetched API data but never
+  reloaded the page, updated the service worker, or cleared the SW cache.
+  Felt like "nothing happened", especially when server data was unchanged.
+- **Fix (`web/src/components/layout/Nav.tsx`):** `handleRefresh` now checks for
+  service worker updates (`reg.update()` with a 2 s timeout, never blocks the
+  reload), shows a brief spinner, then does `window.location.reload()` — a
+  true browser-style refresh. Tooltip/aria-label changed to "Refresh page".
+  `queryClient`/`useQueryClient` no longer needed in Nav.
+- **Removed pull-to-refresh entirely:** deleted
+  `web/src/components/ui/PullToRefresh.tsx` (167 lines) + unwrapped
+  `<PullToRefresh>` in `web/src/App.tsx`. The gesture was flaky on some
+  Android builds and the nav button is now the reliable path.
+- **Verified:** oxlint clean, `tsc -b && vite build` clean (new
+  `index-BgcrxFLq.js` in `dashboard/dist/`), 9/9 vitest.
+- **Note:** the refresh button remains PWA-only (`display-mode: standalone`);
+  desktop users already have the browser refresh.
+
 ### 2026-08-01 — Analytics tab rework (Phases 1-3: click-to-zoom + hourly resolution)
 - **Goal:** make trends explorable without switching tabs or losing alignment
   across metrics.
