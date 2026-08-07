@@ -10,7 +10,6 @@ import { useTheme } from "./hooks/useTheme";
 import { useSelectedDate } from "./hooks/useSelectedDate";
 import { useSyncPolling } from "./hooks/useSyncPolling";
 import { useRingSync } from "./hooks/useRingSync";
-import { PullToRefresh } from "./components/ui/PullToRefresh";
 
 type Tab = "dashboard" | "analytics" | "garmin" | "admin";
 
@@ -54,8 +53,7 @@ function App() {
   );
 
   return (
-    <PullToRefresh>
-      <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
         <ErrorBanner error={syncError} onDismiss={dismissError} />
         <SyncProgressDialog phase={phase} onDismiss={dismiss} />
         <SyncToast
@@ -82,8 +80,7 @@ function App() {
         {tab === "garmin" && <GarminTab />}
         {tab === "admin" && <AdminTab />}
       </div>
-    </PullToRefresh>
-  );
+    );
 }
 
 export default App;
