@@ -36,6 +36,10 @@ def run_all() -> None:
             try:
                 fn(conn)
             except Exception as e:
+                # Rollback the failed transaction so subsequent scorers can run.
+                # Without this, the connection is in InFailedSqlTransaction state
+                # and every scorer after this one fails too.
+                conn.rollback()
                 log.error(f"{name} failed: {e}", exc_info=True)
 
     log.info("=== Analytics complete ===")
