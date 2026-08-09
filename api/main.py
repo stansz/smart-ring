@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import List
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -37,13 +36,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Smart Ring API", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS middleware: the SPA is served same-origin by this app (dashboard
+# dist at /static/, API under /api/). Tailscale Serve (tailnet) or the LAN
+# bind serve both from the same origin, so cross-origin requests never
+# happen. allow_origins="*" + allow_credentials=True would be incoherent
+# anyway (credentials + wildcard origins is invalid per CORS spec).
 
 app.mount("/static", StaticFiles(directory=DASHBOARD_DIR), name="static")
 

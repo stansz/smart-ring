@@ -77,7 +77,7 @@ non-root service account (`User=` in the unit), and need `sudo systemctl` /
 - **Depends:** `Requires=smart-ring-db.service`
 - **Image:** `localhost/smart-ring-api:latest`
 - **Network:** `smart-ring` (DNS name of DB container: `smart-ring-db`)
-- **Publish:** `0.0.0.0:8000→8000`
+- **Publish:** `0.0.0.0:8000→8000` (firewall-gated — see §3.1 below)
 - **Env:** `DATABASE_URL` (host `smart-ring-db` on the podman network), `TZ`,
   `RING_ADDRESS` from local secrets/env (**not** committed to git)
 - **Bind mounts:**  
@@ -86,7 +86,41 @@ non-root service account (`User=` in the unit), and need `sudo systemctl` /
   `/opt/smart-ring/code/collector` → `/collector:ro`
 - **XDG:** set in unit  
 - Host API/dashboard edits on those mounts are live after process reload; image
-  rebuild only needed for Dockerfile / baked deps.
+  rebuild only needed for Dockerfile / baked deps. Note: the image runs
+  **without** `--reload` — a container restart is required to pick up code
+  edits (`sudo systemctl restart smart-ring-api`).
+
+### `smart-ring-api-firewall.service` (API network gate)
+
+The API container publishes `0.0.0.0:8000`, so a box-level firewall is the
+only thing between the API and everything that isn't the tailnet. That gate is
+a dedicated nftables table loaded by a dedicated oneshot unit:
+
+- **Ruleset:** `/etc/nftables.d/smart-ring-api.nft`
+- **Table:** `inet smart-ring`, chain `input` at `priority 0` with `policy
+  accept` (unrelated traffic untouched). Allows `tcp dport 8000` from:
+  - `127.0.0.0/8` — loopback (Tailscale Serve, local tooling)
+  - `192.168.1.0/24` — LAN subnet (home devices)
+  - `100.64.0.0/10` — Tailscale CGNAT (direct tailnet access)
+  Everything else on `:8000` is dropped.
+- **Unit:** `smart-ring-api-firewall.service` (Type=oneshot,
+  `RemainAfterExit=yes`, `Before=smart-ring-api.service`). A drop-in
+  (`/etc/systemd/system/smart-ring-api.service.d/firewall.conf`) wires
+  `Wants=` + `After=` so the rules are loaded before the API starts.
+- **LAN subnet changes:** edit the `saddr` set in the nft file, then
+  `sudo systemctl restart smart-ring-api-firewall`.
+- **ufw caveat:** if `sudo ufw enable` is ever run, ufw flushes the whole
+  ruleset including this table — re-apply with
+  `sudo systemctl restart smart-ring-api-firewall` (or reboot).
+
+**Access model — the network boundary is the auth.** No app-level token.
+Intended paths:
+
+- Tailnet: `https://<tailscale-hostname>` (Tailscale Serve → `127.0.0.1:8000`)
+- LAN: `http://<box-lan-ip>:8000`
+
+Anything else (internet/WAN, guest networks, VM bridges) is refused at the
+firewall.
 
 ### `smart-ring-poller.service`
 
@@ -163,9 +197,12 @@ Also keep `db/init.sql` in git so new empty volumes get full schema.
 ```bash
 export XDG_DATA_HOME=/opt/smart-ring/.local/share
 cd /opt/smart-ring/code
-podman build -t localhost/smart-ring-api:latest api/
+podman build --format docker -t localhost/smart-ring-api:latest api/
 sudo systemctl restart smart-ring-api
 ```
+
+Note: use `--format docker`, not the OCI default — the image carries a
+`HEALTHCHECK` (urllib to `/health`) and OCI format drops it.
 
 ### Stack alive check (acceptance)
 
@@ -178,6 +215,8 @@ podman ps -a
 XDG_DATA_HOME=/opt/smart-ring/.local/share podman ps -a
 # C — HTTP:
 curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/health
+# D — firewall gate loaded:
+sudo nft list table inet smart-ring
 ```
 
 If A is empty and B is not → docs/commands were wrong; stack is not “down.”
