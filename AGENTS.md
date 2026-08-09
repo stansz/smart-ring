@@ -44,8 +44,9 @@ Ring ──BLE──> Linux Box (bare metal, forget+repair each sync)
                 ├─ smart-ring-poller.service  (system systemd, bare metal, 30s poll)
                 │    └─ watches sync_requests → sync_ring / analytics
                 ├─ smart-ring-db.service      (system systemd, rootless podman run)
-                └─ smart-ring-api.service     (system systemd, rootless podman run)
-                     └─ serves dashboard + API
+                ├─ smart-ring-api.service     (system systemd, rootless podman run)
+                │    └─ serves dashboard + API (firewall-gated, see below)
+                └─ smart-ring-api-firewall.service  (system systemd, nftables gate on :8000)
 
 Code:          /opt/smart-ring/code
 Podman store:  /opt/smart-ring/.local/share/containers   (ONLY via XDG_DATA_HOME in units)
@@ -58,6 +59,11 @@ Units:         /etc/systemd/system/smart-ring-*.service  (canonical — no user-
 - Collector is **bare metal only** (BlueZ/DBus) — `python -m collector.sync_ring`. Phone pairing needs `forget_ring()` after each sync.
 - **R09 single-connection:** box holds BLE; forget releases the ring for the phone.
 - **Poller** (`smart-ring-poller.service`): bare-metal 30s loop; not a container.
+- **API access is firewall-gated** (`smart-ring-api-firewall.service`):
+  nftables `inet smart-ring` allows `:8000` from loopback + LAN
+  `192.168.1.0/24` + Tailscale CGNAT `100.64.0.0/10` only. The network
+  boundary is the auth — no app token. Access: tailnet HTTPS
+  (`https://<tailscale-hostname>`) or `http://<box-lan-ip>:8000` on the LAN.
 - **Services are system units** (`/etc/systemd/system/`). Lifecycle = `sudo systemctl` / `sudo journalctl`. Never `systemctl --user` for production.
 - **Code + Podman storage live at `/opt/smart-ring`, never under an encrypted home.** Encrypted homes (e.g. ecryptfs) only decrypt on login — paths there kill boot autostart. Same pattern as ollama / data under `/opt`.
 - **No docker-compose, no Podman quadlets, no user systemd units** for this stack.
@@ -150,6 +156,36 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 ## Recent Work Log (Jul 2026)
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
+
+### 2026-08-09 — LAN firewall gate for the API + image hardening (security/lan-firewall)
+- **Problem:** the API container published `0.0.0.0:8000` to the LAN with no
+  box-level firewall — only the home router's default-deny inbound kept it off
+  the internet. Tailscale Serve (`https://<tailscale-hostname>`) was already
+  the intended tailnet path; the LAN publish was the un-gated bypass.
+- **Fix — the network boundary is the auth, no app token:** new nftables table
+  `inet smart-ring` (ruleset `/etc/nftables.d/smart-ring-api.nft`) allows
+  `:8000` only from `127.0.0.0/8` (loopback: Tailscale Serve + local),
+  `192.168.1.0/24` (LAN), `100.64.0.0/10` (Tailscale CGNAT); drops everything
+  else. Loaded by new oneshot `smart-ring-api-firewall.service`
+  (`Before=smart-ring-api.service`; drop-in
+  `smart-ring-api.service.d/firewall.conf` wires `Wants=`+`After=`). Access
+  paths unchanged: tailnet HTTPS + `http://<box-lan-ip>:8000` on the LAN.
+- **Image hardening (`api/Dockerfile`):** removed `--reload` (restart now
+  picks up code edits — matches documented workflow), added `USER 1000`
+  (container uid 1000 → host subuid + host GID `sz`, so the `sz:sz 775` bind
+  mounts stay writable; verified empirically with a throwaway container),
+  added `HEALTHCHECK` (urllib → `/health`). Build with
+  `podman build --format docker` — OCI format silently drops HEALTHCHECK.
+- **`api/.dockerignore`** (new): no `.env`/`__pycache__`/tests baked into the
+  image. **CORS removed** from `api/main.py` — SPA is same-origin; `*` +
+  `allow_credentials=True` was incoherent.
+- **Verified live:** loopback + LAN-source 200; foreign sources (vmnet1
+  `192.168.52.1`, vmnet8 `172.16.55.1`) dropped/timeout; tailnet HTTPS path
+  serves dashboard + API data; container runs as uid 1000; healthcheck
+  flips `healthy`.
+- **Ops notes:** LAN subnet change = edit the nft `saddr` set + restart the
+  firewall unit. `sudo ufw enable` flushes this table — re-apply by
+  restarting the unit. See `docs/RUNTIME.md` §3.1.
 
 ### 2026-08-08 — README screenshots via one-time demo data
 - **Goal:** publishable dashboard screenshots for the README with zero real

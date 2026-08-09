@@ -50,7 +50,8 @@ Home Network
    │   └─ 127.0.0.1:5432, volume smart-ring-pgdata
    ├─ smart-ring-api.service     (system unit → rootless podman, FastAPI)
    │   ├─ Requires=smart-ring-db.service
-   │   └─ 0.0.0.0:8000, serves dashboard
+   │   ├─ 0.0.0.0:8000, serves dashboard (firewall-gated: loopback + LAN + Tailscale)
+   │   └─ smart-ring-api-firewall.service (nftables gate on :8000, see RUNTIME.md §3.1)
    ├─ smart-ring-poller.service  (system unit, bare metal)
    │   └─ 30s poll of sync_requests → sync_ring + analytics
    └─ Manual collector: venv/bin/python3 -m collector.sync_ring --forget

@@ -1,0 +1,13 @@
+# Build context is api/ — keep secrets and noise out of the image.
+# The container mounts code live from /opt/smart-ring/code (api -> /app,
+# collector -> /collector:ro, dashboard -> /dashboard), so the image only
+# needs requirements.txt + the api/ sources; anything else must not be
+# baked in (a .env in this tree would be copied by `COPY . .`).
+.env
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+*.egg-info/
+tests/
