@@ -13,5 +13,12 @@ dependencies = [
   "colmi_r02_client @ git+https://github.com/tahnok/colmi_r02_client.git",
 ]
 
+# Screenshot capture tooling (scripts/capture_screenshots.py). Not part of the
+# core install — install with: pip install -e ".[screenshots]" + playwright install chromium
+[project.optional-dependencies]
+screenshots = [
+  "playwright>=1.40",
+]
+
 [tool.setuptools.packages.find]
 include = ["collector*"]

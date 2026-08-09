@@ -2,6 +2,17 @@
 
 Open-source health data pipeline built around the **Colmi R09** — a $45 CAD hackable smart ring with the same form factor as a $530 Oura ring, zero BLE authentication, and full protocol documentation.
 
+## Screenshots
+
+Dark mode, rendered from 30 days of synthetic demo data (see `scripts/seed_demo_data.py` — no real health data or GPS routes).
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Dashboard" width="49%"/>
+  <img src="docs/screenshots/analytics.png" alt="Analytics" width="49%"/>
+  <img src="docs/screenshots/garmin.png" alt="Garmin" width="49%"/>
+  <img src="docs/screenshots/admin.png" alt="Admin" width="49%"/>
+</p>
+
 ## Goal
 
 Build a private, self-hosted health tracking system that:

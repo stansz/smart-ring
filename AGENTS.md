@@ -151,6 +151,43 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-08-08 — README screenshots via one-time demo data
+- **Goal:** publishable dashboard screenshots for the README with zero real
+  health data or GPS exposure.
+- **`scripts/seed_demo_data.py`:** generates 30 days of synthetic Colmi R09 data
+  (HR/HRV/SpO2/temp/stress/steps/sleep + 6 fake Garmin activities with generic
+  arbitrary GPS coords) into the `DATABASE_URL` DB. `seed(conn, days, rng_seed)`
+  is the testable entry point; all inserts are `ON CONFLICT DO NOTHING`
+  (idempotent). Raw rows tagged `source='ring'` (NOT 'demo') — scorers filter to
+  known sources only, so a synthetic tag would make demo data invisible.
+  Analytics engine then computes all scores from the fake raw data (nothing
+  hand-faked at the score layer).
+- **`scripts/capture_screenshots.py`:** Python Playwright; loads 4 tabs
+  (`#dashboard/#analytics/#garmin/#admin`), forces dark (localStorage
+  `darkMode=true` + reload — hash-only navigations don't remount the app, so it
+  reloads after each `#tab`), full-page PNGs → `docs/screenshots/`.
+  **PWA-shell pitfall:** the app's `html {overflow:hidden}` + `body
+  {height:100vh; overflow-y:auto}` scroll shell makes full-page captures
+  rasterize everything below the initial viewport as **pure black** (both
+  Chromium and Firefox headless). Fix: `neutralize_pwa_scroll()` temporarily
+  sets `html/body {overflow:visible}` + `body {height:auto}` so the page flows
+  normally before capture. The script asserts captured height ==
+  `body.scrollHeight` AND that every h2 section has painted pixels (verified:
+  dashboard 2022px, analytics 2160px).
+- **Workflow:** create throwaway DB → seed → run `python -m collector.analytics`
+  **several times** (each pass appends a `current_status` row; the Current
+  Status stress sparkline needs ≥2 rows/day to render — the prod poller does
+  this every 30s) with `DATABASE_URL` → run API from `api/` dir on :8001 (must
+  run as `main:app` from api/ — sibling imports, same as container) → capture →
+  drop DB. Production never touched.
+- **`tests/test_demo_data.py`:** 25 tests (pure generators: ranges, Ohayon
+  sleep norms, FIT semicircle round-trip, polyline smoothing; DB-backed:
+  seed populates raw tables, idempotency, seed→analytics populates all score
+  tables, Garmin children wired). Suite total 279 → 304.
+- **README:** 2x2 dark-mode screenshot gallery after intro (demo data, safe to
+  publish). `pyproject.toml` gains `[project.optional-dependencies] screenshots
+  = ["playwright>=1.40"]`.
+
 ### 2026-08-06 — PWA refresh button now does a real page reload
 - **Problem:** the PWA refresh button (and the pull-to-refresh gesture) only
   called `queryClient.invalidateQueries()` — refetched API data but never
