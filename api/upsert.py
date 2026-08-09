@@ -142,8 +142,9 @@ def upsert_many(
                 params[c] = r[c]  # KeyError if missing -> caught
             for c in optional_cols:
                 params[c] = r.get(c)  # None if missing -> NULL
-            db.execute(sql, params)
-            accepted += 1
+            result = db.execute(sql, params)
+            # Count actual inserts (rowcount is 0 or 1 for ON CONFLICT DO NOTHING)
+            accepted += result.rowcount
         except Exception as e:
             errors.append(f"{label}: {e}")
             skipped += 1

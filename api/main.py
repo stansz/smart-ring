@@ -569,12 +569,12 @@ def mobile_sync(req: MobileSyncRequest):
                     skipped += 1
                     continue
                 
-                db.execute(text("""
+                result = db.execute(text("""
                     INSERT INTO raw_hrv (ts, hrv_value, hrv_type, source)
                     VALUES (:ts, :hrv_value, :hrv_type, 'phone')
                     ON CONFLICT (ts, hrv_type, source) DO NOTHING
                 """), {"ts": r["ts"], "hrv_value": hrv_value, "hrv_type": r.get("hrv_type", "composite")})
-                accepted += 1
+                accepted += result.rowcount
             except Exception as e:
                 errors.append(f"hrv: {e}")
                 skipped += 1
@@ -587,13 +587,13 @@ def mobile_sync(req: MobileSyncRequest):
                     skipped += 1
                     continue
                 
-                db.execute(text("""
+                result = db.execute(text("""
                     INSERT INTO raw_sleep (day, stage, start_ts, end_ts, duration_minutes, source)
                     VALUES (:day, :stage, :start_ts, :end_ts, :duration_minutes, 'phone')
                     ON CONFLICT (start_ts, stage, source) DO NOTHING
                 """), {"day": r["day"], "stage": r["stage"], "start_ts": r["start_ts"],
                        "end_ts": r["end_ts"], "duration_minutes": r["duration_minutes"]})
-                accepted += 1
+                accepted += result.rowcount
             except Exception as e:
                 errors.append(f"sleep: {e}")
                 skipped += 1
@@ -602,7 +602,7 @@ def mobile_sync(req: MobileSyncRequest):
         goals = req.records.get("goals")
         if goals:
             try:
-                db.execute(text("""
+                result = db.execute(text("""
                     INSERT INTO ring_goals (steps_goal, calories_goal, distance_m_goal, sport_min_goal, sleep_min_goal)
                     VALUES (:steps, :calories, :distance, :sport, :sleep)
                 """), {
@@ -612,7 +612,7 @@ def mobile_sync(req: MobileSyncRequest):
                     "sport": goals.get("sport_min_goal"),
                     "sleep": goals.get("sleep_min_goal"),
                 })
-                accepted += 1
+                accepted += result.rowcount
             except Exception as e:
                 errors.append(f"goals: {e}")
                 skipped += 1
