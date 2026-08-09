@@ -42,7 +42,8 @@ TABLES_TO_TRUNCATE = (
     "ring_goals, ring_status, sync_log, sync_requests, "
     "daily_recovery, sleep_quality, daily_activity, readiness_score, "
     "current_status, hrv_trends, circadian_hr, stress_classification, data_quality, "
-    "heart_rate_zones, strain_trend"
+    "heart_rate_zones, strain_trend, "
+    "activity_hr, activity_laps, activity_trackpoints, activities, garmin_fit_ingest"
 )
 
 

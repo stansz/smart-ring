@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Nav } from "./components/layout/Nav";
 import { DashboardTab } from "./tabs/DashboardTab";
 import { AnalyticsTab } from "./tabs/AnalyticsTab";
+import { GarminTab } from "./tabs/GarminTab";
 import { AdminTab } from "./tabs/AdminTab";
 import { ErrorBanner, SyncButtons } from "./components/sync/SyncButton";
 import { SyncProgressDialog, SyncToast } from "./components/ble/SyncProgressDialog";
@@ -9,15 +10,14 @@ import { useTheme } from "./hooks/useTheme";
 import { useSelectedDate } from "./hooks/useSelectedDate";
 import { useSyncPolling } from "./hooks/useSyncPolling";
 import { useRingSync } from "./hooks/useRingSync";
-import { PullToRefresh } from "./components/ui/PullToRefresh";
 
-type Tab = "dashboard" | "analytics" | "admin";
+type Tab = "dashboard" | "analytics" | "garmin" | "admin";
 
 function App() {
   const [tab, setTab] = useState<Tab>(() => {
     if (typeof window === "undefined") return "dashboard";
     const h = window.location.hash.replace("#", "");
-    return h === "analytics" || h === "admin" ? h : "dashboard";
+    return h === "analytics" || h === "garmin" || h === "admin" ? h : "dashboard";
   });
   const { darkMode, toggle: toggleDark } = useTheme();
   const { selectedKey, isToday, prevDay, nextDay, goToday, formatSelectedDate } = useSelectedDate();
@@ -53,8 +53,7 @@ function App() {
   );
 
   return (
-    <PullToRefresh>
-      <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div className="bg-gray-50 dark:bg-gray-900 min-h-screen">
         <ErrorBanner error={syncError} onDismiss={dismissError} />
         <SyncProgressDialog phase={phase} onDismiss={dismiss} />
         <SyncToast
@@ -78,10 +77,10 @@ function App() {
           />
         )}
         {tab === "analytics" && <AnalyticsTab />}
+        {tab === "garmin" && <GarminTab />}
         {tab === "admin" && <AdminTab />}
       </div>
-    </PullToRefresh>
-  );
+    );
 }
 
 export default App;

@@ -1,11 +1,12 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
-import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { useIsFetching } from "@tanstack/react-query";
 import { Tabs } from "./Tabs";
 import { BatteryIndicator } from "./BatteryIndicator";
+import { SensorFreshnessNav } from "./SensorFreshnessNav";
 import { useRingStatus } from "../../api/hooks";
 import { useRelativeTime } from "../../hooks/useRelativeTime";
 
-type Tab = "dashboard" | "analytics" | "admin";
+type Tab = "dashboard" | "analytics" | "garmin" | "admin";
 
 interface NavProps {
   tab: Tab;
@@ -25,7 +26,6 @@ function isStandalonePwa(): boolean {
 
 export function Nav({ tab, onTabSwitch, darkMode, onToggleDark, syncButtons }: NavProps) {
   const { data: ring } = useRingStatus();
-  const queryClient = useQueryClient();
   const isFetching = useIsFetching();
   const lastSyncIso = ring?.last_sync?.completed_at ?? null;
   const lastSyncDesktop = lastSyncIso
@@ -42,10 +42,29 @@ export function Nav({ tab, onTabSwitch, darkMode, onToggleDark, syncButtons }: N
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    queryClient.invalidateQueries();
+    // Check for service worker updates before reloading, so a stale PWA shell
+    // gets replaced by the new one (mirrors what a browser refresh would do).
+    // Bounded by a 2s timeout — never block the reload on a slow network.
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => {
+          if (!reg) return;
+          return Promise.race([
+            reg.update(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error("SW update timeout")), 2000),
+            ),
+          ]);
+        })
+        .catch((err) => console.error("SW update failed:", err));
+    }
+    // Brief spinner so the tap is acknowledged, then a real page reload.
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
-    refreshTimer.current = setTimeout(() => setRefreshing(false), 600);
-  }, [queryClient]);
+    refreshTimer.current = setTimeout(() => {
+      window.location.reload();
+    }, 300);
+  }, []);
   const showSpinner = refreshing || isFetching > 0;
 
   return (
@@ -62,8 +81,8 @@ export function Nav({ tab, onTabSwitch, darkMode, onToggleDark, syncButtons }: N
                 onClick={handleRefresh}
                 disabled={showSpinner}
                 className="p-1.5 sm:p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300"
-                aria-label="Refresh data"
-                title="Refresh data"
+                aria-label="Refresh page"
+                title="Refresh page"
               >
                 <svg
                   className={showSpinner ? "animate-spin" : ""}
@@ -82,13 +101,15 @@ export function Nav({ tab, onTabSwitch, darkMode, onToggleDark, syncButtons }: N
           </div>
         </div>
         <div className="flex items-center justify-between h-11 sm:h-7 text-sm sm:text-xs">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <BatteryIndicator />
-            <span className="sm:hidden text-gray-500 dark:text-gray-400 truncate">
-              {lastSyncIso ? `Synced ${lastSyncMobile}` : "No sync yet"}
-            </span>
+            <SensorFreshnessNav />
           </div>
           {syncButtons && <div className="flex items-center gap-1">{syncButtons}</div>}
+        </div>
+        {/* Mobile-only: synced time on its own line so sensor chips don't crowd it out */}
+        <div className="sm:hidden flex items-center justify-end h-5 text-xs text-gray-500 dark:text-gray-400">
+          {lastSyncIso ? `Synced ${lastSyncMobile}` : "No sync yet"}
         </div>
       </div>
     </nav>

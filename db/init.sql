@@ -295,19 +295,43 @@ CREATE INDEX IF NOT EXISTS idx_sync_requests_status ON sync_requests(status, req
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_requests_one_active ON sync_requests(status)
     WHERE status IN ('pending', 'running');
 
--- Data quality: per-type freshness checked after each sync.
--- Stale detection: if ANY type has data for a day (ring worn + synced)
--- but a specific type does NOT, flag it as stale. Days with no data from
--- any type are marked 'missing' (ring not worn / no sync that day).
+-- Data quality: per-type freshness checked after each analytics pass.
+-- Rules are empirically calibrated to R09 publish quirks (see
+-- docs/DATA_QUALITY.md). status: ok | stale. reason explains why.
+-- `source` is part of the PK so multi-source freshness is tracked
+-- per-source (e.g. ring HR + garmin HR on the same day = 2 rows).
 CREATE TABLE IF NOT EXISTS data_quality (
     day DATE NOT NULL,
     data_type VARCHAR(32) NOT NULL,
+    source TEXT NOT NULL DEFAULT 'ring',
     last_ts TIMESTAMPTZ,
     sample_count INT DEFAULT 0,
-    status VARCHAR(16) NOT NULL DEFAULT 'ok',  -- ok | stale | missing
+    status VARCHAR(16) NOT NULL DEFAULT 'ok',  -- ok | stale
+    reason TEXT,  -- ok | absent | lag | hr_logger_stall | temp_pending | not_worn | ...
     checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (day, data_type)
+    PRIMARY KEY (day, data_type, source)
 );
+
+-- Migration for existing DBs: pre-Phase-0 the table was keyed on
+-- (day, data_type) without source. The source column was added in
+-- Phase 0 (n-source resolver) so per-source freshness is trackable.
+-- Safe to run on a fresh DB — IF EXISTS / IF NOT EXISTS are no-ops
+-- when the table already matches the new shape.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'data_quality' AND column_name = 'source'
+    ) THEN
+        NULL;
+    ELSE
+        ALTER TABLE data_quality ADD COLUMN source TEXT NOT NULL DEFAULT 'ring';
+        ALTER TABLE data_quality DROP CONSTRAINT IF EXISTS data_quality_pkey;
+        ALTER TABLE data_quality ADD PRIMARY KEY (day, data_type, source);
+    END IF;
+END $$;
+
+ALTER TABLE data_quality ADD COLUMN IF NOT EXISTS reason TEXT;
 
 -- User-set goals (NOT the firmware-stored ring_goals — those are the ring's
 -- defaults, which we still sync to ring_goals for compatibility but don't
@@ -318,3 +342,122 @@ CREATE TABLE IF NOT EXISTS user_goals (
     value INT NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ============================================================================
+-- Garmin 745 integration (Phase 1)
+--
+-- Sport activity data unique to the Garmin: GPS tracks, lap splits, running
+-- dynamics, training effect. These tables are safe to ingest at any time
+-- because no existing scorer reads them (the Phase 0 source resolver is
+-- what protects the raw_* tables from double-counting — these are
+-- Garmin-only by schema).
+--
+-- The 'source' column on every table defaults to 'garmin'. Phase 1 only
+-- ingests Garmin data; future multi-source activity support can set
+-- source = 'colmi' or similar.
+-- ============================================================================
+
+-- Activity sessions (runs, walks, rides, etc.) — one row per FIT file.
+CREATE TABLE IF NOT EXISTS activities (
+    id BIGSERIAL PRIMARY KEY,
+    source TEXT NOT NULL DEFAULT 'garmin',
+    activity_type TEXT NOT NULL,            -- 'running' | 'walking' | 'cycling' | ...
+    sub_sport TEXT,                          -- FIT sub_sport (generic, trail, indoor_track, ...)
+    start_ts TIMESTAMPTZ NOT NULL,
+    end_ts TIMESTAMPTZ,
+    duration_s INT,                         -- total_elapsed_time in seconds
+    timer_time_s INT,                       -- total_timer_time (excludes pauses)
+    distance_m INT,                         -- total_distance in meters
+    calories INT,
+    avg_hr INT,
+    max_hr INT,
+    avg_cadence INT,                        -- steps/min (running/walking) or rpm (cycling)
+    max_cadence INT,
+    avg_speed_mps NUMERIC(6,3),             -- meters per second (FIT enhanced_avg_speed)
+    max_speed_mps NUMERIC(6,3),
+    elevation_gain_m INT,                   -- total_ascent
+    elevation_loss_m INT,                   -- total_descent
+    avg_temperature_c NUMERIC(4,1),         -- skin temp during activity
+    training_effect_aerobic NUMERIC(3,1),
+    training_effect_anaerobic NUMERIC(3,1),
+    total_strides INT,                      -- running/walking — running dynamics
+    avg_vertical_oscillation_mm NUMERIC(5,1),
+    avg_ground_contact_time_ms INT,
+    avg_stride_length_cm NUMERIC(5,1),
+    fit_file_path TEXT,                     -- path of the .fit file this came from
+    fit_file_hash TEXT,                     -- sha256 of the file (for idempotency)
+    raw_json JSONB,                         -- full raw payload (debug / future re-parse)
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (source, start_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_activities_start ON activities(start_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_activities_type ON activities(activity_type, start_ts DESC);
+
+-- Per-lap data (splits within an activity).
+CREATE TABLE IF NOT EXISTS activity_laps (
+    id BIGSERIAL PRIMARY KEY,
+    activity_id BIGINT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    lap_index INT NOT NULL,
+    start_ts TIMESTAMPTZ NOT NULL,
+    end_ts TIMESTAMPTZ,
+    duration_s INT NOT NULL,
+    timer_time_s INT,
+    distance_m INT,
+    calories INT,
+    avg_hr INT,
+    max_hr INT,
+    avg_cadence INT,
+    max_cadence INT,
+    avg_speed_mps NUMERIC(6,3),
+    max_speed_mps NUMERIC(6,3),
+    elevation_gain_m INT,
+    elevation_loss_m INT,
+    UNIQUE (activity_id, lap_index)
+);
+
+-- GPS track points (1 Hz during activity). GPS coordinates stored as
+-- semicircles (FIT native format) — convert at read time. The geo-api
+-- expects [lon, lat] ordering; we store lat/lon here for FIT fidelity and
+-- convert in the API layer.
+CREATE TABLE IF NOT EXISTS activity_trackpoints (
+    id BIGSERIAL PRIMARY KEY,
+    activity_id BIGINT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    ts TIMESTAMPTZ NOT NULL,
+    lat_semicircles BIGINT,                 -- FIT semicircles (1 = 180/2^31 degrees)
+    lon_semicircles BIGINT,
+    altitude_m NUMERIC(7,2),                -- barometric (enhanced_altitude)
+    hr INT,
+    cadence INT,
+    speed_mps NUMERIC(6,3),
+    distance_m INT,
+    temperature_c INT
+);
+CREATE INDEX IF NOT EXISTS idx_trackpoints_activity ON activity_trackpoints(activity_id, ts);
+CREATE INDEX IF NOT EXISTS idx_trackpoints_ts ON activity_trackpoints(ts DESC);
+
+-- Per-second activity HR (1 Hz; finer than the 5-min raw_heart_rate).
+-- Separate from activity_trackpoints to keep GPS-only points (no HR recorded)
+-- from bloating this table.
+CREATE TABLE IF NOT EXISTS activity_hr (
+    id BIGSERIAL PRIMARY KEY,
+    activity_id BIGINT NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+    ts TIMESTAMPTZ NOT NULL,
+    hr INT NOT NULL,
+    UNIQUE (activity_id, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_activity_hr_activity ON activity_hr(activity_id, ts);
+
+-- Ingest log — tracks which .fit files have been processed (and their
+-- sha256 hash) so re-runs are idempotent. Garbage collected by `path`
+-- when files are moved/deleted off the watch.
+CREATE TABLE IF NOT EXISTS garmin_fit_ingest (
+    file_path TEXT PRIMARY KEY,
+    file_hash TEXT NOT NULL,
+    file_size_bytes BIGINT NOT NULL,
+    file_mtime TIMESTAMPTZ,
+    activity_id BIGINT REFERENCES activities(id) ON DELETE SET NULL,
+    record_count INT,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_garmin_fit_ingest_hash ON garmin_fit_ingest(file_hash);
