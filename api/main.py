@@ -2,18 +2,24 @@ import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+from typing import Annotated, List, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from upsert import upsert_many
+
+# Bounded parameter types for query validation
+DaysParam = Annotated[int, Query(ge=1, le=365, description="Number of days to look back (1-365)")]
+HoursParam = Annotated[int, Query(ge=1, le=8760, description="Number of hours to look back (1-8760)")]
+LimitParam = Annotated[int, Query(ge=1, le=10000, description="Maximum number of rows to return (1-10000)")]
+MaxPointsParam = Annotated[int, Query(ge=1, le=50000, description="Maximum number of points to return (1-50000)")]
 
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), "..", "dashboard", "dist")
 
@@ -60,7 +66,7 @@ def health():
 
 
 @app.get("/api/recovery")
-def get_recovery(days: int = 30):
+def get_recovery(days: DaysParam = 30):
     """Daily HRV recovery from persisted analytics (z-score + readiness)."""
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
@@ -74,7 +80,7 @@ def get_recovery(days: int = 30):
 
 
 @app.get("/api/daily-activity")
-def get_daily_activity(days: int = 14):
+def get_daily_activity(days: DaysParam = 14):
     """Per-day activity aggregates (server-computed in local tz).
     Powers the activity dials + 24h day ring + steps timeline, replacing
     flaky client-side day filtering of raw records."""
@@ -92,7 +98,7 @@ def get_daily_activity(days: int = 14):
 
 
 @app.get("/api/heart-rate-zones")
-def get_heart_rate_zones(days: int = 14):
+def get_heart_rate_zones(days: DaysParam = 14):
     """Per-day heart rate zones and Edwards TRIMP strain scores."""
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
@@ -109,7 +115,7 @@ def get_heart_rate_zones(days: int = 14):
 
 
 @app.get("/api/strain-trend")
-def get_strain_trend(days: int = 14):
+def get_strain_trend(days: DaysParam = 14):
     """Per-day strain trend, ACWR, and load labels."""
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
@@ -125,7 +131,7 @@ def get_strain_trend(days: int = 14):
 
 
 @app.get("/api/readiness")
-def get_readiness(days: int = 7):
+def get_readiness(days: DaysParam = 7):
     """Unified readiness score (0-100 WHOOP-style) with sub-scores + context.
 
     `frozen_at` is non-NULL once the morning lock has been applied (first
@@ -183,7 +189,7 @@ def get_current_status(hours: int = 168):
 
 
 @app.get("/api/sleep")
-def get_sleep(days: int = 30):
+def get_sleep(days: DaysParam = 30):
     """Sleep quality scores from persisted analytics."""
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
@@ -200,7 +206,7 @@ def get_sleep(days: int = 30):
 
 
 @app.get("/api/hrv-trends")
-def get_hrv_trends(days: int = 60):
+def get_hrv_trends(days: DaysParam = 60):
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
@@ -230,7 +236,7 @@ def get_circadian_hr():
 
 
 @app.get("/api/stress")
-def get_stress(days: int = 30):
+def get_stress(days: DaysParam = 30):
     cutoff_date = date.today() - timedelta(days=days)
     with SessionLocal() as db:
         rows = db.execute(text("""
@@ -243,7 +249,7 @@ def get_stress(days: int = 30):
 
 
 @app.get("/api/data-quality")
-def get_data_quality(days: int = 7, source: str | None = None):
+def get_data_quality(days: DaysParam = 7, source: str | None = None):
     """Per-type data freshness status (ok | stale) with optional reason.
 
     Optional ``source`` filter — when set, only rows for that source
@@ -271,7 +277,7 @@ def get_data_quality(days: int = 7, source: str | None = None):
 
 
 @app.get("/api/resting-hr")
-def get_resting_hr(days: int = 30):
+def get_resting_hr(days: DaysParam = 30):
     """Daily resting HR: average bpm between 1:00–5:00 AM local time."""
     # Timezone from env var or system /etc/timezone, fallback to America/Vancouver.
     tz = os.getenv("TZ", "")
@@ -299,7 +305,7 @@ def get_resting_hr(days: int = 30):
 
 
 @app.get("/api/raw/heart-rate")
-def get_raw_hr(hours: int = 48, limit: int = 1000, start: str | None = None, end: str | None = None):
+def get_raw_hr(hours: HoursParam = 48, limit: LimitParam = 1000, start: str | None = None, end: str | None = None):
     if start and end:
         # Parse dates in local timezone (America/Vancouver) and convert to UTC
         from zoneinfo import ZoneInfo
@@ -324,7 +330,7 @@ def get_raw_hr(hours: int = 48, limit: int = 1000, start: str | None = None, end
 
 
 @app.get("/api/raw/steps")
-def get_raw_steps(hours: int = 168, limit: int = 1000, start: str | None = None, end: str | None = None):
+def get_raw_steps(hours: HoursParam = 168, limit: LimitParam = 1000, start: str | None = None, end: str | None = None):
     if start and end:
         # Parse dates in local timezone (America/Vancouver) and convert to UTC
         from zoneinfo import ZoneInfo
@@ -349,7 +355,7 @@ def get_raw_steps(hours: int = 168, limit: int = 1000, start: str | None = None,
 
 
 @app.get("/api/raw/stress")
-def get_raw_stress(hours: int = 168, limit: int = 500, start: str | None = None, end: str | None = None):
+def get_raw_stress(hours: HoursParam = 168, limit: LimitParam = 500, start: str | None = None, end: str | None = None):
     if start and end:
         # Parse dates in local timezone (America/Vancouver) and convert to UTC
         from zoneinfo import ZoneInfo
@@ -424,7 +430,7 @@ def update_user_goal(body: dict):
 
 
 @app.get("/api/raw/sleep")
-def get_raw_sleep(hours: int = 168, limit: int = 200):
+def get_raw_sleep(hours: HoursParam = 168, limit: LimitParam = 200):
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     with SessionLocal() as db:
         rows = db.execute(text("""
@@ -439,7 +445,7 @@ def get_raw_sleep(hours: int = 168, limit: int = 200):
 
 
 @app.get("/api/raw/spo2")
-def get_raw_spo2(hours: int = 168, limit: int = 200, start: str | None = None, end: str | None = None):
+def get_raw_spo2(hours: HoursParam = 168, limit: LimitParam = 200, start: str | None = None, end: str | None = None):
     if start and end:
         # Parse dates in local timezone (America/Vancouver) and convert to UTC
         from zoneinfo import ZoneInfo
@@ -464,7 +470,7 @@ def get_raw_spo2(hours: int = 168, limit: int = 200, start: str | None = None, e
 
 
 @app.get("/api/raw/hrv")
-def get_raw_hrv(hours: int = 168, limit: int = 500, start: str | None = None, end: str | None = None):
+def get_raw_hrv(hours: HoursParam = 168, limit: LimitParam = 500, start: str | None = None, end: str | None = None):
     if start and end:
         # Parse dates in local timezone (America/Vancouver) and convert to UTC
         from zoneinfo import ZoneInfo
@@ -489,7 +495,7 @@ def get_raw_hrv(hours: int = 168, limit: int = 500, start: str | None = None, en
 
 
 @app.get("/api/raw/temperature")
-def get_raw_temp(hours: int = 48, limit: int = 1000, start: str | None = None, end: str | None = None):
+def get_raw_temp(hours: HoursParam = 48, limit: LimitParam = 1000, start: str | None = None, end: str | None = None):
     if start and end:
         # Parse dates in local timezone (America/Vancouver) and convert to UTC
         from zoneinfo import ZoneInfo
@@ -518,7 +524,7 @@ class MobileSyncRequest(BaseModel):
     device_id: str
     records: dict  # {heart_rate: [...], spo2: [...], hrv: [...], sleep: [...], temperature: [...], steps: [...], stress: [...], goals: {...}}
     synced_at: datetime
-    battery_pct: int | None = None
+    battery_pct: int | None = Field(None, ge=0, le=100)
 
 
 @app.post("/api/mobile/sync")
@@ -557,12 +563,18 @@ def mobile_sync(req: MobileSyncRequest):
         # types both survive.
         for r in req.records.get("hrv", []):
             try:
-                db.execute(text("""
+                hrv_value = r["hrv_value"]
+                if not (0 < hrv_value <= 500):
+                    errors.append(f"hrv: hrv_value {hrv_value} out of range (0, 500]")
+                    skipped += 1
+                    continue
+                
+                result = db.execute(text("""
                     INSERT INTO raw_hrv (ts, hrv_value, hrv_type, source)
                     VALUES (:ts, :hrv_value, :hrv_type, 'phone')
                     ON CONFLICT (ts, hrv_type, source) DO NOTHING
-                """), {"ts": r["ts"], "hrv_value": r["hrv_value"], "hrv_type": r.get("hrv_type", "composite")})
-                accepted += 1
+                """), {"ts": r["ts"], "hrv_value": hrv_value, "hrv_type": r.get("hrv_type", "composite")})
+                accepted += result.rowcount
             except Exception as e:
                 errors.append(f"hrv: {e}")
                 skipped += 1
@@ -570,13 +582,18 @@ def mobile_sync(req: MobileSyncRequest):
         # Sleep — special: day-based schema, conflict on (start_ts, stage, source)
         for r in req.records.get("sleep", []):
             try:
-                db.execute(text("""
+                if r.get("start_ts") is None:
+                    errors.append("sleep: start_ts is required")
+                    skipped += 1
+                    continue
+                
+                result = db.execute(text("""
                     INSERT INTO raw_sleep (day, stage, start_ts, end_ts, duration_minutes, source)
                     VALUES (:day, :stage, :start_ts, :end_ts, :duration_minutes, 'phone')
                     ON CONFLICT (start_ts, stage, source) DO NOTHING
                 """), {"day": r["day"], "stage": r["stage"], "start_ts": r["start_ts"],
                        "end_ts": r["end_ts"], "duration_minutes": r["duration_minutes"]})
-                accepted += 1
+                accepted += result.rowcount
             except Exception as e:
                 errors.append(f"sleep: {e}")
                 skipped += 1
@@ -585,7 +602,7 @@ def mobile_sync(req: MobileSyncRequest):
         goals = req.records.get("goals")
         if goals:
             try:
-                db.execute(text("""
+                result = db.execute(text("""
                     INSERT INTO ring_goals (steps_goal, calories_goal, distance_m_goal, sport_min_goal, sleep_min_goal)
                     VALUES (:steps, :calories, :distance, :sport, :sleep)
                 """), {
@@ -595,7 +612,7 @@ def mobile_sync(req: MobileSyncRequest):
                     "sport": goals.get("sport_min_goal"),
                     "sleep": goals.get("sleep_min_goal"),
                 })
-                accepted += 1
+                accepted += result.rowcount
             except Exception as e:
                 errors.append(f"goals: {e}")
                 skipped += 1
@@ -642,7 +659,7 @@ def mobile_sync(req: MobileSyncRequest):
 
 
 @app.get("/api/sync-log")
-def get_sync_log(limit: int = 50):
+def get_sync_log(limit: LimitParam = 50):
     with SessionLocal() as db:
         rows = db.execute(text("""
             SELECT started_at, completed_at, records_synced, battery_pct,
@@ -703,7 +720,7 @@ def admin_health():
 
 
 @app.get("/api/admin/sync-log")
-def admin_sync_log(limit: int = 50):
+def admin_sync_log(limit: LimitParam = 50):
     """Detailed sync log for the admin view (more rows than the dashboard widget)."""
     with SessionLocal() as db:
         rows = db.execute(text("""
@@ -744,7 +761,7 @@ def admin_clock_alert():
 
 
 class SyncRequest(BaseModel):
-    requested_by: str = "admin-ui"
+    requested_by: Literal["admin-ui", "phone-analytics"] = "admin-ui"
 
 
 @app.post("/api/admin/sync")
@@ -788,7 +805,7 @@ def cancel_sync():
 
 
 @app.get("/api/admin/sync-requests")
-def list_sync_requests(limit: int = 20):
+def list_sync_requests(limit: LimitParam = 20):
     """Recent sync requests (pending/running/completed/failed)."""
     with SessionLocal() as db:
         rows = db.execute(text("""
@@ -830,7 +847,7 @@ def _semicircles_to_deg(raw: int | None) -> float | None:
 
 
 @app.get("/api/activities")
-def get_activities(days: int = 30, sport: str | None = None, limit: int = 30):
+def get_activities(days: DaysParam = 30, sport: str | None = None, limit: LimitParam = 30):
     """List of recent Garmin activities, newest first.
 
     Optional ``sport`` filter matches ``activity_type`` (e.g. 'walking',
@@ -887,7 +904,7 @@ def get_activity_detail(activity_id: int):
 
 
 @app.get("/api/activities/{activity_id}/trackpoints")
-def get_activity_trackpoints(activity_id: int, max_points: int = 5000):
+def get_activity_trackpoints(activity_id: int, max_points: MaxPointsParam = 5000):
     """1-Hz GPS + HR + cadence + altitude trackpoints.
 
     Long activities (multi-hour walks = 10,000+ points) are downsampled
@@ -948,7 +965,7 @@ def get_activity_trackpoints(activity_id: int, max_points: int = 5000):
 
 
 @app.get("/api/activities/{activity_id}/hr")
-def get_activity_hr(activity_id: int, max_points: int = 5000):
+def get_activity_hr(activity_id: int, max_points: MaxPointsParam = 5000):
     """1-Hz HR samples for the per-activity HR chart.
 
     Separate from /trackpoints so the chart can pull just HR (lighter)

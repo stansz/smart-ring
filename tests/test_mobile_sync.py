@@ -4,12 +4,9 @@ before the Step 4 refactor (generic upsert_many dispatch).
 Each test sends a known payload to /api/mobile/sync via TestClient and
 asserts (a) the HTTP response shape and (b) the resulting DB state.
 
-These tests pin behavior, including one known quirk:
-  - `accepted` counter increments per attempt, not per actually-inserted
-    row. ON CONFLICT DO NOTHING doesn't raise, so duplicate ts in one
-    payload counts as 2 accepted even though only 1 row exists in the DB.
-    Step 4 may fix this by checking cursor.rowcount; until then, this
-    test documents the current contract.
+The `accepted` counter increments per actually-inserted row, not per
+attempt. ON CONFLICT DO NOTHING doesn't raise, so duplicate ts in one
+payload counts only the first insert.
 """
 from __future__ import annotations
 
@@ -223,16 +220,12 @@ def test_mobile_sync_goals_singleton(api_client, db):
 # ----------------------------------------------------------------------------
 
 
-def test_mobile_sync_duplicate_ts_in_one_payload_counts_both_accepted(api_client, db):
-    """KNOWN QUIRK: `accepted` increments per attempt, not per row inserted.
+def test_mobile_sync_duplicate_ts_in_one_payload_counts_only_inserted(api_client, db):
+    """`accepted` increments per actually-inserted row, not per attempt.
 
     Two HR records at the same ts in one payload: the second hits
-    ON CONFLICT (ts, source) DO NOTHING — 0 rows inserted, no exception,
-    so `accepted += 1` still fires. Result: accepted=2, but only 1 row
-    in the DB.
-
-    Step 4 may fix this by checking cursor.rowcount. Until then, this
-    test documents the contract.
+    ON CONFLICT (ts, source) DO NOTHING — 0 rows inserted. Result:
+    accepted=1 (the first insert), skipped=0, and only 1 row in DB.
     """
     response = api_client.post("/api/mobile/sync", json=_payload({
         "heart_rate": [
@@ -242,13 +235,71 @@ def test_mobile_sync_duplicate_ts_in_one_payload_counts_both_accepted(api_client
     }))
     assert response.status_code == 200
     body = response.json()
-    assert body["accepted"] == 2  # current per-attempt behavior
+    assert body["accepted"] == 1  # only 1 actually inserted
     assert body["skipped"] == 0
     assert body["errors"] == []
 
     with db.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM raw_heart_rate WHERE source='phone'")
         assert cur.fetchone()[0] == 1  # only 1 row actually persisted
+
+
+# ----------------------------------------------------------------------------
+# Validation — out-of-range values are rejected
+# ----------------------------------------------------------------------------
+
+
+def test_mobile_sync_rejects_out_of_range_bpm(api_client, db):
+    """bpm outside (30, 250) is rejected and reported in errors."""
+    response = api_client.post("/api/mobile/sync", json=_payload({
+        "heart_rate": [
+            {"ts": "2026-07-20T14:00:00Z", "bpm": 0},
+            {"ts": "2026-07-20T14:05:00Z", "bpm": 300},
+            {"ts": "2026-07-20T14:10:00Z", "bpm": 70},  # valid
+        ],
+    }))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["accepted"] == 1  # only the valid one
+    assert body["skipped"] == 2
+    assert len(body["errors"]) == 2
+    assert all("bpm" in err for err in body["errors"])
+
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM raw_heart_rate WHERE source='phone'")
+        assert cur.fetchone()[0] == 1
+
+
+def test_mobile_sync_rejects_out_of_range_spo2(api_client, db):
+    """spo2_pct outside [0, 100] is rejected."""
+    response = api_client.post("/api/mobile/sync", json=_payload({
+        "spo2": [
+            {"ts": "2026-07-20T14:00:00Z", "spo2_pct": -5},
+            {"ts": "2026-07-20T14:05:00Z", "spo2_pct": 150},
+            {"ts": "2026-07-20T14:10:00Z", "spo2_pct": 97},  # valid
+        ],
+    }))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["accepted"] == 1
+    assert body["skipped"] == 2
+    assert len(body["errors"]) == 2
+
+
+def test_mobile_sync_sleep_requires_start_ts(api_client, db):
+    """Sleep records with null start_ts are rejected."""
+    response = api_client.post("/api/mobile/sync", json=_payload({
+        "sleep": [
+            {"day": "2026-07-20", "stage": "deep", "start_ts": None, "end_ts": "2026-07-20T02:00:00Z", "duration_minutes": 60},
+            {"day": "2026-07-20", "stage": "rem", "start_ts": "2026-07-20T03:00:00Z", "end_ts": "2026-07-20T04:00:00Z", "duration_minutes": 60},
+        ],
+    }))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["accepted"] == 1  # only the valid one
+    assert body["skipped"] == 1
+    assert len(body["errors"]) == 1
+    assert "start_ts" in body["errors"][0]
 
 
 # ----------------------------------------------------------------------------

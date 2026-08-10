@@ -80,13 +80,14 @@ def test_activities_list_sport_filter(api_client, ingested_activity_id):
 
 
 def test_activities_list_empty_when_no_data(api_client):
-    """Empty list when no activities match the date range."""
-    # days=0 means cutoff = today, but our fixture's start_ts is in
-    # 2026-07 — well before today's cutoff. So an empty list is expected
-    # unless the test runs on the exact day of the fixture.
-    r = api_client.get("/api/activities?days=0")
+    """Empty list when no activities match the filter."""
+    # days=0 used to mean "cutoff = today" but the API now bounds days
+    # to >= 1. A sport filter that matches nothing is the clean way to
+    # get an empty list with valid params.
+    r = api_client.get("/api/activities?days=365&sport=skiing")
     assert r.status_code == 200
     assert isinstance(r.json(), list)
+    assert r.json() == []
 
 
 def test_activities_list_respects_limit(api_client, ingested_activity_id):

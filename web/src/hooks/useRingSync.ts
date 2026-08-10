@@ -259,6 +259,10 @@ export function useRingSync() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.detail ?? `${res.status} ${res.statusText}`);
+      }
       const resultData = await res.json();
       setResult(`Synced! ${resultData.accepted} new, ${resultData.skipped} skipped.`);
       setComplete(true);

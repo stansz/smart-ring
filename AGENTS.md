@@ -157,6 +157,39 @@ All 8 raw data types and the 5 health scores (including Morning Readiness frozen
 
 For full history: `git log --oneline` and `docs/CLEANUP_PLAN.md`.
 
+### 2026-08-09 — API input validation + data integrity batch (fix/validation-and-data-integrity)
+- **Goal:** close the remaining hardening items from the code review (P0-4/5,
+  P1-3/7, P2-6/7/12) now that the network gate is in place.
+- **`api/upsert.py`:** new `validate_record()` helper mirrors collector range
+  checks (bpm 30-250, spo2 0-100, temp 20-50, stress 0-99, steps 0-50k) and is
+  wired into `upsert_many` — out-of-range rows are skipped + reported in
+  `errors` instead of poisoning the RHR baseline / strain.
+- **`api/main.py`:** `Field(ge=1, le=…)` bounds on all `days`/`hours`/`limit`/
+  `max_points` query params (~20 endpoints; `?limit=999999999` now 422);
+  `SyncRequest.requested_by` is now `Literal["admin-ui","phone-analytics"]`
+  (anything else 422 — no more arbitrary job dispatch); `MobileSyncRequest.
+  battery_pct` bounded 0-100; HRV `hrv_value` bounded (0,500]; sleep records
+  require `start_ts` (NULL would silently defeat the `(start_ts, stage,
+  source)` dedupe since NULLs never conflict).
+- **`accepted` semantics fixed (P2-7):** `upsert_many` + HRV/sleep/goals paths
+  now count `result.rowcount` (actual inserts) instead of per-attempt. The
+  duplicate-ts test that pinned the old quirk was rewritten
+  (`test_mobile_sync_duplicate_ts_in_one_payload_counts_only_inserted`), plus
+  3 new validation tests (bpm/spo2 ranges, null sleep start_ts).
+- **`web/src/hooks/useRingSync.ts` (P1-3):** checks `res.ok` before showing
+  "Synced!" — 4xx/5xx now surfaces the real error instead of a fake success.
+- **`collector/analytics/main.py` (P1-7):** per-scorer except block now calls
+  `conn.rollback()` so one scorer's mid-query failure no longer breaks every
+  subsequent scorer with `InFailedSqlTransaction`.
+- **Test suite:** 304 → **307** (3 new validation tests, 1 rewritten). `npm run
+  lint` + `npm run build` clean; dist rebuilt with the sync-hook fix.
+- **Verified live:** `?limit=999999999` → 422; `bpm=0` → rejected in `errors`
+  with `accepted=0`; `requested_by=hacker` → 422; `admin-ui` → 409 (already
+  pending); `/health`, dashboard, tailnet HTTPS all 200.
+- **Deferred (from review, not in this batch):** P2-1 (HR late-arrival — needs
+  firmware-level testing), P2-5 (cancel_sync advisory), P3 cleanup (dead
+  `rhr.py`, unused hooks, stale docs).
+
 ### 2026-08-09 — LAN firewall gate for the API + image hardening (security/lan-firewall)
 - **Problem:** the API container published `0.0.0.0:8000` to the LAN with no
   box-level firewall — only the home router's default-deny inbound kept it off
