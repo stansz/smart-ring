@@ -1,0 +1,134 @@
+name: CI
+
+# Runs on:
+#   - any push to main or dev
+#   - any PR opened/updated/reopened that targets main or dev
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+# A new push to the same branch/PR cancels the previous run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python (pytest, ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # conftest.py creates an ephemeral database from db/init.sql and drops it at
+    # session end, connecting to the `postgres` maintenance DB with the same
+    # credentials. So the role must have CREATEDB -- the image's superuser does.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: smart_ring
+          POSTGRES_PASSWORD: smart_ring
+          POSTGRES_DB: smart_ring
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U smart_ring -d smart_ring"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://smart_ring:smart_ring@localhost:5432/smart_ring
+      # conftest falls back to this when TZ is unset; pin it so timezone-sensitive
+      # scorers (readiness freeze, steps drain, circadian) behave identically here.
+      TZ: America/Vancouver
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            api/requirements.txt
+            collector/requirements.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # api/ and collector/ have separate requirement sets; tests import both.
+          pip install -r api/requirements.txt -r collector/requirements.txt
+          # test-only deps, pinned to the versions this workflow was verified with
+          pip install pytest==9.1.1 httpx==0.28.0
+          # colmi_r02_client is not on PyPI (see collector/requirements.txt)
+          pip install "colmi_r02_client @ git+https://github.com/tahnok/colmi_r02_client.git"
+
+      - name: Show environment
+        run: |
+          python --version
+          pip list --format=freeze | grep -Ei "psycopg2|sqlalchemy|fastapi|bleak|fitparse|pytest|colmi" || true
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            if python -c "import psycopg2,os;psycopg2.connect(os.environ['DATABASE_URL']).close()" 2>/dev/null; then
+              echo "postgres ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "postgres not ready after 30s"; exit 1
+
+      - name: Run pytest
+        run: python -m pytest -q
+
+  web:
+    name: Web (vitest + lint + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Vitest
+        run: npx vitest run
+
+      - name: Lint (oxlint)
+        run: npm run lint
+
+      - name: Typecheck + build
+        run: npm run build
+
+      # web/ builds into dashboard/dist, which is committed and served by FastAPI.
+      # Fail if the committed bundle has drifted from the source that produced it.
+      - name: Verify dashboard/dist is in sync with web/src
+        working-directory: ${{ github.workspace }}
+        run: |
+          if ! git diff --exit-code --stat -- dashboard/dist; then
+            echo "::error::dashboard/dist is stale -- run 'npm run build' in web/ and commit the result"
+            exit 1
+          fi
+          echo "dashboard/dist matches a fresh build"
